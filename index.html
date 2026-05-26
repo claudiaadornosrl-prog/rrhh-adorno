@@ -496,6 +496,7 @@ const NAV = {
     { id: 'mi-legajo',     label: 'Mi legajo',     icon: '👤', section: null },
     { id: 'mis-recibos',   label: 'Mis recibos',   icon: '💰', section: null },
     { id: 'mis-vacaciones',label: 'Mis vacaciones',icon: '🌴', section: null },
+    { id: 'mis-permisos',  label: 'Mis permisos',  icon: '🙋', section: null },
     { id: 'mis-fichadas',  label: 'Mis fichadas',  icon: '🕐', section: null },
     { id: 'mis-certif',    label: 'Mis certif. médicos', icon: '🏥', section: null },
   ]
@@ -651,6 +652,7 @@ async function renderPage(tabId) {
     'mi-legajo':       renderMiLegajo,
     'mis-recibos':     renderMisRecibos,
     'mis-vacaciones':  renderMisVacaciones,
+    'mis-permisos':    renderMisPermisos,
     'mis-fichadas':    renderMisFichadas,
     'mis-certif':      renderMisCertificados,
   };
@@ -4948,6 +4950,115 @@ function onTipoChangeEmp() {
   const tipo = document.getElementById('perme-tipo').value;
   const row = document.getElementById('perme-horario-row');
   row.style.display = (tipo === 'dia_completo' || !tipo) ? 'none' : 'grid';
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tab "Mis permisos" — vendedora ve todo el historial de sus permisos
+// ─────────────────────────────────────────────────────────────
+let misPermisosState = { filtro: 'todos' };
+
+async function renderMisPermisos() {
+  if (!session.empleado_id) {
+    return `<div class="page-header"><h2>Mis permisos</h2></div>
+            <div class="card"><div class="placeholder">Tu usuario no está vinculado a un empleado.</div></div>`;
+  }
+
+  let q = sb.from('rrhh_permisos_puntuales')
+    .select('*')
+    .eq('empleado_id', session.empleado_id)
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (misPermisosState.filtro !== 'todos') q = q.eq('estado', misPermisosState.filtro);
+
+  const { data: permisos, error } = await q;
+
+  // Stats rápidas
+  const { data: stats } = await sb.from('rrhh_permisos_puntuales')
+    .select('estado')
+    .eq('empleado_id', session.empleado_id);
+  const cnt = { pendiente: 0, aprobado: 0, rechazado: 0 };
+  (stats || []).forEach(s => { cnt[s.estado] = (cnt[s.estado]||0) + 1; });
+
+  return `
+    <div class="page-header">
+      <h2>Mis permisos</h2>
+      <div class="subtitle">Pedidos de permisos puntuales y su estado</div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card warn"><div class="label">Pendientes</div><div class="value">${cnt.pendiente}</div></div>
+      <div class="metric-card accent"><div class="label">Aprobados</div><div class="value">${cnt.aprobado}</div></div>
+      <div class="metric-card"><div class="label">Rechazados</div><div class="value">${cnt.rechazado}</div></div>
+      <div class="metric-card"><div class="label">Total</div><div class="value">${(cnt.pendiente+cnt.aprobado+cnt.rechazado)}</div></div>
+    </div>
+
+    <div class="card" style="padding:14px 14px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn ${misPermisosState.filtro==='todos'?'primary':''}" onclick="misPermisosState.filtro='todos';switchTab('mis-permisos')">Todos</button>
+          <button class="btn ${misPermisosState.filtro==='pendiente'?'primary':''}" onclick="misPermisosState.filtro='pendiente';switchTab('mis-permisos')">⏳ Pendientes</button>
+          <button class="btn ${misPermisosState.filtro==='aprobado'?'primary':''}" onclick="misPermisosState.filtro='aprobado';switchTab('mis-permisos')">✓ Aprobados</button>
+          <button class="btn ${misPermisosState.filtro==='rechazado'?'primary':''}" onclick="misPermisosState.filtro='rechazado';switchTab('mis-permisos')">✗ Rechazados</button>
+        </div>
+        <button class="btn accent2" onclick="abrirNuevoPermisoEmpleado()">+ Pedir nuevo permiso</button>
+      </div>
+
+      ${(!permisos || permisos.length === 0) ? `
+        <div style="text-align:center;padding:40px 20px;color:var(--muted);">
+          <div style="font-size:32px;margin-bottom:8px;">🙋</div>
+          <div>Sin permisos ${misPermisosState.filtro!=='todos'?misPermisosState.filtro+'s':'cargados'}.</div>
+          ${misPermisosState.filtro==='todos' ? '<div style="font-size:12px;margin-top:8px;">Tocá "Pedir nuevo permiso" para empezar.</div>' : ''}
+        </div>
+      ` : `
+        <div style="display:grid;gap:10px;padding:14px 0;">
+          ${permisos.map(p => {
+            const tipo = PERMISO_TIPOS[p.tipo] || { label: p.tipo, color: '#6b7280', bg: '#f3f4f6' };
+            const horario = (p.hora_desde && p.hora_hasta)
+              ? `${p.hora_desde.substring(0,5)} a ${p.hora_hasta.substring(0,5)}`
+              : (p.hora_desde ? `desde ${p.hora_desde.substring(0,5)}` : 'todo el día');
+            const estadoBg = { pendiente: '#fef3c7', aprobado: '#d1faf1', rechazado: '#fee2e2' }[p.estado];
+            const estadoColor = { pendiente: '#92400e', aprobado: '#0d9488', rechazado: '#b91c1c' }[p.estado];
+            const estadoLabel = { pendiente: '⏳ Pendiente', aprobado: '✓ Aprobado', rechazado: '✗ Rechazado' }[p.estado];
+            const fechaFmt = new Date(p.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            const solicitadoFmt = new Date(p.solicitado_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            return `
+              <div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:white;">
+                <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap;">
+                  <div style="flex:1;min-width:240px;">
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+                      <span style="background:${tipo.bg};color:${tipo.color};padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;">${tipo.label}</span>
+                      <span style="background:${estadoBg};color:${estadoColor};padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;">${estadoLabel}</span>
+                    </div>
+                    <div style="font-size:14px;font-weight:600;margin-top:6px;">${fechaFmt}</div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:2px;">Horario: ${horario}</div>
+                    ${p.motivo ? `<div style="font-size:13px;margin-top:8px;color:var(--text);font-style:italic;">"${escapeHtml(p.motivo)}"</div>` : ''}
+                    ${p.estado === 'rechazado' && p.revision_motivo ? `
+                      <div style="margin-top:8px;padding:8px;background:#fee2e2;border-radius:6px;font-size:12px;color:#7f1d1d;">
+                        <strong>Motivo del rechazo:</strong> ${escapeHtml(p.revision_motivo)}
+                      </div>
+                    ` : ''}
+                    ${p.estado === 'aprobado' && p.descontar_banco && p.minutos_descontar > 0 ? `
+                      <div style="margin-top:8px;font-size:11px;color:var(--muted);">
+                        ⚠ Se descontaron ${p.minutos_descontar} min de tu banco
+                      </div>
+                    ` : ''}
+                  </div>
+                  <div style="text-align:right;font-size:11px;color:var(--muted);min-width:140px;">
+                    <div>Solicitado:</div>
+                    <div style="font-family:monospace;">${solicitadoFmt}</div>
+                    ${p.revisado_at ? `
+                      <div style="margin-top:6px;">Revisado:</div>
+                      <div style="font-family:monospace;">${new Date(p.revisado_at).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })}</div>
+                    ` : ''}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  `;
 }
 
 async function enviarPermisoEmpleado() {
