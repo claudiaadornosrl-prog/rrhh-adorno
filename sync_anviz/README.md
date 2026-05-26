@@ -1,6 +1,8 @@
-# sync_anviz — Sincronización automática de fichadas
+# sync_anviz — Descarga de fichadas Anviz → Supabase
 
-Conecta cada cuenta de **Anviz CrossChex Cloud** (una por local), baja las fichadas vía API REST, las procesa con tolerancias por local + cruce de vacaciones/feriados/licencias, y sube todo a Supabase RRHH.
+**Rol:** este script solo se ocupa de traer las fichadas crudas. Todo el procesamiento (tolerancias, turnos planificados, banco de minutos, vacaciones, feriados, licencias) vive dentro del módulo RRHH.
+
+Conecta cada cuenta de **Anviz CrossChex Cloud** (una por local + backup Alcorta), baja las fichadas vía API REST, las matchea con `rrhh_empleados` por nombre+apellido o DNI, y las inserta idempotentemente en `rrhh_fichadas_raw`.
 
 ## Setup (primera vez)
 
@@ -33,13 +35,17 @@ Para conseguir api_key + api_secret en CrossChex Cloud:
 ### 3. Probar la conexión (sin escribir nada)
 
 ```powershell
-# Probar solo el cliente Anviz para Oficina (últimos 7 días)
-python anviz_client.py --api-key TU_KEY --api-secret TU_SECRET --region us --dias 7
+# Probar conexión de las 4 cuentas con sus regiones
+.\probar_anviz.ps1
 
-# Probar la sincronización completa en modo dry-run
+# Probar solo cliente bajo (último mes)
+python anviz_client.py --api-key TU_KEY --api-secret TU_SECRET --region us --dias 30
+
+# Sincronización en dry-run (no escribe en Supabase)
 python sync_anviz.py --periodo 2026-04 --dry-run
+python sync_anviz.py --dias 7        --dry-run
 
-# Procesar solo un local
+# Solo un local
 python sync_anviz.py --periodo 2026-04 --solo-local oficina --dry-run
 ```
 
@@ -62,19 +68,16 @@ Ver `scheduler/install_task.ps1` (PowerShell con permisos de admin) — crea la 
 1. Para cada cuenta Anviz definida en `.env` (4 cuentas: oficina, unicenter, alcorta principal, alcorta backup):
    - Pide token JWT con `api_key + api_secret`
    - Baja todas las fichadas del período paginadas (1000 por página)
-2. Mergea Alcorta principal + backup en el mismo local
-3. Convierte UTC → hora Argentina (UTC-3)
-4. Consolida por (empleado, fecha): primer fichada del día = entrada, última = salida
-5. Aplica tolerancias por local:
-   - **Oficina:** 25min tarde · 5min temprano · no trabaja feriados
-   - **Locales:** 20min tarde · 5min temprano · trabajan feriados
-6. Cruza con:
-   - `rrhh_vacaciones_movimientos` (estado aprobada/tomada)
-   - `rrhh_licencias` (todas)
-   - `rrhh_certificados_medicos` (todos los validados)
-   - `rrhh_feriados`
-7. Clasifica cada día como: `puntual`, `tarde`, `ausente`, `vacaciones`, `licencia`, `feriado`, `franco`, `falta_fichada`
-8. Upsert en `rrhh_asistencias` (resumen mes) y `rrhh_asistencias_detalle` (día a día)
+2. Convierte UTC → hora Argentina (UTC-3)
+3. Matchea cada fichada con `rrhh_empleados` por:
+   - apellido + nombre normalizados, o
+   - workno = DNI
+4. Upsert idempotente en `rrhh_fichadas_raw` con unique constraint en `(fecha_hora, dispositivo_serial, anviz_workno)` — se puede re-correr sin duplicar.
+
+Lo que **NO** hace este script:
+- No clasifica fichadas (puntual/tarde/etc) — eso lo hace el cruce contra turnos planificados, dentro del módulo RRHH.
+- No actualiza el banco de minutos.
+- No calcula tolerancias.
 
 ## Matching empleado Anviz → RRHH
 
