@@ -5539,6 +5539,13 @@ async function actualizarCalcAsignVac() {
 // No aplica a oficina.
 // No aplica si la vendedora trabaja ambos días del finde (sin franco).
 // ════════════════════════════════════════════════════════════
+function _duracionTurnoHs(t) {
+  if (!t || !t.hora_inicio || !t.hora_fin) return 0;
+  const [hi, mi] = t.hora_inicio.split(':').map(Number);
+  const [hf, mf] = t.hora_fin.split(':').map(Number);
+  return ((hf*60+mf) - (hi*60+mi)) / 60;
+}
+
 async function _extenderPorFranco(empId, fechaDesde, fechaHasta) {
   const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).maybeSingle();
   if (!emp || emp.local === 'oficina') {
@@ -5553,7 +5560,7 @@ async function _extenderPorFranco(empId, fechaDesde, fechaHasta) {
   const hastaExt = dExt2.toISOString().split('T')[0];
 
   const { data: turnos } = await sb.from('rrhh_turnos')
-    .select('fecha, es_franco, hora_inicio')
+    .select('fecha, es_franco, hora_inicio, hora_fin')
     .eq('empleado_id', empId)
     .gte('fecha', desdeExt).lte('fecha', hastaExt);
   const turnoPorFecha = {};
@@ -5572,12 +5579,50 @@ async function _extenderPorFranco(empId, fechaDesde, fechaHasta) {
       if (dow === 0) opuesto.setDate(opuesto.getDate() - 1); // dom → sábado del mismo finde
       else opuesto.setDate(opuesto.getDate() + 1);            // sáb → domingo del mismo finde
       const fechaOp = opuesto.toISOString().split('T')[0];
+      const turnoActual = turnoPorFecha[fecha];
       const turnoOp = turnoPorFecha[fechaOp];
-      // Solo extender si la opuesta es franco Y no está en el rango actual
-      if (turnoOp && turnoOp.es_franco && (fechaOp < nuevoDesde || fechaOp > nuevoHasta)) {
+
+      // El día actual del finde tiene jornada larga (>= 8h)?
+      // - Si está cargado y NO es franco con duración >= 8h
+      // - Si no está cargado pero estamos en un local que tiene jornada de finde larga, asumimos largo
+      let esJornadaLarga = false;
+      if (turnoActual && !turnoActual.es_franco) {
+        esJornadaLarga = _duracionTurnoHs(turnoActual) >= 8;
+      } else if (!turnoActual) {
+        // No hay turno cargado para este día del finde — asumir que va a trabajar largo
+        // (típico de Unicenter rotativo donde los findes se cargan manualmente)
+        esJornadaLarga = true;
+      }
+      // Si el día actual del finde NO es jornada larga (es franco o jornada corta), no aplica regla
+      if (!esJornadaLarga) {
+        d.setDate(d.getDate() + 1);
+        continue;
+      }
+
+      // ¿El opuesto está dentro del rango actual? Si sí, ya está cubierto
+      if (fechaOp >= nuevoDesde && fechaOp <= nuevoHasta) {
+        d.setDate(d.getDate() + 1);
+        continue;
+      }
+
+      // Decidir si extender:
+      //  - Si opuesto tiene es_franco=true → extender (franco explícito)
+      //  - Si opuesto NO tiene turno cargado → extender (franco implícito, no cargado)
+      //  - Si opuesto tiene turno REGULAR (trabajará) → NO extender (esa semana trabaja ambos)
+      const opIsFranco = turnoOp && turnoOp.es_franco;
+      const opSinTurno = !turnoOp;
+      const opTrabaja = turnoOp && !turnoOp.es_franco;
+
+      if (opTrabaja) {
+        // Esa semana trabaja ambos días — no extender
+        d.setDate(d.getDate() + 1);
+        continue;
+      }
+      if (opIsFranco || opSinTurno) {
         if (fechaOp < nuevoDesde) nuevoDesde = fechaOp;
         if (fechaOp > nuevoHasta) nuevoHasta = fechaOp;
-        ajustes.push(`${fechaOp} (franco asociado al ${dow===0?'domingo':'sábado'} ${fecha})`);
+        const motivo = opIsFranco ? 'franco' : 'franco probable (no había turno cargado)';
+        ajustes.push(`${fechaOp} (${motivo}, asociado al ${dow===0?'domingo':'sábado'} ${fecha})`);
       }
     }
     d.setDate(d.getDate() + 1);
