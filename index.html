@@ -4889,12 +4889,20 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
 
   // Si estamos editando, cargar los datos
   let datos = {};
+  let editandoAprobado = false;
   if (editandoPermisoId) {
     const { data: p, error } = await sb.from('rrhh_permisos_puntuales').select('*').eq('id', editandoPermisoId).single();
     if (error || !p) { toast('No se pudo cargar el permiso', 'error'); editandoPermisoId = null; return; }
-    if (p.estado !== 'pendiente') { toast('Solo podés modificar permisos pendientes', 'error'); editandoPermisoId = null; return; }
+    const hoyStr = new Date().toISOString().split('T')[0];
+    if (p.estado !== 'pendiente' && !(p.estado === 'aprobado' && p.fecha === hoyStr)) {
+      toast('Solo podés modificar permisos pendientes (o aprobados del mismo día)', 'error');
+      editandoPermisoId = null;
+      return;
+    }
+    editandoAprobado = (p.estado === 'aprobado');
     datos = p;
   }
+  window._editandoAprobado = editandoAprobado;
 
   // Listar permisos previos del empleado
   const { data: previos } = await sb.from('rrhh_permisos_puntuales')
@@ -5224,12 +5232,17 @@ async function renderMisPermisos() {
                         ⚠ Se descontaron ${p.minutos_descontar} min de tu banco
                       </div>
                     ` : ''}
-                    ${p.estado === 'pendiente' ? `
-                      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+                    ${(() => {
+                      const hoyStr = new Date().toISOString().split('T')[0];
+                      const esPendiente = p.estado === 'pendiente';
+                      const esAprobadoHoy = p.estado === 'aprobado' && p.fecha === hoyStr;
+                      if (!esPendiente && !esAprobadoHoy) return '';
+                      const warn = esAprobadoHoy ? `<div style="margin-top:8px;padding:6px 10px;background:#fef3c7;border-radius:6px;font-size:11px;color:#92400e;">💡 Es el día del permiso — si modificás algo, vuelve a pendiente y la encargada debe re-aprobar.</div>` : '';
+                      return `${warn}<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
                         <button class="btn small" onclick="modificarMiPermiso(${p.id})">✏️ Modificar</button>
-                        <button class="btn small" style="color:var(--danger);" onclick="anularMiPermiso(${p.id})">🗑 Anular</button>
-                      </div>
-                    ` : ''}
+                        ${esPendiente ? `<button class="btn small" style="color:var(--danger);" onclick="anularMiPermiso(${p.id})">🗑 Anular</button>` : ''}
+                      </div>`;
+                    })()}
                   </div>
                   <div style="text-align:right;font-size:11px;color:var(--muted);min-width:140px;">
                     <div>Solicitado:</div>
@@ -5288,14 +5301,24 @@ async function enviarPermisoEmpleado() {
   }
 
   if (editandoPermisoId) {
-    // UPDATE — solo permitido si sigue en pendiente (la RLS también lo valida)
-    const { error } = await sb.from('rrhh_permisos_puntuales').update({
+    // UPDATE — la RLS valida (pendiente, o aprobado del mismo día)
+    // Si era aprobado, vuelve a pendiente y se limpia la revisión
+    const eraAprobado = !!window._editandoAprobado;
+    const updateObj = {
       fecha, tipo, hora_desde, hora_hasta, motivo,
       minutos_descontar: minutosCalc,
-    }).eq('id', editandoPermisoId);
+    };
+    if (eraAprobado) {
+      updateObj.estado = 'pendiente';
+      updateObj.revisado_por = null;
+      updateObj.revisado_at = null;
+      updateObj.revision_motivo = null;
+    }
+    const { error } = await sb.from('rrhh_permisos_puntuales').update(updateObj).eq('id', editandoPermisoId);
     if (error) { toast('Error: ' + error.message, 'error'); return; }
-    toast('Permiso modificado ✓', 'success');
+    toast(eraAprobado ? 'Modificado — vuelve a pendiente para re-aprobación' : 'Permiso modificado ✓', 'success');
     editandoPermisoId = null;
+    window._editandoAprobado = false;
     document.getElementById('permiso-emp-modal').remove();
     if (currentTab === 'mis-permisos') switchTab('mis-permisos');
     return;
