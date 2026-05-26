@@ -751,10 +751,27 @@ async function renderDashboard() {
     .filter(e => e._mes === mesActual && e._años >= 1)
     .sort((a, b) => a._dia - b._dia);
 
-  const { count: vacPendientes } = await sb
-    .from('rrhh_vacaciones_movimientos')
-    .select('id', { count: 'exact', head: true })
-    .eq('estado', 'solicitada');
+  // ━━━ Contadores de peticiones pendientes (vacaciones + permisos + pagos) ━━━
+  // Para gerente, filtrar por su local (RLS también lo filtra)
+  let qVacPend = sb.from('rrhh_vacaciones_movimientos').select('id, empleado:rrhh_empleados!inner(local)', { count: 'exact', head: true }).eq('estado', 'solicitada');
+  if (!isAdmin && local) qVacPend = qVacPend.eq('empleado.local', local);
+  const { count: vacPendientes } = await qVacPend;
+
+  let qPermPend = sb.from('rrhh_permisos_puntuales').select('id, empleado:rrhh_empleados!inner(local)', { count: 'exact', head: true }).eq('estado', 'pendiente');
+  if (!isAdmin && local) qPermPend = qPermPend.eq('empleado.local', local);
+  const { count: permPendientes } = await qPermPend;
+
+  // Pagos de vacaciones pendientes (estado='solicitada' + tipo_solicitud='pago')
+  let qPagoPend = sb.from('rrhh_vacaciones_movimientos')
+    .select('id, empleado:rrhh_empleados!inner(local)', { count: 'exact', head: true })
+    .eq('estado', 'solicitada')
+    .eq('tipo_solicitud', 'pago');
+  if (!isAdmin && local) qPagoPend = qPagoPend.eq('empleado.local', local);
+  let pagoPendientes = 0;
+  try {
+    const { count } = await qPagoPend;
+    pagoPendientes = count || 0;
+  } catch(_) {}
 
   const { data: prox } = await sb
     .from('rrhh_feriados')
@@ -789,20 +806,49 @@ async function renderDashboard() {
         <div class="hint">${aniversariosEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : aniversariosEsteMes.slice(0,3).map(a => `${a._dia}/${a._mes} ${a.nombre.split(' ')[0]} (${a._años} a.)`).join(' · ')}</div>
       </div>
 
-      ${isAdmin ? `
-      <div class="metric-card warn">
-        <div class="label">Vacaciones pendientes</div>
-        <div class="value">${vacPendientes || 0}</div>
-        <div class="hint">Solicitudes sin aprobar</div>
-      </div>
-      ` : ''}
-
       <div class="metric-card">
         <div class="label">Próximo feriado</div>
         <div class="value" style="font-size:18px;">${proxFeriado ? new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : '—'}</div>
         <div class="hint">${proxFeriado?.nombre || 'Sin feriados próximos'}</div>
       </div>
     </div>
+
+    ${(vacPendientes > 0 || permPendientes > 0 || pagoPendientes > 0) ? `
+      <div class="card" style="margin-top:8px;background:linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);border:1px solid #fcd34d;">
+        <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;color:#92400e;display:flex;align-items:center;gap:8px;">
+          🔔 Tenés peticiones pendientes para aprobar
+        </h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          ${vacPendientes > 0 ? `
+            <div onclick="switchTab('vacaciones')" style="cursor:pointer;background:white;padding:14px 16px;border-radius:10px;border-left:4px solid #d97706;display:flex;align-items:center;justify-content:space-between;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
+              <div>
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">🌴 Vacaciones</div>
+                <div style="font-size:13px;color:#92400e;font-weight:600;margin-top:2px;">${vacPendientes} ${vacPendientes===1?'solicitud sin aprobar':'solicitudes sin aprobar'}</div>
+              </div>
+              <div style="font-size:32px;font-weight:800;color:#d97706;">${vacPendientes}</div>
+            </div>
+          ` : ''}
+          ${permPendientes > 0 ? `
+            <div onclick="asisState.tab='permisos';switchTab('asistencias')" style="cursor:pointer;background:white;padding:14px 16px;border-radius:10px;border-left:4px solid #dc2626;display:flex;align-items:center;justify-content:space-between;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
+              <div>
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">🙋 Permisos puntuales</div>
+                <div style="font-size:13px;color:#7f1d1d;font-weight:600;margin-top:2px;">${permPendientes} ${permPendientes===1?'permiso sin revisar':'permisos sin revisar'}</div>
+              </div>
+              <div style="font-size:32px;font-weight:800;color:#dc2626;">${permPendientes}</div>
+            </div>
+          ` : ''}
+          ${pagoPendientes > 0 ? `
+            <div onclick="vacState.tab='pendientes';switchTab('vacaciones')" style="cursor:pointer;background:white;padding:14px 16px;border-radius:10px;border-left:4px solid #7c3aed;display:flex;align-items:center;justify-content:space-between;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
+              <div>
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">💵 Pago de vacaciones</div>
+                <div style="font-size:13px;color:#5b21b6;font-weight:600;margin-top:2px;">${pagoPendientes} ${pagoPendientes===1?'pago a evaluar':'pagos a evaluar'}</div>
+              </div>
+              <div style="font-size:32px;font-weight:800;color:#7c3aed;">${pagoPendientes}</div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    ` : ''}
 
     ${(cumpleEsteMes.length > 0 || aniversariosProximos.length > 0) ? `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;">
@@ -2695,9 +2741,12 @@ async function renderMisVacaciones() {
           <input type="text" id="vac-obs" placeholder="ej. viaje familiar, ya consultado con encargada">
         </div>
       </div>
-      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <div id="vac-preview" style="font-size:13px;color:var(--muted);">Seleccioná fechas para calcular días</div>
-        <button class="btn accent2" onclick="solicitarVacaciones()">Solicitar</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="abrirSolicitarPagoVac()" title="Solicitar que se te paguen días en vez de tomarlos">💵 Solicitar pago</button>
+          <button class="btn accent2" onclick="solicitarVacaciones()">Solicitar</button>
+        </div>
       </div>
     </div>
 
