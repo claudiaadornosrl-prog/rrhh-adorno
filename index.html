@@ -497,6 +497,7 @@ const NAV = {
     { id: 'mis-recibos',   label: 'Mis recibos',   icon: '💰', section: null },
     { id: 'mis-vacaciones',label: 'Mis vacaciones',icon: '🌴', section: null },
     { id: 'mis-permisos',  label: 'Mis permisos',  icon: '🙋', section: null },
+    { id: 'mi-banco',      label: 'Mi banco',      icon: '🏦', section: null },
     { id: 'mis-fichadas',  label: 'Mis fichadas',  icon: '🕐', section: null },
     { id: 'mis-certif',    label: 'Mis certif. médicos', icon: '🏥', section: null },
   ]
@@ -653,6 +654,7 @@ async function renderPage(tabId) {
     'mis-recibos':     renderMisRecibos,
     'mis-vacaciones':  renderMisVacaciones,
     'mis-permisos':    renderMisPermisos,
+    'mi-banco':        renderMiBanco,
     'mis-fichadas':    renderMisFichadas,
     'mis-certif':      renderMisCertificados,
   };
@@ -3031,6 +3033,8 @@ async function renderAsistenciasAdmin() {
       <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas (Anviz)</button>
       <button class="modal-tab ${asisState.tab==='resumen'?'active':''}"    data-asistab="resumen"    style="border-bottom:2px solid transparent;padding:12px 14px;">📊 Resumen mensual</button>
       <button class="modal-tab ${asisState.tab==='permisos'?'active':''}"   data-asistab="permisos"   style="border-bottom:2px solid transparent;padding:12px 14px;">🙋 Permisos <span id="badge-permisos-pend" style="display:none;background:var(--danger);color:white;border-radius:99px;padding:1px 7px;font-size:10px;margin-left:4px;"></span></button>
+      <button class="modal-tab ${asisState.tab==='extras'?'active':''}"     data-asistab="extras"     style="border-bottom:2px solid transparent;padding:12px 14px;">⏰ Horas extras</button>
+      <button class="modal-tab ${asisState.tab==='banco'?'active':''}"      data-asistab="banco"      style="border-bottom:2px solid transparent;padding:12px 14px;">🏦 Banco</button>
     </div>
 
     <div id="asis-content" style="margin-top:20px;"><div class="spinner"></div></div>
@@ -3054,6 +3058,8 @@ async function renderAsisTab() {
   else if (asisState.tab === 'fichadas')   await renderFichadas(cont);
   else if (asisState.tab === 'resumen')    await renderResumenMensual(cont);
   else if (asisState.tab === 'permisos')   await renderPermisosAdmin(cont);
+  else if (asisState.tab === 'extras')     await renderExtrasAdmin(cont);
+  else if (asisState.tab === 'banco')      await renderBancoAdmin(cont);
   // Actualizar badge de pendientes
   actualizarBadgePermisos();
 }
@@ -5319,6 +5325,535 @@ async function anularMiPermiso(id) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Permiso anulado', 'info');
   if (currentTab === 'mis-permisos') switchTab('mis-permisos');
+}
+
+// ════════════════════════════════════════════════════════════
+// FASE F — HORAS EXTRAS (admin/gerente)
+// ════════════════════════════════════════════════════════════
+const EXTRA_TIPOS = {
+  despues_turno: { label: '⏱ Después del turno', color: '#0d9488', bg: '#d1faf1' },
+  antes_turno:   { label: '⏰ Antes del turno',   color: '#7c3aed', bg: '#ede9fe' },
+  franco:        { label: '📅 En franco',         color: '#dc2626', bg: '#fee2e2' },
+  otro:          { label: '🔧 Otro',              color: '#6b7280', bg: '#f3f4f6' },
+};
+
+let extrasState = { mes: null };
+function mesActualString_() {
+  const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+async function renderExtrasAdmin(cont) {
+  if (!extrasState.mes) extrasState.mes = mesActualString_();
+  const [y, m] = extrasState.mes.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+      <div class="month-nav">
+        <button onclick="cambiarMesExtras(-1)">‹</button>
+        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <button onclick="cambiarMesExtras(1)">›</button>
+      </div>
+      <button class="btn accent2" onclick="abrirNuevoExtraAdmin()">+ Cargar hora extra</button>
+    </div>
+    <div id="extras-list"><div class="spinner"></div></div>
+  `;
+  await listarExtras(fechaDesde, fechaHasta);
+}
+
+function cambiarMesExtras(delta) {
+  const [y, m] = extrasState.mes.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  extrasState.mes = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  renderAsisTab();
+}
+
+async function listarExtras(fechaDesde, fechaHasta) {
+  const cont = document.getElementById('extras-list');
+  if (!cont) return;
+  let q = sb.from('rrhh_horas_extras')
+    .select('*, empleado:rrhh_empleados(id, nombre_completo, local)')
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .order('fecha', { ascending: false });
+  const { data: extras, error } = await q;
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger);">${escapeHtml(error.message)}</div>`; return; }
+
+  // Totales
+  const totalMin = (extras||[]).reduce((s,e) => s + (e.minutos||0), 0);
+  const totalPagadas = (extras||[]).filter(e => e.pagado).reduce((s,e) => s + (e.minutos||0), 0);
+
+  if (!extras || extras.length === 0) {
+    cont.innerHTML = `<div class="card" style="text-align:center;padding:40px;color:var(--muted);">
+      <div style="font-size:32px;margin-bottom:8px;">⏰</div>Sin horas extras cargadas en este mes.
+    </div>`;
+    return;
+  }
+
+  const fmtMin = (mm) => {
+    if (!mm) return '0 min';
+    const h = Math.floor(Math.abs(mm)/60), min = Math.abs(mm)%60;
+    return (mm<0?'-':'') + (h>0?`${h}h `:'') + `${min}min`;
+  };
+
+  cont.innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric-card accent"><div class="label">Total extras del mes</div><div class="value" style="font-size:24px;">${fmtMin(totalMin)}</div></div>
+      <div class="metric-card"><div class="label">Cantidad de cargas</div><div class="value">${extras.length}</div></div>
+      <div class="metric-card"><div class="label">Pagadas</div><div class="value" style="font-size:24px;">${fmtMin(totalPagadas)}</div></div>
+      <div class="metric-card"><div class="label">A banco</div><div class="value" style="font-size:24px;">${fmtMin(totalMin - totalPagadas)}</div></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-top:14px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Fecha</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Empleado</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Local</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Tipo</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Minutos</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Compensación</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Motivo</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${extras.map(e => {
+            const motivoTipo = inferirTipoExtra(e.motivo);
+            const t = EXTRA_TIPOS[motivoTipo] || EXTRA_TIPOS.otro;
+            const compTxt = {
+              'banco': '🏦 Suma al banco',
+              'pago_negro': '💵 Pago en efectivo',
+              'pago_recibo': '📄 En recibo',
+            }[e.compensacion] || e.compensacion;
+            return `
+              <tr style="border-top:1px solid var(--border);">
+                <td style="padding:9px 14px;font-family:monospace;font-size:12px;">${e.fecha}</td>
+                <td style="padding:9px 14px;font-weight:600;">${escapeHtml(e.empleado?.nombre_completo || '—')}</td>
+                <td style="padding:9px 14px;"><span class="local-tag ${e.empleado?.local}">${LOCALES[e.empleado?.local]?.nombre || '—'}</span></td>
+                <td style="padding:9px 14px;"><span style="background:${t.bg};color:${t.color};padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;">${t.label}</span></td>
+                <td style="padding:9px 14px;text-align:right;font-weight:600;color:var(--success);">+${fmtMin(e.minutos)}</td>
+                <td style="padding:9px 14px;font-size:12px;">${compTxt}${e.pagado ? ' ✓' : ''}</td>
+                <td style="padding:9px 14px;font-size:12px;color:var(--muted);font-style:italic;">${escapeHtml(e.motivo || '')}</td>
+                <td style="padding:9px 14px;text-align:right;"><button class="btn small" onclick="eliminarExtra(${e.id})">🗑</button></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function inferirTipoExtra(motivo) {
+  if (!motivo) return 'otro';
+  const m = motivo.toLowerCase();
+  if (m.includes('franco') || m.includes('día libre')) return 'franco';
+  if (m.includes('antes') || m.includes('temprano')) return 'antes_turno';
+  if (m.includes('después') || m.includes('despues') || m.includes('hasta')) return 'despues_turno';
+  return 'otro';
+}
+
+async function abrirNuevoExtraAdmin() {
+  const isAdmin = session.rol === 'admin';
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
+  if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
+  const { data: empleados } = await qEmp.order('nombre_completo');
+
+  const html = `
+    <div class="modal-bg" id="extra-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 16px;">Cargar hora extra</h3>
+        <div class="form-grid" style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <select id="ext-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha *</label>
+            <input type="date" id="ext-fecha" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo</label>
+            <select id="ext-tipo" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="despues_turno">⏱ Quedarse después del turno</option>
+              <option value="antes_turno">⏰ Venir antes del turno</option>
+              <option value="franco">📅 Venir en franco</option>
+              <option value="otro">🔧 Otro</option>
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Horas</label>
+              <input type="number" id="ext-horas" min="0" value="0" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos</label>
+              <input type="number" id="ext-mins" min="0" max="59" value="0" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Compensación</label>
+            <select id="ext-comp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="banco">🏦 Sumar al banco de minutos</option>
+              <option value="pago_negro">💵 Pago en efectivo (no impacta banco)</option>
+              <option value="pago_recibo">📄 En recibo (no impacta banco)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo / Observaciones</label>
+            <textarea id="ext-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Detalle de la extra…"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('extra-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarExtra()">Guardar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function guardarExtra() {
+  const empleado_id = parseInt(document.getElementById('ext-emp').value, 10);
+  const fecha = document.getElementById('ext-fecha').value;
+  const tipo = document.getElementById('ext-tipo').value;
+  const horas = parseInt(document.getElementById('ext-horas').value, 10) || 0;
+  const mins = parseInt(document.getElementById('ext-mins').value, 10) || 0;
+  const minutos = horas * 60 + mins;
+  const compensacion = document.getElementById('ext-comp').value;
+  const motivo = document.getElementById('ext-motivo').value.trim();
+
+  if (!empleado_id) { toast('Falta empleado', 'error'); return; }
+  if (!fecha) { toast('Falta fecha', 'error'); return; }
+  if (minutos <= 0) { toast('Cargá las horas/minutos', 'error'); return; }
+
+  const motivoFinal = `[${tipo}] ${motivo}`.trim();
+  const { data, error } = await sb.from('rrhh_horas_extras').insert({
+    empleado_id, fecha, minutos,
+    motivo: motivoFinal,
+    autorizado_por: session.email,
+    compensacion,
+  }).select().single();
+
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  // Si compensación = banco, también crear movimiento en banco
+  if (compensacion === 'banco') {
+    await sb.from('rrhh_banco_minutos').insert({
+      empleado_id, fecha, minutos,
+      tipo: 'hora_extra',
+      referencia_tipo: 'horas_extras',
+      referencia_id: data.id,
+      observaciones: motivoFinal,
+      creado_por: session.email,
+    });
+  }
+
+  await auditLog('crear_hora_extra', 'rrhh_horas_extras', data.id, null, null, `${minutos} min - ${motivoFinal}`);
+  toast('Hora extra registrada ✓', 'success');
+  document.getElementById('extra-modal').remove();
+  renderAsisTab();
+}
+
+async function eliminarExtra(id) {
+  if (!confirm('¿Eliminar esta hora extra? Si estaba en banco también se va a borrar el movimiento.')) return;
+  // Borrar movimiento de banco asociado
+  await sb.from('rrhh_banco_minutos').delete().eq('referencia_tipo','horas_extras').eq('referencia_id', id);
+  const { error } = await sb.from('rrhh_horas_extras').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('eliminar_hora_extra', 'rrhh_horas_extras', id, null, null, null);
+  toast('Eliminado', 'info');
+  renderAsisTab();
+}
+
+// ════════════════════════════════════════════════════════════
+// FASE G — BANCO DE MINUTOS
+// ════════════════════════════════════════════════════════════
+
+const TIPOS_BANCO = {
+  'hora_extra':          { label: 'Hora extra',          color: '#0d9488', icon: '⏱' },
+  'permiso_compensado':  { label: 'Permiso descontado',  color: '#dc2626', icon: '🙋' },
+  'falta':               { label: 'Ausente',             color: '#dc2626', icon: '✗' },
+  'tarde':               { label: 'Tardanzas mensuales', color: '#d97706', icon: '⚠' },
+  'salida_temprana':     { label: 'Salida temprana',     color: '#d97706', icon: '↩' },
+  'pago':                { label: 'Pago',                color: '#7c3aed', icon: '💵' },
+  'ajuste':              { label: 'Ajuste manual',       color: '#6b7280', icon: '🔧' },
+};
+
+let bancoState = { local: '' };
+
+async function renderBancoAdmin(cont) {
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? bancoState.local : session.local_gerencia;
+
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+      ${isAdmin ? `
+      <select onchange="bancoState.local=this.value;renderAsisTab()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;">
+        <option value="" ${!localFiltro?'selected':''}>Todos los locales</option>
+        <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : `<div style="font-weight:600;">${LOCALES[localFiltro]?.nombre || ''}</div>`}
+      <button class="btn accent2" onclick="abrirAjusteBancoAdmin()">+ Ajuste manual</button>
+    </div>
+    <div id="banco-list"><div class="spinner"></div></div>
+  `;
+
+  // Cargar saldos por empleado
+  let q = sb.from('rrhh_banco_saldo').select('*');
+  if (localFiltro) q = q.eq('local', localFiltro);
+  const { data: saldos, error } = await q;
+  if (error) {
+    document.getElementById('banco-list').innerHTML = `<div class="card" style="color:var(--danger);">${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  saldos.sort((a,b) => (b.saldo_minutos||0) - (a.saldo_minutos||0));
+
+  document.getElementById('banco-list').innerHTML = `
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Empleado</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Local</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Saldo</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${saldos.map(s => {
+            const saldoMin = s.saldo_minutos || 0;
+            const color = saldoMin >= 0 ? 'var(--success)' : 'var(--danger)';
+            const equiv = saldoMin >= 480 ? ` <span style="font-size:10px;color:var(--muted);">(≈ ${Math.floor(saldoMin/480)} día${Math.floor(saldoMin/480)!==1?'s':''})</span>` : '';
+            return `
+              <tr style="border-top:1px solid var(--border);cursor:pointer;" onclick="abrirDetalleBanco(${s.empleado_id})">
+                <td style="padding:11px 14px;font-weight:600;">${escapeHtml(s.nombre_completo)}</td>
+                <td style="padding:11px 14px;"><span class="local-tag ${s.local}">${LOCALES[s.local]?.nombre || ''}</span></td>
+                <td style="padding:11px 14px;text-align:right;font-weight:700;font-family:monospace;color:${color};">${s.saldo_horas || '00:00'}${equiv}</td>
+                <td style="padding:11px 14px;text-align:right;"><button class="btn small" onclick="event.stopPropagation();abrirDetalleBanco(${s.empleado_id})">Ver movimientos</button></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function abrirDetalleBanco(empleadoId) {
+  const { data: emp } = await sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('id', empleadoId).single();
+  const { data: movs } = await sb.from('rrhh_banco_minutos').select('*').eq('empleado_id', empleadoId).order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(200);
+  const { data: saldo } = await sb.from('rrhh_banco_saldo').select('saldo_minutos, saldo_horas').eq('empleado_id', empleadoId).single();
+
+  const fmtMin = (mm) => {
+    if (!mm) return '0';
+    const h = Math.floor(Math.abs(mm)/60), min = Math.abs(mm)%60;
+    return (mm<0?'-':'+') + (h>0?`${h}h `:'') + `${min}min`;
+  };
+
+  const html = `
+    <div class="modal-bg" id="banco-detalle-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:720px;width:100%;max-height:90vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px;">
+          <div>
+            <h3 style="margin:0 0 4px;">${escapeHtml(emp.nombre_completo)}</h3>
+            <div style="color:var(--muted);font-size:13px;">${LOCALES[emp.local]?.nombre || ''}</div>
+          </div>
+          <button class="btn" onclick="document.getElementById('banco-detalle-modal').remove()">✕</button>
+        </div>
+        <div style="background:${(saldo?.saldo_minutos||0)>=0?'#d1faf1':'#fee2e2'};padding:16px;border-radius:10px;margin-bottom:16px;text-align:center;">
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Saldo actual</div>
+          <div style="font-size:32px;font-weight:700;font-family:monospace;color:${(saldo?.saldo_minutos||0)>=0?'#0d9488':'#b91c1c'};">${saldo?.saldo_horas || '00:00'}</div>
+        </div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Últimos 200 movimientos</div>
+        ${(!movs||movs.length===0)?`<div style="text-align:center;color:var(--muted);padding:20px;">Sin movimientos.</div>`:`
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:#f9fafb;text-align:left;">
+              <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Fecha</th>
+              <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Tipo</th>
+              <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Minutos</th>
+              <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${movs.map(m => {
+              const t = TIPOS_BANCO[m.tipo] || { label: m.tipo, color: '#6b7280', icon: '•' };
+              return `<tr style="border-top:1px solid var(--border);">
+                <td style="padding:6px 10px;font-family:monospace;font-size:11px;">${m.fecha}</td>
+                <td style="padding:6px 10px;">${t.icon} ${t.label}</td>
+                <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;color:${(m.minutos||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(m.minutos)}</td>
+                <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${escapeHtml(m.observaciones || '')}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`}
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function abrirAjusteBancoAdmin() {
+  const isAdmin = session.rol === 'admin';
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
+  if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
+  const { data: empleados } = await qEmp.order('nombre_completo');
+
+  const html = `
+    <div class="modal-bg" id="ajuste-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:500px;width:100%;">
+        <h3 style="margin:0 0 4px;">Ajuste manual de banco</h3>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Sumá o restá minutos manualmente. Queda registrado quién y cuándo.</p>
+        <div style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <select id="ajus-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha del ajuste *</label>
+            <input type="date" id="ajus-fecha" value="${new Date().toISOString().split('T')[0]}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos (positivo = sumar; negativo = restar) *</label>
+            <input type="number" id="ajus-mins" value="0" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;">Ej: 60 = 1h a favor · -90 = 1h30min en contra · 480 = 1 día (8h)</div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo *</label>
+            <textarea id="ajus-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Por qué hacés el ajuste…"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('ajuste-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarAjusteBanco()">Guardar ajuste</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function guardarAjusteBanco() {
+  const empleado_id = parseInt(document.getElementById('ajus-emp').value, 10);
+  const fecha = document.getElementById('ajus-fecha').value;
+  const minutos = parseInt(document.getElementById('ajus-mins').value, 10);
+  const motivo = document.getElementById('ajus-motivo').value.trim();
+
+  if (!empleado_id) { toast('Falta empleado', 'error'); return; }
+  if (!fecha) { toast('Falta fecha', 'error'); return; }
+  if (!minutos || isNaN(minutos)) { toast('Indicá los minutos (positivo o negativo)', 'error'); return; }
+  if (!motivo) { toast('Contá el motivo del ajuste', 'error'); return; }
+
+  const { data, error } = await sb.from('rrhh_banco_minutos').insert({
+    empleado_id, fecha, minutos,
+    tipo: 'ajuste',
+    referencia_tipo: 'manual',
+    observaciones: motivo,
+    creado_por: session.email,
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('ajuste_banco', 'rrhh_banco_minutos', data.id, null, null, `${minutos} min - ${motivo}`);
+  toast('Ajuste registrado ✓', 'success');
+  document.getElementById('ajuste-modal').remove();
+  renderAsisTab();
+}
+
+// ════════════════════════════════════════════════════════════
+// Self-service vendedora: Mi banco
+// ════════════════════════════════════════════════════════════
+
+async function renderMiBanco() {
+  if (!session.empleado_id) {
+    return `<div class="page-header"><h2>Mi banco</h2></div>
+            <div class="card"><div class="placeholder">Tu usuario no está vinculado a un empleado.</div></div>`;
+  }
+
+  const { data: saldo } = await sb.from('rrhh_banco_saldo')
+    .select('saldo_minutos, saldo_horas')
+    .eq('empleado_id', session.empleado_id)
+    .maybeSingle();
+  const { data: movs } = await sb.from('rrhh_banco_minutos')
+    .select('*')
+    .eq('empleado_id', session.empleado_id)
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  const saldoMin = saldo?.saldo_minutos || 0;
+  const positivos = (movs||[]).filter(m => (m.minutos||0) > 0).reduce((s,m) => s + m.minutos, 0);
+  const negativos = (movs||[]).filter(m => (m.minutos||0) < 0).reduce((s,m) => s + m.minutos, 0);
+
+  const fmtMin = (mm) => {
+    if (!mm) return '0';
+    const h = Math.floor(Math.abs(mm)/60), min = Math.abs(mm)%60;
+    return (mm<0?'-':'+') + (h>0?`${h}h `:'') + `${min}min`;
+  };
+
+  return `
+    <div class="page-header">
+      <h2>Mi banco</h2>
+      <div class="subtitle">Saldo de minutos a favor / en contra</div>
+    </div>
+
+    <div class="card" style="background:${saldoMin>=0?'linear-gradient(135deg, #d1faf1, #a7f3d0)':'linear-gradient(135deg, #fee2e2, #fecaca)'};padding:30px;text-align:center;">
+      <div style="font-size:12px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Tu saldo actual</div>
+      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${saldo?.saldo_horas || '00:00'}</div>
+      <div style="font-size:13px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;font-style:italic;">
+        ${saldoMin >= 480 ? `≈ ${Math.floor(saldoMin/480)} día${Math.floor(saldoMin/480)!==1?'s':''} a favor` : (saldoMin <= -480 ? `≈ ${Math.floor(Math.abs(saldoMin)/480)} día${Math.floor(Math.abs(saldoMin)/480)!==1?'s':''} en contra` : '')}
+      </div>
+    </div>
+
+    <div class="metrics-grid" style="margin-top:16px;">
+      <div class="metric-card accent"><div class="label">Total a favor</div><div class="value" style="font-size:22px;font-family:monospace;">${fmtMin(positivos)}</div></div>
+      <div class="metric-card" style="border-left:4px solid var(--danger);"><div class="label">Total en contra</div><div class="value" style="font-size:22px;font-family:monospace;">${fmtMin(negativos)}</div></div>
+      <div class="metric-card"><div class="label">Movimientos</div><div class="value">${(movs||[]).length}</div></div>
+    </div>
+
+    <div class="card" style="margin-top:16px;padding:14px;">
+      <h3 style="margin:0 0 10px;font-size:14px;">Movimientos recientes</h3>
+      ${(!movs||movs.length===0) ? `<div style="text-align:center;color:var(--muted);padding:20px;">Sin movimientos.</div>` : `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:8px 10px;font-size:11px;color:var(--muted);">Fecha</th>
+            <th style="padding:8px 10px;font-size:11px;color:var(--muted);">Tipo</th>
+            <th style="padding:8px 10px;font-size:11px;color:var(--muted);text-align:right;">Minutos</th>
+            <th style="padding:8px 10px;font-size:11px;color:var(--muted);">Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${movs.map(m => {
+            const t = TIPOS_BANCO[m.tipo] || { label: m.tipo, color: '#6b7280', icon: '•' };
+            return `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:8px 10px;font-family:monospace;font-size:12px;">${m.fecha}</td>
+              <td style="padding:8px 10px;">${t.icon} ${t.label}</td>
+              <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:600;color:${(m.minutos||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(m.minutos)}</td>
+              <td style="padding:8px 10px;font-size:11px;color:var(--muted);">${escapeHtml(m.observaciones || '')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>
+
+    <div class="card" style="margin-top:16px;padding:14px;background:#fef3c7;border-left:4px solid #d97706;">
+      <div style="font-size:13px;color:#92400e;">
+        💡 <strong>¿Cómo funciona el banco?</strong><br>
+        Si tenés muchos minutos <strong>a favor</strong> (saldo positivo), podés pedir días extra de vacaciones o que se te paguen.<br>
+        Si tenés minutos <strong>en contra</strong> (saldo negativo), se descuentan del sueldo de las vacaciones.
+      </div>
+    </div>
+  `;
 }
 
 </script>
