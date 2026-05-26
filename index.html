@@ -5614,19 +5614,27 @@ async function abrirPagarVacaciones() {
 }
 
 // Calcula cuántos días son elegibles para pago en cada año del empleado.
-// Reglas:
-//  - El año tiene que tener dias_correspondientes >= 21 (3 semanas)
-//  - Máx 7 días pagados (1 semana) por año
-//  - No puede superar los dias_pendientes del año
-// Devuelve: [{año, corresp, pendientes, ya_pagados, disponible_pago, motivo_no_elegible}]
+// Reglas (LCT):
+//  - Mínimo 3 semanas de vacaciones anuales para poder pagar
+//  - Máx 1 semana paga por año
+//  - Conversión de "semana" según local:
+//     · OFICINA: 1 semana = 5 días hábiles (min=15, max_pag=5)
+//     · LOCALES (Alcorta/Unicenter): 1 semana = 7 días corridos (min=21, max_pag=7)
 async function _disponibilidadParaPago(empId) {
+  // Determinar tipo de cómputo según el local del empleado
+  const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).maybeSingle();
+  const esOficina = emp?.local === 'oficina';
+  const minCorresp = esOficina ? 15 : 21;
+  const maxPagAño  = esOficina ? 5  : 7;
+  const tipoTxt    = esOficina ? 'hábiles' : 'corridos';
+
   const { data: saldos } = await sb.from('rrhh_vacaciones')
     .select('id, año, dias_correspondientes, dias_pendientes, dias_tomados')
     .eq('empleado_id', empId).order('año', { ascending: true });
 
-  if (!saldos || saldos.length === 0) return [];
+  if (!saldos || saldos.length === 0) return { saldos: [], esOficina, minCorresp, maxPagAño, tipoTxt };
 
-  // Cuántos días ya están "pagados" por año
+  // Cuántos días ya están "pagados" por año (solo movimientos con estado='pagada')
   const { data: pagos } = await sb.from('rrhh_vacaciones_movimientos')
     .select('vacaciones_id, dias')
     .eq('empleado_id', empId)
@@ -5634,18 +5642,18 @@ async function _disponibilidadParaPago(empId) {
   const pagPorVac = {};
   (pagos || []).forEach(p => { pagPorVac[p.vacaciones_id] = (pagPorVac[p.vacaciones_id] || 0) + (p.dias || 0); });
 
-  return saldos.map(s => {
+  const lista = saldos.map(s => {
     const yaPagados = pagPorVac[s.id] || 0;
     let disp = 0;
     let motivo = null;
-    if (s.dias_correspondientes < 21) {
-      motivo = `corresp=${s.dias_correspondientes} (< 21 requeridos)`;
-    } else if (yaPagados >= 7) {
-      motivo = `ya se pagaron ${yaPagados}d este año (máx 7)`;
+    if (s.dias_correspondientes < minCorresp) {
+      motivo = `corresp=${s.dias_correspondientes}${tipoTxt[0]} (< ${minCorresp} mínimo, 3 semanas)`;
+    } else if (yaPagados >= maxPagAño) {
+      motivo = `ya se pagaron ${yaPagados}${tipoTxt[0]} este año (máx ${maxPagAño})`;
     } else if (s.dias_pendientes <= 0) {
       motivo = 'sin pendientes';
     } else {
-      disp = Math.min(7 - yaPagados, s.dias_pendientes);
+      disp = Math.min(maxPagAño - yaPagados, s.dias_pendientes);
     }
     return {
       vacId: s.id, año: s.año, corresp: s.dias_correspondientes,
@@ -5653,6 +5661,8 @@ async function _disponibilidadParaPago(empId) {
       disponible_pago: disp, motivo,
     };
   });
+
+  return { saldos: lista, esOficina, minCorresp, maxPagAño, tipoTxt };
 }
 
 async function actualizarSaldoPagVac() {
@@ -5660,36 +5670,37 @@ async function actualizarSaldoPagVac() {
   const box = document.getElementById('pag-saldo-box');
   if (!empId) { box.style.display = 'none'; return; }
 
-  const disp = await _disponibilidadParaPago(empId);
-  if (disp.length === 0) {
+  const r = await _disponibilidadParaPago(empId);
+  const { saldos, esOficina, minCorresp, maxPagAño, tipoTxt } = r;
+
+  if (saldos.length === 0) {
     box.innerHTML = `<div style="background:#fee2e2;color:#7f1d1d;padding:10px 12px;border-radius:8px;">⚠ Sin saldos cargados</div>`;
     box.style.display = 'block';
     return;
   }
 
-  const elegibles = disp.filter(d => d.disponible_pago > 0);
-  const noElegibles = disp.filter(d => d.disponible_pago === 0 && d.pendientes > 0);
+  const elegibles = saldos.filter(d => d.disponible_pago > 0);
+  const noElegibles = saldos.filter(d => d.disponible_pago === 0 && d.pendientes > 0);
   const totalDisp = elegibles.reduce((s,d) => s + d.disponible_pago, 0);
 
-  let html = '';
+  let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${esOficina ? '🏢 Oficina (días hábiles)' : '🏬 Local (días corridos)'}</div>`;
   if (elegibles.length > 0) {
-    const detalle = elegibles.map(d => `<strong>${d.año}</strong>: ${d.disponible_pago}d disponibles${d.ya_pagados>0 ? ` (ya pagados ${d.ya_pagados}d)` : ''}`).join(' · ');
+    const detalle = elegibles.map(d => `<strong>${d.año}</strong>: ${d.disponible_pago}${tipoTxt[0]} disponibles${d.ya_pagados>0 ? ` (ya pagados ${d.ya_pagados}${tipoTxt[0]})` : ''}`).join(' · ');
     html += `<div style="background:#d1faf1;color:#065f46;padding:10px 12px;border-radius:8px;border-left:3px solid #0d9488;margin-bottom:6px;">💵 Disponible para pago: ${detalle}</div>`;
   } else {
     html += `<div style="background:#fee2e2;color:#7f1d1d;padding:10px 12px;border-radius:8px;border-left:3px solid #dc2626;margin-bottom:6px;">⚠ Sin días elegibles para pago</div>`;
   }
   if (noElegibles.length > 0) {
-    const detalleNo = noElegibles.map(d => `${d.año}: ${d.pendientes}d (${d.motivo})`).join(' · ');
+    const detalleNo = noElegibles.map(d => `${d.año}: ${d.pendientes}${tipoTxt[0]} (${d.motivo})`).join(' · ');
     html += `<div style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;font-size:11px;">Años NO elegibles: ${detalleNo}</div>`;
   }
-  html += `<div style="margin-top:8px;font-size:11px;color:var(--muted);">📋 Reglas: el año debe tener ≥ 21d correspondientes (3 semanas). Máx 7d pagados (1 semana) por año.</div>`;
+  html += `<div style="margin-top:8px;font-size:11px;color:var(--muted);">📋 Reglas: el año debe tener ≥ ${minCorresp}d (3 semanas ${tipoTxt}). Máx ${maxPagAño}d (1 semana ${tipoTxt}) pagados por año.</div>`;
   box.innerHTML = html;
   box.style.display = 'block';
 
-  // Setear el input dias al máximo disponible si está en cero o vacío
   const inputDias = document.getElementById('pag-dias');
   if (inputDias && (!inputDias.value || parseInt(inputDias.value,10) > totalDisp)) {
-    inputDias.value = Math.min(totalDisp, 7) || 0;
+    inputDias.value = Math.min(totalDisp, maxPagAño) || 0;
     inputDias.max = totalDisp;
   }
 }
@@ -5704,17 +5715,18 @@ async function guardarPagoVacaciones() {
   if (!dias || dias <= 0) { toast('Indicá la cantidad de días', 'error'); return; }
   if (!fecha) { toast('Falta fecha de pago', 'error'); return; }
 
-  // FIFO con restricciones: solo años elegibles (corresp >= 21) y máximo 7d por año
-  const disp = await _disponibilidadParaPago(empId);
-  const elegibles = disp.filter(d => d.disponible_pago > 0);
+  // FIFO con restricciones: solo años elegibles y máximo por reglas (oficina=15/5, locales=21/7)
+  const r = await _disponibilidadParaPago(empId);
+  const { saldos, minCorresp, maxPagAño, tipoTxt } = r;
+  const elegibles = saldos.filter(d => d.disponible_pago > 0);
   const totalDisp = elegibles.reduce((s,d) => s + d.disponible_pago, 0);
 
   if (totalDisp === 0) {
-    toast('Esta empleada no tiene días elegibles para pago (requiere ≥21d corresp y < 7d ya pagados)', 'error');
+    toast(`Sin días elegibles (requiere ≥${minCorresp}${tipoTxt[0]} corresp y < ${maxPagAño}${tipoTxt[0]} ya pagados)`, 'error');
     return;
   }
   if (dias > totalDisp) {
-    toast(`Solo se pueden pagar ${totalDisp} días (límite por reglas)`, 'error');
+    toast(`Solo se pueden pagar ${totalDisp} días ${tipoTxt} (límite por reglas)`, 'error');
     return;
   }
 
