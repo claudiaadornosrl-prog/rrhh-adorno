@@ -4991,6 +4991,7 @@ function onTipoChangeEmp() {
 
 // Cache del turno consultado para no spamear queries
 let _turnoCachePermiso = { fecha: null, turno: null };
+let _bufferCache = null;
 
 async function obtenerTurnoVendedoraDia(fecha) {
   if (!fecha || !session.empleado_id) return null;
@@ -5002,6 +5003,16 @@ async function obtenerTurnoVendedoraDia(fecha) {
     .maybeSingle();
   _turnoCachePermiso = { fecha, turno };
   return turno;
+}
+
+async function obtenerBufferEmpleado() {
+  if (_bufferCache != null) return _bufferCache;
+  const local = session.empleadoData?.local;
+  if (!local) { _bufferCache = 15; return 15; }
+  const { data: tol } = await sb.from('rrhh_config_tolerancias')
+    .select('buffer_entrada').eq('local', local).maybeSingle();
+  _bufferCache = tol?.buffer_entrada ?? 15;
+  return _bufferCache;
 }
 
 function _horaAMin(h) {
@@ -5054,18 +5065,23 @@ async function actualizarCalcPermiso() {
   // 2) Calcular minutos según tipo
   if (!tipo) { calcBox.style.display = 'none'; return; }
   const turno = await obtenerTurnoVendedoraDia(fecha);
+  const buffer = await obtenerBufferEmpleado();
   let minutos = 0;
   let explicacion = '';
 
   if (tipo === 'dia_completo') {
     if (turno && turno.hora_inicio && turno.hora_fin && !turno.es_franco) {
-      minutos = _horaAMin(turno.hora_fin) - _horaAMin(turno.hora_inicio);
-      explicacion = `Jornada completa del turno (${turno.hora_inicio.substring(0,5)} a ${turno.hora_fin.substring(0,5)})`;
+      // Jornada real = (fin) - (inicio + buffer)
+      const inicioReal = _horaAMin(turno.hora_inicio) + buffer;
+      minutos = _horaAMin(turno.hora_fin) - inicioReal;
+      const inicioRealStr = `${String(Math.floor(inicioReal/60)).padStart(2,'0')}:${String(inicioReal%60).padStart(2,'0')}`;
+      explicacion = `Jornada completa: ${inicioRealStr} a ${turno.hora_fin.substring(0,5)} (turno planificado ${turno.hora_inicio.substring(0,5)} con ${buffer} min de margen)`;
     } else {
       explicacion = 'No se puede calcular sin turno planificado.';
     }
   } else if (tipo === 'retirarse_antes' && hd) {
     if (turno && turno.hora_fin && !turno.es_franco) {
+      // Salida es exacta (sin buffer)
       minutos = _horaAMin(turno.hora_fin) - _horaAMin(hd);
       if (minutos < 0) {
         explicacion = `⚠ La hora es posterior al fin del turno (${turno.hora_fin.substring(0,5)})`;
@@ -5078,12 +5094,15 @@ async function actualizarCalcPermiso() {
     }
   } else if (tipo === 'llegar_tarde' && hd) {
     if (turno && turno.hora_inicio && !turno.es_franco) {
-      minutos = _horaAMin(hd) - _horaAMin(turno.hora_inicio);
+      // Tarde se cuenta desde el horario REAL (turno + buffer)
+      const inicioReal = _horaAMin(turno.hora_inicio) + buffer;
+      minutos = _horaAMin(hd) - inicioReal;
+      const inicioRealStr = `${String(Math.floor(inicioReal/60)).padStart(2,'0')}:${String(inicioReal%60).padStart(2,'0')}`;
       if (minutos < 0) {
-        explicacion = `⚠ La hora es anterior al inicio del turno (${turno.hora_inicio.substring(0,5)})`;
+        explicacion = `⚠ La hora ${hd} está dentro del margen (entrada real ${inicioRealStr})`;
         minutos = 0;
       } else {
-        explicacion = `Llegás a las ${hd}, el turno empieza ${turno.hora_inicio.substring(0,5)}`;
+        explicacion = `Llegás a las ${hd}, entrada real ${inicioRealStr} (turno ${turno.hora_inicio.substring(0,5)} + ${buffer} min margen)`;
       }
     } else {
       explicacion = 'Necesito el turno para calcular.';
@@ -5242,16 +5261,21 @@ async function enviarPermisoEmpleado() {
     return;
   }
 
-  // Calcular minutos pedidos automáticamente
+  // Calcular minutos pedidos automáticamente (aplicando el buffer del local)
   const turno = await obtenerTurnoVendedoraDia(fecha);
+  const buffer = await obtenerBufferEmpleado();
   let minutosCalc = 0;
   if (turno && !turno.es_franco && turno.hora_inicio && turno.hora_fin) {
+    const inicioReal = _horaAMin(turno.hora_inicio) + buffer;
     if (tipo === 'dia_completo') {
-      minutosCalc = _horaAMin(turno.hora_fin) - _horaAMin(turno.hora_inicio);
+      // Jornada real = fin - (inicio + buffer)
+      minutosCalc = _horaAMin(turno.hora_fin) - inicioReal;
     } else if (tipo === 'retirarse_antes' && hora_desde) {
+      // Salida exacta (sin buffer)
       minutosCalc = Math.max(0, _horaAMin(turno.hora_fin) - _horaAMin(hora_desde));
     } else if (tipo === 'llegar_tarde' && hora_desde) {
-      minutosCalc = Math.max(0, _horaAMin(hora_desde) - _horaAMin(turno.hora_inicio));
+      // Tarde desde horario real (turno + buffer)
+      minutosCalc = Math.max(0, _horaAMin(hora_desde) - inicioReal);
     } else if (tipo === 'salir_volver' && hora_desde && hora_hasta) {
       minutosCalc = Math.max(0, _horaAMin(hora_hasta) - _horaAMin(hora_desde));
     }
