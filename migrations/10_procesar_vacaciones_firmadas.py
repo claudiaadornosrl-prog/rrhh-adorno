@@ -1,4 +1,4 @@
-"""
+r"""
 ═══════════════════════════════════════════════════════════════════════
  10_procesar_vacaciones_firmadas.py
  Procesa los mails que llegan a claudiaadornosrl@gmail.com con
