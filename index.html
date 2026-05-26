@@ -2134,7 +2134,10 @@ async function renderVacacionesAdmin() {
         <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos ${new Date().getFullYear()}</button>
         <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
       </div>
-      <button class="btn accent2" onclick="abrirCargaMasivaVac()" style="margin-bottom:6px;">📥 Carga rápida</button>
+      <div style="display:flex;gap:8px;margin-bottom:6px;">
+        <button class="btn primary" onclick="abrirAsignarVacacion()">+ Asignar vacaciones</button>
+        <button class="btn accent2" onclick="abrirCargaMasivaVac()">📥 Carga masiva</button>
+      </div>
     </div>
 
     <div id="vac-content" style="margin-top:20px;">
@@ -5351,6 +5354,163 @@ async function anularMiPermiso(id) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Permiso anulado', 'info');
   if (currentTab === 'mis-permisos') switchTab('mis-permisos');
+}
+
+// ════════════════════════════════════════════════════════════
+// ASIGNAR VACACIÓN (admin/gerente) — 1 vendedora × 1 período
+//   Para cuando la encargada decide "te tomás vacaciones del X al Y".
+//   Queda en estado='aprobada' (futura) o 'tomada' (si la fecha ya empezó).
+// ════════════════════════════════════════════════════════════
+
+async function abrirAsignarVacacion() {
+  const isAdmin = session.rol === 'admin';
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
+  if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
+  const { data: empleados } = await qEmp.order('nombre_completo');
+  window._asignVacEmpleados = empleados || [];
+
+  const html = `
+    <div class="modal-bg" id="asignvac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:520px;width:100%;max-height:92vh;overflow-y:auto;">
+        <h3 style="margin:0 0 4px;">+ Asignar vacaciones</h3>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Cargás las vacaciones directo en una vendedora — queda aprobada al toque, sin pasar por solicitud.</p>
+
+        <div style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <select id="asg-emp" onchange="actualizarCalcAsignVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              ${(empleados||[]).map(e => `<option value="${e.id}" data-local="${e.local}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+            </select>
+          </div>
+          <div id="asg-saldo-box" style="display:none;background:#f0f9ff;padding:10px 12px;border-radius:8px;border-left:3px solid var(--accent2);font-size:12px;"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde *</label>
+              <input type="date" id="asg-desde" onchange="actualizarCalcAsignVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hasta *</label>
+              <input type="date" id="asg-hasta" onchange="actualizarCalcAsignVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+          </div>
+          <div id="asg-calc-box" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:8px;border-left:3px solid #d97706;font-size:13px;color:#92400e;font-weight:600;"></div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Observaciones (opcional)</label>
+            <textarea id="asg-obs" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Ej: vacaciones de verano, después de la temporada…"></textarea>
+          </div>
+          <div style="background:#f9fafb;padding:10px 12px;border-radius:8px;font-size:12px;color:var(--muted);">
+            💡 Si la fecha de inicio ya pasó, queda como <strong>tomada</strong>. Si es futura, queda como <strong>aprobada</strong>. En ambos casos descuenta del saldo de la vendedora.
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('asignvac-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarAsignarVacacion()">Asignar y aprobar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function actualizarCalcAsignVac() {
+  const empSel = document.getElementById('asg-emp');
+  const desde = document.getElementById('asg-desde').value;
+  const hasta = document.getElementById('asg-hasta').value;
+  const empId = parseInt(empSel.value, 10);
+  const saldoBox = document.getElementById('asg-saldo-box');
+  const calcBox = document.getElementById('asg-calc-box');
+
+  // 1) Mostrar saldo del empleado seleccionado (año del 'desde' si está cargado, sino año actual)
+  if (empId) {
+    const año = desde ? parseInt(desde.substring(0,4),10) : new Date().getFullYear();
+    const { data: saldo } = await sb.from('rrhh_vacaciones')
+      .select('dias_correspondientes, dias_tomados, dias_pendientes')
+      .eq('empleado_id', empId).eq('año', año).maybeSingle();
+    if (saldo) {
+      saldoBox.innerHTML = `🧮 Saldo ${año}: <strong>${saldo.dias_pendientes}</strong> días pendientes (corresp ${saldo.dias_correspondientes} − tomados ${saldo.dias_tomados})`;
+      saldoBox.style.display = 'block';
+    } else {
+      saldoBox.innerHTML = `⚠ Sin saldo cargado para ${año}. Al asignar, se crea con corresp=0 y se descuenta lo asignado.`;
+      saldoBox.style.display = 'block';
+    }
+  } else {
+    saldoBox.style.display = 'none';
+  }
+
+  // 2) Calcular días según tipo de local (oficina = hábiles, locales = corridos)
+  if (empId && desde && hasta && hasta >= desde) {
+    const opt = empSel.options[empSel.selectedIndex];
+    const local = opt?.dataset?.local;
+    const esOficina = local === 'oficina';
+    const dias = esOficina ? _diasHabilesUI(desde, hasta) : (Math.round((new Date(hasta+'T12:00:00') - new Date(desde+'T12:00:00')) / 86400000) + 1);
+    const tipoTxt = esOficina ? 'hábiles (oficina)' : 'corridos';
+    calcBox.innerHTML = `📅 Estás asignando <strong>${dias} días ${tipoTxt}</strong>`;
+    calcBox.style.display = 'block';
+  } else {
+    calcBox.style.display = 'none';
+  }
+}
+
+async function guardarAsignarVacacion() {
+  const empSel = document.getElementById('asg-emp');
+  const empId = parseInt(empSel.value, 10);
+  const desde = document.getElementById('asg-desde').value;
+  const hasta = document.getElementById('asg-hasta').value;
+  const obs = document.getElementById('asg-obs').value.trim();
+
+  if (!empId) { toast('Falta empleado', 'error'); return; }
+  if (!desde || !hasta) { toast('Faltan fechas', 'error'); return; }
+  if (hasta < desde) { toast('La fecha hasta no puede ser anterior a desde', 'error'); return; }
+
+  const opt = empSel.options[empSel.selectedIndex];
+  const esOficina = opt?.dataset?.local === 'oficina';
+  const dias = esOficina ? _diasHabilesUI(desde, hasta) : (Math.round((new Date(hasta+'T12:00:00') - new Date(desde+'T12:00:00')) / 86400000) + 1);
+  const año = parseInt(desde.substring(0,4),10);
+  const hoy = new Date().toISOString().split('T')[0];
+  // Si la fecha de inicio ya pasó → 'tomada'. Si es hoy o futura → 'aprobada'.
+  const estado = (desde < hoy) ? 'tomada' : 'aprobada';
+
+  // Saldo (crear si no existe)
+  let { data: saldo } = await sb.from('rrhh_vacaciones')
+    .select('id, dias_tomados, dias_correspondientes, dias_pendientes')
+    .eq('empleado_id', empId).eq('año', año).maybeSingle();
+  let vacId;
+  if (saldo) {
+    vacId = saldo.id;
+    if (dias > saldo.dias_pendientes) {
+      if (!confirm(`Estás asignando ${dias} días, pero la vendedora tiene ${saldo.dias_pendientes} pendientes en ${año}. ¿Asignar igual?`)) return;
+    }
+    await sb.from('rrhh_vacaciones')
+      .update({ dias_tomados: (saldo.dias_tomados || 0) + dias })
+      .eq('id', saldo.id);
+  } else {
+    const { data: created, error: errC } = await sb.from('rrhh_vacaciones')
+      .insert({ empleado_id: empId, año, dias_correspondientes: 0, dias_tomados: dias })
+      .select().single();
+    if (errC) { toast('Error creando saldo: '+errC.message,'error'); return; }
+    vacId = created.id;
+  }
+
+  const obsFinal = (obs || 'Asignada directamente por encargada/admin') + (esOficina ? ' (días hábiles)' : '');
+  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert({
+    vacaciones_id: vacId,
+    empleado_id: empId,
+    fecha_desde: desde,
+    fecha_hasta: hasta,
+    dias,
+    estado,
+    solicitado_por: session.email,
+    aprobado_por:   session.email,
+    fecha_aprobacion: new Date().toISOString(),
+    observaciones: obsFinal,
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  await auditLog('asignar_vacacion', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d, ${estado})`);
+  toast(`✓ Vacaciones asignadas (${dias} días, ${estado})`, 'success');
+  document.getElementById('asignvac-modal').remove();
+  if (typeof renderVacContent === 'function') renderVacContent();
 }
 
 // ════════════════════════════════════════════════════════════
