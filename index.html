@@ -613,32 +613,61 @@ async function renderDashboard() {
   if (!isAdmin && local) q = q.eq('local', local);
   const { data: empleados, count: totalEmp } = await q;
 
-  // Conteos por local (solo admin)
   const conteoPorLocal = {};
   if (isAdmin && empleados) {
     empleados.forEach(e => { conteoPorLocal[e.local] = (conteoPorLocal[e.local] || 0) + 1; });
   }
 
-  // Cumpleaños del mes
   const hoy = new Date();
   const mesActual = hoy.getMonth() + 1;
-  const { data: cumple } = await sb
-    .from('rrhh_empleados')
-    .select('id, nombre, apellido, fecha_nacimiento, local')
-    .eq('estado', 'activo')
-    .not('fecha_nacimiento', 'is', null);
-  const cumpleEsteMes = (cumple || []).filter(e => {
-    const m = new Date(e.fecha_nacimiento).getMonth() + 1;
-    return m === mesActual && (isAdmin || e.local === local);
-  });
+  const diaActual = hoy.getDate();
 
-  // Vacaciones del año
+  // Listado completo de empleados activos con fechas
+  const { data: empAll } = await sb
+    .from('rrhh_empleados')
+    .select('id, nombre, apellido, fecha_nacimiento, fecha_ingreso, local')
+    .eq('estado', 'activo');
+
+  // Cumpleaños del mes
+  const cumpleEsteMes = (empAll || [])
+    .filter(e => e.fecha_nacimiento && (isAdmin || e.local === local))
+    .map(e => {
+      const d = new Date(e.fecha_nacimiento + 'T12:00:00');
+      return { ...e, _mes: d.getMonth() + 1, _dia: d.getDate() };
+    })
+    .filter(e => e._mes === mesActual)
+    .sort((a, b) => a._dia - b._dia);
+
+  // Aniversarios laborales — próximos 30 días
+  const aniversariosProximos = (empAll || [])
+    .filter(e => e.fecha_ingreso && (isAdmin || e.local === local))
+    .map(e => {
+      const ing = new Date(e.fecha_ingreso + 'T12:00:00');
+      // Calcular el próximo aniversario
+      const aniv = new Date(hoy.getFullYear(), ing.getMonth(), ing.getDate());
+      if (aniv < hoy) aniv.setFullYear(hoy.getFullYear() + 1);
+      const años = aniv.getFullYear() - ing.getFullYear();
+      const diasFalta = Math.ceil((aniv - hoy) / (1000 * 60 * 60 * 24));
+      return { ...e, _aniv: aniv, _años: años, _diasFalta: diasFalta };
+    })
+    .filter(e => e._diasFalta <= 30 && e._años >= 1)
+    .sort((a, b) => a._diasFalta - b._diasFalta);
+
+  // Aniversarios del mes (este mes calendario)
+  const aniversariosEsteMes = (empAll || [])
+    .filter(e => e.fecha_ingreso && (isAdmin || e.local === local))
+    .map(e => {
+      const ing = new Date(e.fecha_ingreso + 'T12:00:00');
+      return { ...e, _mes: ing.getMonth() + 1, _dia: ing.getDate(), _años: hoy.getFullYear() - ing.getFullYear() };
+    })
+    .filter(e => e._mes === mesActual && e._años >= 1)
+    .sort((a, b) => a._dia - b._dia);
+
   const { count: vacPendientes } = await sb
     .from('rrhh_vacaciones_movimientos')
     .select('id', { count: 'exact', head: true })
     .eq('estado', 'solicitada');
 
-  // Próximo feriado
   const { data: prox } = await sb
     .from('rrhh_feriados')
     .select('fecha, nombre')
@@ -661,9 +690,15 @@ async function renderDashboard() {
       </div>
 
       <div class="metric-card">
-        <div class="label">Cumpleaños este mes</div>
+        <div class="label">🎂 Cumpleaños este mes</div>
         <div class="value">${cumpleEsteMes.length}</div>
-        <div class="hint">${cumpleEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : cumpleEsteMes.slice(0,3).map(c => c.nombre.split(' ')[0]).join(', ')}</div>
+        <div class="hint">${cumpleEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : cumpleEsteMes.slice(0,3).map(c => `${c._dia}/${c._mes} ${c.nombre.split(' ')[0]}`).join(' · ')}</div>
+      </div>
+
+      <div class="metric-card accent" style="border-left-color:#f59e0b;">
+        <div class="label">🏆 Aniversarios este mes</div>
+        <div class="value">${aniversariosEsteMes.length}</div>
+        <div class="hint">${aniversariosEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : aniversariosEsteMes.slice(0,3).map(a => `${a._dia}/${a._mes} ${a.nombre.split(' ')[0]} (${a._años} a.)`).join(' · ')}</div>
       </div>
 
       ${isAdmin ? `
@@ -681,14 +716,53 @@ async function renderDashboard() {
       </div>
     </div>
 
-    <div class="card">
-      <h3 style="margin:0 0 12px;font-size:16px;font-weight:600;">🚧 Módulo en construcción</h3>
-      <p style="margin:0;color:var(--muted);font-size:14px;line-height:1.5;">
-        Fase 0 (infraestructura) <strong style="color:var(--success);">✓ completa</strong>.
-        Las pestañas del menú izquierdo se irán llenando en las próximas fases:
-        empleados (1), sueldos (2), asistencias (3), vacaciones (4), documentos (5), self-service (6).
-      </p>
-    </div>
+    ${(cumpleEsteMes.length > 0 || aniversariosProximos.length > 0) ? `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;">
+
+        ${cumpleEsteMes.length > 0 ? `
+        <div class="card">
+          <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;">🎂 Cumpleaños de ${hoy.toLocaleDateString('es-AR', { month: 'long' })}</h3>
+          <ul class="simple-list" style="margin:0;">
+            ${cumpleEsteMes.map(c => {
+              const esHoy = c._dia === diaActual;
+              return `
+                <li style="${esHoy ? 'background:#fef3c7;border-color:#fde68a;' : ''}">
+                  <div>
+                    <strong>${escapeHtml(c.nombre.split(' ')[0])} ${escapeHtml(c.apellido)}</strong>
+                    ${esHoy ? '<span class="emp-tag" style="background:#f59e0b;color:white;margin-left:8px;">¡HOY!</span>' : ''}
+                    <div class="meta">${c._dia} de ${hoy.toLocaleDateString('es-AR', { month: 'long' })} · ${LOCALES[c.local]?.nombre || ''}</div>
+                  </div>
+                  <button class="btn small" onclick="openEmpleadoModal(${c.id})">Ver</button>
+                </li>
+              `;
+            }).join('')}
+          </ul>
+        </div>
+        ` : ''}
+
+        ${aniversariosProximos.length > 0 ? `
+        <div class="card">
+          <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;">🏆 Próximos aniversarios laborales (30 días)</h3>
+          <ul class="simple-list" style="margin:0;">
+            ${aniversariosProximos.map(a => {
+              const esHoy = a._diasFalta === 0;
+              return `
+                <li style="${esHoy ? 'background:#d1faf1;border-color:#5eead4;' : ''}">
+                  <div>
+                    <strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong>
+                    ${esHoy ? `<span class="emp-tag" style="background:#0d9488;color:white;margin-left:8px;">¡HOY cumple ${a._años} años!</span>` : ''}
+                    <div class="meta">${esHoy ? `${a._años} años con nosotros` : `Cumple <strong>${a._años} ${a._años === 1 ? 'año' : 'años'}</strong> el ${a._aniv.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })} (en ${a._diasFalta} ${a._diasFalta === 1 ? 'día' : 'días'})`} · ${LOCALES[a.local]?.nombre || ''}</div>
+                  </div>
+                  <button class="btn small" onclick="openEmpleadoModal(${a.id})">Ver</button>
+                </li>
+              `;
+            }).join('')}
+          </ul>
+        </div>
+        ` : ''}
+
+      </div>
+    ` : ''}
   `;
   return html;
 }
@@ -944,6 +1018,7 @@ const EMP_MODAL_TABS = [
   { id: 'sueldos',    label: 'Sueldos',           icon: '💰' },
   { id: 'asistencias',label: 'Asistencias',       icon: '🕐' },
   { id: 'vacaciones', label: 'Vacaciones',        icon: '🌴' },
+  { id: 'licencias',  label: 'Licencias / Permisos', icon: '📋' },
   { id: 'certificados',label:'Certif. médicos',   icon: '🏥' },
   { id: 'apercibimientos',label:'Apercibimientos',icon: '⚠️' },
   { id: 'premios',    label: 'Premios',           icon: '🏆' },
@@ -1029,6 +1104,7 @@ async function renderModalBody() {
     case 'sueldos':     await renderTabSueldos();     break;
     case 'asistencias': await renderTabAsistencias(); break;
     case 'vacaciones':  await renderTabVacaciones();  break;
+    case 'licencias':   await renderTabLicencias();   break;
     case 'certificados':await renderTabCertificados();break;
     case 'apercibimientos': await renderTabApercibimientos(); break;
     case 'premios':     await renderTabPremios();     break;
@@ -1471,6 +1547,161 @@ async function renderTabAsistencias() {
       <div class="phase-tag">Fase 3</div>
     </div>`;
 }
+async function renderTabLicencias() {
+  const body = document.getElementById('emp-modal-body');
+  const isAdmin = session.rol === 'admin';
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = isAdmin
+    ? '<button class="btn accent2" onclick="abrirNuevaLicencia()">+ Cargar permiso / licencia</button>'
+    : '';
+
+  const { data, error } = await sb.from('rrhh_licencias')
+    .select('*').eq('empleado_id', empModalState.empleadoId)
+    .order('fecha_desde', { ascending: false });
+  if (error) { body.innerHTML = '<div style="color:var(--danger)">' + escapeHtml(error.message) + '</div>'; return; }
+
+  const TIPOS_LABEL = {
+    matrimonio: '💍 Matrimonio',
+    nacimiento_hijo: '👶 Nacimiento de hijo/a',
+    fallecimiento: '⚰️ Fallecimiento familiar',
+    examen: '📚 Examen',
+    enfermedad: '🤒 Enfermedad',
+    ART: '🦺 ART',
+    maternidad: '🤰 Maternidad',
+    excedencia: '👨‍👩‍👧 Excedencia',
+    otra: '📋 Otra'
+  };
+
+  body.innerHTML = (data || []).length === 0
+    ? '<div class="emp-empty">Sin licencias / permisos cargados.</div>'
+    : '<ul class="simple-list">' + data.map(l => `
+        <li>
+          <div>
+            <strong>${TIPOS_LABEL[l.tipo] || escapeHtml(l.tipo)}</strong>
+            <div class="meta">${fmtFecha(l.fecha_desde)} → ${fmtFecha(l.fecha_hasta)} · ${l.dias} ${l.dias === 1 ? 'día' : 'días'} ${l.paga ? '(con goce)' : '(sin goce)'}</div>
+            ${l.observaciones ? `<div class="meta" style="margin-top:4px;font-style:italic;">"${escapeHtml(l.observaciones)}"</div>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;">
+            ${l.certificado_url ? `<button class="btn small" onclick="verLicenciaCert('${escapeHtml(l.certificado_url)}')">Ver</button>` : ''}
+            ${isAdmin ? `<button class="btn small danger" onclick="eliminarLicencia(${l.id})">🗑️</button>` : ''}
+          </div>
+        </li>
+      `).join('') + '</ul>';
+}
+
+function abrirNuevaLicencia() {
+  const body = document.getElementById('emp-modal-body');
+  body.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Cargar permiso / licencia</div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Tipo *</label>
+        <select id="lic-tipo">
+          <option value="enfermedad">🤒 Enfermedad</option>
+          <option value="matrimonio">💍 Matrimonio</option>
+          <option value="nacimiento_hijo">👶 Nacimiento de hijo/a</option>
+          <option value="fallecimiento">⚰️ Fallecimiento familiar</option>
+          <option value="examen">📚 Examen</option>
+          <option value="ART">🦺 ART</option>
+          <option value="maternidad">🤰 Maternidad</option>
+          <option value="excedencia">👨‍👩‍👧 Excedencia</option>
+          <option value="otra">📋 Otra</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>¿Con goce de sueldo? *</label>
+        <select id="lic-paga">
+          <option value="true" selected>Sí (paga)</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Desde *</label>
+        <input type="date" id="lic-desde">
+      </div>
+      <div class="form-row">
+        <label>Hasta *</label>
+        <input type="date" id="lic-hasta">
+      </div>
+      <div class="form-row full">
+        <label>Observaciones</label>
+        <input type="text" id="lic-obs" placeholder="Detalles del permiso, justificación, etc.">
+      </div>
+      <div class="form-row full">
+        <label>Certificado / archivo (opcional)</label>
+        <input type="file" id="lic-file" accept=".pdf,.jpg,.jpeg,.png">
+        <div class="hint">PDF / foto del certificado, hasta 10 MB</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('emp-modal-footer-left').innerHTML = '<button class="btn" onclick="renderTabLicencias()">Cancelar</button>';
+  document.getElementById('emp-modal-save').style.display = 'inline-block';
+  document.getElementById('emp-modal-save').textContent = 'Guardar';
+  document.getElementById('emp-modal-save').onclick = doGuardarLicencia;
+}
+
+async function doGuardarLicencia() {
+  const tipo  = document.getElementById('lic-tipo').value;
+  const paga  = document.getElementById('lic-paga').value === 'true';
+  const desde = document.getElementById('lic-desde').value;
+  const hasta = document.getElementById('lic-hasta').value;
+  const obs   = document.getElementById('lic-obs').value.trim() || null;
+  const file  = document.getElementById('lic-file').files[0];
+
+  if (!desde || !hasta) { toast('Faltan fechas', 'error'); return; }
+  if (new Date(hasta) < new Date(desde)) { toast('Hasta no puede ser anterior a Desde', 'error'); return; }
+  const dias = Math.round((new Date(hasta) - new Date(desde)) / (1000*60*60*24)) + 1;
+
+  const btn = document.getElementById('emp-modal-save');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+
+  try {
+    let certUrl = null;
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) { toast('Archivo > 10MB', 'error'); btn.disabled = false; btn.textContent = 'Guardar'; return; }
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `${empModalState.empleadoId}/licencia/${Date.now()}_${safeName}`;
+      const { error: errUp } = await sb.storage.from('rrhh-certificados').upload(path, file, { contentType: file.type });
+      if (errUp) throw errUp;
+      certUrl = path;
+    }
+    const { data, error } = await sb.from('rrhh_licencias').insert({
+      empleado_id: empModalState.empleadoId,
+      tipo, fecha_desde: desde, fecha_hasta: hasta, dias, paga,
+      certificado_url: certUrl, observaciones: obs,
+      aprobado_por: session.email,
+    }).select().single();
+    if (error) throw error;
+    await auditLog('crear', 'rrhh_licencias', data.id, null, null, `${tipo} ${desde}→${hasta}`);
+    toast('Licencia cargada ✓', 'success');
+    document.getElementById('emp-modal-save').onclick = saveEmpleado;
+    renderTabLicencias();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Guardar';
+  }
+}
+
+async function eliminarLicencia(id) {
+  if (!confirm('¿Eliminar esta licencia? No se puede deshacer.')) return;
+  // Borrar archivo si tiene
+  const { data: lic } = await sb.from('rrhh_licencias').select('certificado_url').eq('id', id).single();
+  if (lic?.certificado_url) {
+    await sb.storage.from('rrhh-certificados').remove([lic.certificado_url]).catch(() => {});
+  }
+  const { error } = await sb.from('rrhh_licencias').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('eliminar', 'rrhh_licencias', id, null, null, null);
+  toast('Licencia eliminada', 'success');
+  renderTabLicencias();
+}
+
+async function verLicenciaCert(path) {
+  const { data, error } = await sb.storage.from('rrhh-certificados').createSignedUrl(path, 60);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  window.open(data.signedUrl, '_blank');
+}
+
 async function renderTabCertificados() {
   const body = document.getElementById('emp-modal-body');
   document.getElementById('emp-modal-save').style.display = 'none';

@@ -1,0 +1,25 @@
+# Sensitive — NUNCA commitear
+.env
+sync_anviz/.env
+**/credentials.json
+**/*secret*
+
+# Migraciones — datos sensibles
+migrations/*.csv
+migrations/*.xlsx
+
+# Logs
+*.log
+sync_anviz/logs/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
