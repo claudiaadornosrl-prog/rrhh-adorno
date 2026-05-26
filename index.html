@@ -4188,8 +4188,16 @@ async function procesarMes(periodo, local = null) {
     const { error } = await sb.from('rrhh_asistencias_detalle').insert(batch);
     if (error) throw error;
   }
-  for (let i = 0; i < bancoMovs.length; i += BATCH) {
-    const batch = bancoMovs.slice(i, i+BATCH);
+  // Filtrar movimientos de banco anteriores a la fecha de corte del sistema
+  // (clean start 01/06/2026: el banco arranca con saldos iniciales del Excel)
+  const BANCO_DESDE = '2026-06-01';
+  const bancoMovsFiltrados = bancoMovs.filter(m => m.fecha >= BANCO_DESDE);
+  const omitidos = bancoMovs.length - bancoMovsFiltrados.length;
+  if (omitidos > 0) {
+    console.log(`[procesarMes] Omitidos ${omitidos} movimientos de banco con fecha < ${BANCO_DESDE} (clean start)`);
+  }
+  for (let i = 0; i < bancoMovsFiltrados.length; i += BATCH) {
+    const batch = bancoMovsFiltrados.slice(i, i+BATCH);
     const { error } = await sb.from('rrhh_banco_minutos').insert(batch);
     if (error) throw error;
   }
