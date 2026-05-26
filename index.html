@@ -2394,6 +2394,7 @@ async function renderMiCalendario() {
         <button onclick="cambiarMiMes(1)">›</button>
       </div>
       <button class="btn" onclick="miCalState.mes = mesActualString(); switchTab('mi-calendario');">Hoy</button>
+      <button class="btn accent2" onclick="abrirNuevoPermisoEmpleado()" style="margin-left:auto;">🙋 Pedir permiso</button>
     </div>
 
     <div class="metrics-grid">
@@ -3027,6 +3028,7 @@ async function renderAsistenciasAdmin() {
       <button class="modal-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario de turnos</button>
       <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas (Anviz)</button>
       <button class="modal-tab ${asisState.tab==='resumen'?'active':''}"    data-asistab="resumen"    style="border-bottom:2px solid transparent;padding:12px 14px;">📊 Resumen mensual</button>
+      <button class="modal-tab ${asisState.tab==='permisos'?'active':''}"   data-asistab="permisos"   style="border-bottom:2px solid transparent;padding:12px 14px;">🙋 Permisos <span id="badge-permisos-pend" style="display:none;background:var(--danger);color:white;border-radius:99px;padding:1px 7px;font-size:10px;margin-left:4px;"></span></button>
     </div>
 
     <div id="asis-content" style="margin-top:20px;"><div class="spinner"></div></div>
@@ -3049,6 +3051,27 @@ async function renderAsisTab() {
   if      (asisState.tab === 'calendario') await renderCalendario(cont);
   else if (asisState.tab === 'fichadas')   await renderFichadas(cont);
   else if (asisState.tab === 'resumen')    await renderResumenMensual(cont);
+  else if (asisState.tab === 'permisos')   await renderPermisosAdmin(cont);
+  // Actualizar badge de pendientes
+  actualizarBadgePermisos();
+}
+
+async function actualizarBadgePermisos() {
+  const badge = document.getElementById('badge-permisos-pend');
+  if (!badge) return;
+  try {
+    let q = sb.from('rrhh_permisos_puntuales').select('id', { count: 'exact', head: true }).eq('estado','pendiente');
+    if (session.rol === 'gerente') {
+      // gerente solo ve los de su local — el RLS filtra solo
+    }
+    const { count } = await q;
+    if (count && count > 0) {
+      badge.textContent = count;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) {}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -3818,11 +3841,32 @@ async function procesarMes(periodo, local = null) {
   const feriadoMap = {};
   (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
 
-  // 7) Permisos aprobados
-  const { data: permisos } = await sb.from('rrhh_permisos')
-    .select('empleado_id, fecha, minutos, estado').in('empleado_id', empIds).eq('estado','aprobado');
+  // 7) Permisos aprobados (Fase E - puntuales). Backwards-compatible con la tabla vieja rrhh_permisos también.
+  const { data: permisosPuntuales } = await sb.from('rrhh_permisos_puntuales')
+    .select('empleado_id, fecha, tipo, hora_desde, hora_hasta, descontar_banco, minutos_descontar')
+    .in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .eq('estado','aprobado');
   const permisosMap = {};
-  (permisos || []).forEach(p => { permisosMap[`${p.empleado_id}_${p.fecha}`] = p.minutos || 0; });
+  const permisosPuntMap = {};
+  (permisosPuntuales || []).forEach(p => {
+    permisosPuntMap[`${p.empleado_id}_${p.fecha}`] = p;
+    // Si descuenta del banco, mantener el mapa antiguo para compatibilidad
+    if (p.descontar_banco) {
+      permisosMap[`${p.empleado_id}_${p.fecha}`] = p.minutos_descontar || 0;
+    }
+  });
+  // También leer permisos viejos (rrhh_permisos) si existen
+  try {
+    const { data: permisosLegacy } = await sb.from('rrhh_permisos')
+      .select('empleado_id, fecha, minutos, estado')
+      .in('empleado_id', empIds)
+      .eq('estado','aprobado');
+    (permisosLegacy || []).forEach(p => {
+      const k = `${p.empleado_id}_${p.fecha}`;
+      if (!permisosMap[k]) permisosMap[k] = p.minutos || 0;
+    });
+  } catch(_) {}
 
   // 8) Horas extras autorizadas
   const { data: extras } = await sb.from('rrhh_horas_extras')
@@ -3883,11 +3927,17 @@ async function procesarMes(periodo, local = null) {
       let estado = 'sin_definir';
       let minTarde = 0, minTemp = 0, minExtra = 0, minBanco = 0;
       let entrada = null, salida = null;
+      const permPunt = permisosPuntMap[k]; // permiso puntual aprobado del día
 
-      // Prioridad: vacaciones > licencia > feriado > sin turno > sin fichada > análisis
+      // Prioridad: vacaciones > licencia > feriado > permiso día completo > sin turno > sin fichada > análisis
       if (esVac) estado = 'vacaciones';
       else if (esLic) estado = 'licencia';
       else if (cierraLocal) estado = 'feriado';
+      else if (permPunt && permPunt.tipo === 'dia_completo') {
+        // Día completo justificado por permiso aprobado
+        estado = 'licencia';  // se trata como licencia para que no descuente
+        if (permPunt.descontar_banco) minBanco = -(permPunt.minutos_descontar || 0);
+      }
       else if (!turno) {
         // Sin turno planificado — si fichó, registramos puntual; si no, ignoramos
         if (hayFichada) {
@@ -3922,6 +3972,21 @@ async function procesarMes(periodo, local = null) {
           minTemp = Math.max(0, tf - es);
           // Extra = se quedó después
           minExtra = Math.max(0, es - tf);
+
+          // Permisos puntuales aprobados — anular penalización si aplica
+          if (permPunt) {
+            if (permPunt.tipo === 'llegar_tarde') {
+              // El permiso justifica la llegada tarde — no contar minTarde
+              minTarde = 0;
+            } else if (permPunt.tipo === 'retirarse_antes') {
+              // Justifica la salida temprana — no contar minTemp
+              minTemp = 0;
+            } else if (permPunt.tipo === 'salir_volver') {
+              // No tenemos forma fácil de detectar el "hueco" en el medio
+              // Se asume que el permiso ya justifica el tiempo perdido
+              // (el descuento al banco se aplica abajo si descontar_banco=true)
+            }
+          }
 
           // Clasificar
           // Tolerancia diaria: 5 min después del buffer (= 10:05 si turno+buffer = 10:00)
@@ -4535,6 +4600,376 @@ async function crearUsuario() {
   toast('Usuario vinculado ✓', 'success');
   configState.tab = 'usuarios';
   renderConfigContent();
+}
+
+// ════════════════════════════════════════════════════════════
+// FASE E — PERMISOS PUNTUALES
+// ════════════════════════════════════════════════════════════
+
+const PERMISO_TIPOS = {
+  retirarse_antes: { label: '🚪 Retirarse antes', color: '#dc2626', bg: '#fee2e2' },
+  llegar_tarde:    { label: '🕐 Llegar más tarde', color: '#d97706', bg: '#fef3c7' },
+  dia_completo:    { label: '📅 Día completo',     color: '#7c3aed', bg: '#ede9fe' },
+  salir_volver:    { label: '↩️ Salir y volver',   color: '#0891b2', bg: '#cffafe' },
+};
+
+let permisosState = { filtro: 'pendiente' };
+
+async function renderPermisosAdmin(cont) {
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn ${permisosState.filtro==='pendiente'?'primary':''}" onclick="permisosState.filtro='pendiente';renderPermisosAdmin(document.getElementById('asis-content'))">⏳ Pendientes</button>
+        <button class="btn ${permisosState.filtro==='aprobado'?'primary':''}" onclick="permisosState.filtro='aprobado';renderPermisosAdmin(document.getElementById('asis-content'))">✓ Aprobados</button>
+        <button class="btn ${permisosState.filtro==='rechazado'?'primary':''}" onclick="permisosState.filtro='rechazado';renderPermisosAdmin(document.getElementById('asis-content'))">✗ Rechazados</button>
+        <button class="btn ${permisosState.filtro==='todos'?'primary':''}" onclick="permisosState.filtro='todos';renderPermisosAdmin(document.getElementById('asis-content'))">Todos</button>
+      </div>
+      <button class="btn accent2" onclick="abrirNuevoPermisoAdmin()">+ Cargar permiso</button>
+    </div>
+    <div id="permisos-list"><div class="spinner"></div></div>
+  `;
+  await listarPermisos();
+}
+
+async function listarPermisos() {
+  const cont = document.getElementById('permisos-list');
+  if (!cont) return;
+
+  let q = sb.from('rrhh_permisos_puntuales')
+    .select('*, empleado:rrhh_empleados(id, nombre_completo, local)')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (permisosState.filtro !== 'todos') q = q.eq('estado', permisosState.filtro);
+
+  const { data: permisos, error } = await q;
+  if (error) {
+    cont.innerHTML = `<div class="card" style="color:var(--danger);">Error: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+  if (!permisos || permisos.length === 0) {
+    cont.innerHTML = `<div class="card" style="text-align:center;color:var(--muted);padding:40px;">
+      <div style="font-size:32px;margin-bottom:8px;">🙋</div>
+      Sin permisos ${permisosState.filtro!=='todos'?permisosState.filtro+'s':''}.
+    </div>`;
+    return;
+  }
+
+  const isAdmin = session.rol === 'admin';
+  const puedeAprobar = ['admin','gerente'].includes(session.rol);
+
+  cont.innerHTML = `
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Fecha</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Empleado</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Local</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Tipo</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Horario</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Motivo</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Estado</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;text-align:right;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${permisos.map(p => {
+            const tipo = PERMISO_TIPOS[p.tipo] || { label: p.tipo, color: '#6b7280', bg: '#f3f4f6' };
+            const horario = (p.hora_desde && p.hora_hasta)
+              ? `${p.hora_desde.substring(0,5)}–${p.hora_hasta.substring(0,5)}`
+              : (p.hora_desde ? `desde ${p.hora_desde.substring(0,5)}` : '—');
+            const estadoBg = { pendiente: '#fef3c7', aprobado: '#d1faf1', rechazado: '#fee2e2' }[p.estado];
+            const estadoColor = { pendiente: '#92400e', aprobado: '#0d9488', rechazado: '#b91c1c' }[p.estado];
+            const acciones = (p.estado === 'pendiente' && puedeAprobar)
+              ? `<button class="btn small primary" onclick="aprobarPermiso(${p.id})">Aprobar</button>
+                 <button class="btn small" onclick="rechazarPermiso(${p.id})">Rechazar</button>`
+              : (puedeAprobar
+                  ? `<button class="btn small" onclick="eliminarPermiso(${p.id})">🗑</button>`
+                  : '');
+            return `
+              <tr style="border-top:1px solid var(--border);">
+                <td style="padding:9px 14px;font-family:monospace;font-size:12px;">${p.fecha}</td>
+                <td style="padding:9px 14px;font-weight:600;">${escapeHtml(p.empleado?.nombre_completo || '—')}</td>
+                <td style="padding:9px 14px;"><span class="local-tag ${p.empleado?.local}">${LOCALES[p.empleado?.local]?.nombre || '—'}</span></td>
+                <td style="padding:9px 14px;"><span style="background:${tipo.bg};color:${tipo.color};padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;">${tipo.label}</span></td>
+                <td style="padding:9px 14px;font-family:monospace;font-size:12px;">${horario}</td>
+                <td style="padding:9px 14px;font-size:12px;font-style:italic;color:var(--muted);">${escapeHtml(p.motivo || '')}</td>
+                <td style="padding:9px 14px;"><span style="background:${estadoBg};color:${estadoColor};padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;">${p.estado}</span>${p.descontar_banco && p.estado==='aprobado' ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">−${p.minutos_descontar||0} min banco</div>` : ''}</td>
+                <td style="padding:9px 14px;text-align:right;white-space:nowrap;">${acciones}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function abrirNuevoPermisoAdmin() {
+  const isAdmin = session.rol === 'admin';
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
+  if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
+  const { data: empleados } = await qEmp.order('nombre_completo');
+
+  const html = `
+    <div class="modal-bg" id="permiso-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 16px;">Cargar permiso puntual</h3>
+        <div class="form-grid" style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <select id="perm-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha *</label>
+            <input type="date" id="perm-fecha" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo *</label>
+            <select id="perm-tipo" onchange="onTipoChange()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              <option value="retirarse_antes">🚪 Retirarse antes del fin del turno</option>
+              <option value="llegar_tarde">🕐 Llegar más tarde</option>
+              <option value="dia_completo">📅 Día completo</option>
+              <option value="salir_volver">↩️ Salir y volver durante el turno</option>
+            </select>
+          </div>
+          <div id="perm-horario-row" style="display:none;grid-template-columns:1fr 1fr;gap:8px;">
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde</label>
+              <input type="time" id="perm-desde" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hasta</label>
+              <input type="time" id="perm-hasta" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo</label>
+            <textarea id="perm-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Ej: médico, trámite, hijo enfermo..."></textarea>
+          </div>
+          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--border);">
+            <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+              <input type="checkbox" id="perm-descontar" checked> Descontar del banco de minutos
+            </label>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+              <span style="font-size:12px;color:var(--muted);">Minutos a descontar:</span>
+              <input type="number" id="perm-minutos" value="0" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">💡 Si destildás, el permiso se considera justificado sin penalización al banco.</div>
+          </div>
+          <div style="background:#fef3c7;padding:10px;border-radius:8px;font-size:12px;color:#92400e;">
+            ℹ Si lo cargás vos (admin/gerente), queda <strong>aprobado</strong> directamente.
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('permiso-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarPermisoAdmin()">Guardar y aprobar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function onTipoChange() {
+  const tipo = document.getElementById('perm-tipo').value;
+  const row = document.getElementById('perm-horario-row');
+  if (tipo === 'dia_completo' || !tipo) {
+    row.style.display = 'none';
+  } else {
+    row.style.display = 'grid';
+  }
+}
+
+async function guardarPermisoAdmin() {
+  const empleado_id = parseInt(document.getElementById('perm-emp').value, 10);
+  const fecha = document.getElementById('perm-fecha').value;
+  const tipo = document.getElementById('perm-tipo').value;
+  const hora_desde = document.getElementById('perm-desde').value || null;
+  const hora_hasta = document.getElementById('perm-hasta').value || null;
+  const motivo = document.getElementById('perm-motivo').value.trim();
+  const descontar_banco = document.getElementById('perm-descontar').checked;
+  const minutos_descontar = parseInt(document.getElementById('perm-minutos').value, 10) || 0;
+
+  if (!empleado_id) { toast('Falta empleado', 'error'); return; }
+  if (!fecha) { toast('Falta fecha', 'error'); return; }
+  if (!tipo) { toast('Falta tipo', 'error'); return; }
+
+  const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
+    empleado_id, fecha, tipo, hora_desde, hora_hasta, motivo,
+    estado: 'aprobado',
+    solicitado_por: session.email,
+    revisado_por:   session.email,
+    revisado_at:    new Date().toISOString(),
+    descontar_banco,
+    minutos_descontar: descontar_banco ? minutos_descontar : 0,
+  }).select().single();
+
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('crear_permiso', 'rrhh_permisos_puntuales', data.id, null, null, `${tipo} ${fecha}`);
+  toast('Permiso aprobado ✓', 'success');
+  document.getElementById('permiso-modal').remove();
+  listarPermisos();
+}
+
+async function aprobarPermiso(id) {
+  // Pedir confirmación de minutos a descontar
+  const { data: perm } = await sb.from('rrhh_permisos_puntuales').select('*').eq('id', id).single();
+  if (!perm) return;
+
+  const descontar = confirm(`¿Descontar minutos del banco?\n\nOK = Sí, descontar.\nCancelar = No descontar (justificado sin penalización).`);
+  let minutos = 0;
+  if (descontar) {
+    const m = prompt('¿Cuántos minutos descontar del banco?', perm.minutos_descontar || '0');
+    if (m === null) return;
+    minutos = parseInt(m, 10) || 0;
+  }
+
+  const { error } = await sb.from('rrhh_permisos_puntuales').update({
+    estado: 'aprobado',
+    revisado_por: session.email,
+    revisado_at: new Date().toISOString(),
+    descontar_banco: descontar,
+    minutos_descontar: minutos,
+  }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('aprobar_permiso', 'rrhh_permisos_puntuales', id, 'estado', 'pendiente', 'aprobado');
+  toast('Permiso aprobado ✓', 'success');
+  listarPermisos();
+  actualizarBadgePermisos();
+}
+
+async function rechazarPermiso(id) {
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  const { error } = await sb.from('rrhh_permisos_puntuales').update({
+    estado: 'rechazado',
+    revisado_por: session.email,
+    revisado_at: new Date().toISOString(),
+    revision_motivo: motivo,
+  }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('rechazar_permiso', 'rrhh_permisos_puntuales', id, 'estado', 'pendiente', 'rechazado');
+  toast('Permiso rechazado', 'info');
+  listarPermisos();
+  actualizarBadgePermisos();
+}
+
+async function eliminarPermiso(id) {
+  if (!confirm('¿Eliminar este permiso?')) return;
+  const { error } = await sb.from('rrhh_permisos_puntuales').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('eliminar_permiso', 'rrhh_permisos_puntuales', id, null, null, null);
+  toast('Eliminado', 'info');
+  listarPermisos();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Self-service vendedora: pedir permiso desde mi-calendario
+// ─────────────────────────────────────────────────────────────
+async function abrirNuevoPermisoEmpleado() {
+  if (!session.empleado_id) {
+    toast('Tu usuario no está vinculado a un empleado', 'error'); return;
+  }
+  // Listar permisos previos del empleado
+  const { data: previos } = await sb.from('rrhh_permisos_puntuales')
+    .select('*')
+    .eq('empleado_id', session.empleado_id)
+    .order('fecha', { ascending: false })
+    .limit(10);
+
+  const html = `
+    <div class="modal-bg" id="permiso-emp-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 4px;">Pedir permiso</h3>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Tu solicitud va a quedar pendiente hasta que la encargada o admin la apruebe.</p>
+        <div class="form-grid" style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha *</label>
+            <input type="date" id="perme-fecha" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo *</label>
+            <select id="perme-tipo" onchange="onTipoChangeEmp()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              <option value="retirarse_antes">🚪 Retirarse antes del fin del turno</option>
+              <option value="llegar_tarde">🕐 Llegar más tarde</option>
+              <option value="dia_completo">📅 Día completo</option>
+              <option value="salir_volver">↩️ Salir y volver durante el turno</option>
+            </select>
+          </div>
+          <div id="perme-horario-row" style="display:none;grid-template-columns:1fr 1fr;gap:8px;">
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde</label>
+              <input type="time" id="perme-desde" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hasta</label>
+              <input type="time" id="perme-hasta" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo *</label>
+            <textarea id="perme-motivo" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Contá brevemente el motivo…"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('permiso-emp-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="enviarPermisoEmpleado()">Enviar solicitud</button>
+        </div>
+
+        ${previos && previos.length > 0 ? `
+        <div style="margin-top:24px;border-top:1px solid var(--border);padding-top:16px;">
+          <h4 style="margin:0 0 10px;font-size:14px;">Mis solicitudes recientes</h4>
+          <table style="width:100%;font-size:12px;">
+            <thead><tr style="text-align:left;color:var(--muted);"><th style="padding:4px;">Fecha</th><th style="padding:4px;">Tipo</th><th style="padding:4px;">Estado</th></tr></thead>
+            <tbody>
+              ${previos.map(p => {
+                const tipo = PERMISO_TIPOS[p.tipo] || { label: p.tipo };
+                const estadoBg = { pendiente: '#fef3c7', aprobado: '#d1faf1', rechazado: '#fee2e2' }[p.estado];
+                const estadoColor = { pendiente: '#92400e', aprobado: '#0d9488', rechazado: '#b91c1c' }[p.estado];
+                return `<tr><td style="padding:4px;font-family:monospace;">${p.fecha}</td><td style="padding:4px;">${tipo.label}</td><td style="padding:4px;"><span style="background:${estadoBg};color:${estadoColor};padding:1px 6px;border-radius:99px;font-size:10px;">${p.estado}</span></td></tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function onTipoChangeEmp() {
+  const tipo = document.getElementById('perme-tipo').value;
+  const row = document.getElementById('perme-horario-row');
+  row.style.display = (tipo === 'dia_completo' || !tipo) ? 'none' : 'grid';
+}
+
+async function enviarPermisoEmpleado() {
+  const fecha = document.getElementById('perme-fecha').value;
+  const tipo = document.getElementById('perme-tipo').value;
+  const hora_desde = document.getElementById('perme-desde').value || null;
+  const hora_hasta = document.getElementById('perme-hasta').value || null;
+  const motivo = document.getElementById('perme-motivo').value.trim();
+
+  if (!fecha) { toast('Falta fecha', 'error'); return; }
+  if (!tipo) { toast('Falta tipo', 'error'); return; }
+  if (!motivo) { toast('Contá el motivo', 'error'); return; }
+
+  const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
+    empleado_id: session.empleado_id,
+    fecha, tipo, hora_desde, hora_hasta, motivo,
+    estado: 'pendiente',
+    solicitado_por: session.email,
+  }).select().single();
+
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Solicitud enviada ✓', 'success');
+  document.getElementById('permiso-emp-modal').remove();
 }
 
 </script>
