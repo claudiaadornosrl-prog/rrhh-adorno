@@ -4873,10 +4873,23 @@ async function eliminarPermiso(id) {
 // ─────────────────────────────────────────────────────────────
 // Self-service vendedora: pedir permiso desde mi-calendario
 // ─────────────────────────────────────────────────────────────
-async function abrirNuevoPermisoEmpleado() {
+let editandoPermisoId = null;
+
+async function abrirNuevoPermisoEmpleado(idEditar) {
   if (!session.empleado_id) {
     toast('Tu usuario no está vinculado a un empleado', 'error'); return;
   }
+  editandoPermisoId = idEditar || null;
+
+  // Si estamos editando, cargar los datos
+  let datos = {};
+  if (editandoPermisoId) {
+    const { data: p, error } = await sb.from('rrhh_permisos_puntuales').select('*').eq('id', editandoPermisoId).single();
+    if (error || !p) { toast('No se pudo cargar el permiso', 'error'); editandoPermisoId = null; return; }
+    if (p.estado !== 'pendiente') { toast('Solo podés modificar permisos pendientes', 'error'); editandoPermisoId = null; return; }
+    datos = p;
+  }
+
   // Listar permisos previos del empleado
   const { data: previos } = await sb.from('rrhh_permisos_puntuales')
     .select('*')
@@ -4885,44 +4898,46 @@ async function abrirNuevoPermisoEmpleado() {
     .limit(10);
 
   const hoy = new Date().toISOString().split('T')[0];
+  const tituloModal = editandoPermisoId ? 'Modificar permiso pendiente' : 'Pedir permiso';
+  const textoBoton = editandoPermisoId ? 'Guardar cambios' : 'Enviar solicitud';
   const html = `
     <div class="modal-bg" id="permiso-emp-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
       <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">
-        <h3 style="margin:0 0 4px;">Pedir permiso</h3>
+        <h3 style="margin:0 0 4px;">${tituloModal}</h3>
         <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Tu solicitud va a quedar pendiente hasta que la encargada o admin la apruebe. Los permisos se piden con anticipación — no podés pedir un permiso para una fecha pasada.</p>
         <div class="form-grid" style="display:grid;gap:12px;">
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha * <span style="color:var(--muted);font-size:11px;">(desde hoy en adelante)</span></label>
-            <input type="date" id="perme-fecha" min="${hoy}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <input type="date" id="perme-fecha" min="${hoy}" value="${datos.fecha||''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo *</label>
             <select id="perme-tipo" onchange="onTipoChangeEmp()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
-              <option value="retirarse_antes">🚪 Retirarse antes del fin del turno</option>
-              <option value="llegar_tarde">🕐 Llegar más tarde</option>
-              <option value="dia_completo">📅 Día completo</option>
-              <option value="salir_volver">↩️ Salir y volver durante el turno</option>
+              <option value="retirarse_antes" ${datos.tipo==='retirarse_antes'?'selected':''}>🚪 Retirarse antes del fin del turno</option>
+              <option value="llegar_tarde"    ${datos.tipo==='llegar_tarde'?'selected':''}>🕐 Llegar más tarde</option>
+              <option value="dia_completo"    ${datos.tipo==='dia_completo'?'selected':''}>📅 Día completo</option>
+              <option value="salir_volver"    ${datos.tipo==='salir_volver'?'selected':''}>↩️ Salir y volver durante el turno</option>
             </select>
           </div>
-          <div id="perme-horario-row" style="display:none;grid-template-columns:1fr 1fr;gap:8px;">
+          <div id="perme-horario-row" style="display:${datos.tipo && datos.tipo!=='dia_completo' ? 'grid' : 'none'};grid-template-columns:1fr 1fr;gap:8px;">
             <div>
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde</label>
-              <input type="time" id="perme-desde" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <input type="time" id="perme-desde" value="${(datos.hora_desde||'').substring(0,5)}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
             </div>
             <div>
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hasta</label>
-              <input type="time" id="perme-hasta" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <input type="time" id="perme-hasta" value="${(datos.hora_hasta||'').substring(0,5)}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
             </div>
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo *</label>
-            <textarea id="perme-motivo" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Contá brevemente el motivo…"></textarea>
+            <textarea id="perme-motivo" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Contá brevemente el motivo…">${escapeHtml(datos.motivo||'')}</textarea>
           </div>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
-          <button class="btn" onclick="document.getElementById('permiso-emp-modal').remove()">Cancelar</button>
-          <button class="btn primary" onclick="enviarPermisoEmpleado()">Enviar solicitud</button>
+          <button class="btn" onclick="editandoPermisoId=null;document.getElementById('permiso-emp-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="enviarPermisoEmpleado()">${textoBoton}</button>
         </div>
 
         ${previos && previos.length > 0 ? `
@@ -5042,6 +5057,12 @@ async function renderMisPermisos() {
                         ⚠ Se descontaron ${p.minutos_descontar} min de tu banco
                       </div>
                     ` : ''}
+                    ${p.estado === 'pendiente' ? `
+                      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+                        <button class="btn small" onclick="modificarMiPermiso(${p.id})">✏️ Modificar</button>
+                        <button class="btn small" style="color:var(--danger);" onclick="anularMiPermiso(${p.id})">🗑 Anular</button>
+                      </div>
+                    ` : ''}
                   </div>
                   <div style="text-align:right;font-size:11px;color:var(--muted);min-width:140px;">
                     <div>Solicitado:</div>
@@ -5079,6 +5100,19 @@ async function enviarPermisoEmpleado() {
     return;
   }
 
+  if (editandoPermisoId) {
+    // UPDATE — solo permitido si sigue en pendiente (la RLS también lo valida)
+    const { error } = await sb.from('rrhh_permisos_puntuales').update({
+      fecha, tipo, hora_desde, hora_hasta, motivo,
+    }).eq('id', editandoPermisoId);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    toast('Permiso modificado ✓', 'success');
+    editandoPermisoId = null;
+    document.getElementById('permiso-emp-modal').remove();
+    if (currentTab === 'mis-permisos') switchTab('mis-permisos');
+    return;
+  }
+
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id: session.empleado_id,
     fecha, tipo, hora_desde, hora_hasta, motivo,
@@ -5089,6 +5123,19 @@ async function enviarPermisoEmpleado() {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Solicitud enviada ✓', 'success');
   document.getElementById('permiso-emp-modal').remove();
+  if (currentTab === 'mis-permisos') switchTab('mis-permisos');
+}
+
+async function modificarMiPermiso(id) {
+  await abrirNuevoPermisoEmpleado(id);
+}
+
+async function anularMiPermiso(id) {
+  if (!confirm('¿Anular este permiso? La solicitud se va a eliminar.')) return;
+  const { error } = await sb.from('rrhh_permisos_puntuales').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Permiso anulado', 'info');
+  if (currentTab === 'mis-permisos') switchTab('mis-permisos');
 }
 
 </script>
