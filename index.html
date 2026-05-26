@@ -4908,11 +4908,12 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
         <div class="form-grid" style="display:grid;gap:12px;">
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha * <span style="color:var(--muted);font-size:11px;">(desde hoy en adelante)</span></label>
-            <input type="date" id="perme-fecha" min="${hoy}" value="${datos.fecha||''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <input type="date" id="perme-fecha" min="${hoy}" value="${datos.fecha||''}" onchange="actualizarCalcPermiso()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
+          <div id="perme-turno-info" style="display:none;background:#f9fafb;padding:8px 12px;border-radius:6px;border-left:3px solid var(--accent2);font-size:12px;color:var(--muted);"></div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo *</label>
-            <select id="perme-tipo" onchange="onTipoChangeEmp()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <select id="perme-tipo" onchange="onTipoChangeEmp();actualizarCalcPermiso();" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               <option value="retirarse_antes" ${datos.tipo==='retirarse_antes'?'selected':''}>🚪 Retirarse antes del fin del turno</option>
               <option value="llegar_tarde"    ${datos.tipo==='llegar_tarde'?'selected':''}>🕐 Llegar más tarde</option>
@@ -4922,14 +4923,15 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
           </div>
           <div id="perme-horario-row" style="display:${datos.tipo && datos.tipo!=='dia_completo' ? 'grid' : 'none'};grid-template-columns:1fr 1fr;gap:8px;">
             <div>
-              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde</label>
-              <input type="time" id="perme-desde" value="${(datos.hora_desde||'').substring(0,5)}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <label id="perme-desde-label" style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde</label>
+              <input type="time" id="perme-desde" value="${(datos.hora_desde||'').substring(0,5)}" onchange="actualizarCalcPermiso()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
             </div>
-            <div>
+            <div id="perme-hasta-col">
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hasta</label>
-              <input type="time" id="perme-hasta" value="${(datos.hora_hasta||'').substring(0,5)}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <input type="time" id="perme-hasta" value="${(datos.hora_hasta||'').substring(0,5)}" onchange="actualizarCalcPermiso()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
             </div>
           </div>
+          <div id="perme-calc-box" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:8px;border-left:3px solid #d97706;font-size:13px;color:#92400e;font-weight:600;"></div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo *</label>
             <textarea id="perme-motivo" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Contá brevemente el motivo…">${escapeHtml(datos.motivo||'')}</textarea>
@@ -4959,12 +4961,152 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
+  // Disparar cálculo inicial si hay datos pre-cargados
+  setTimeout(() => actualizarCalcPermiso(), 0);
 }
 
 function onTipoChangeEmp() {
   const tipo = document.getElementById('perme-tipo').value;
   const row = document.getElementById('perme-horario-row');
   row.style.display = (tipo === 'dia_completo' || !tipo) ? 'none' : 'grid';
+
+  // Ajustar labels según tipo
+  const desdeLabel = document.getElementById('perme-desde-label');
+  const hastaCol   = document.getElementById('perme-hasta-col');
+  if (tipo === 'retirarse_antes') {
+    desdeLabel.textContent = 'Hora a la que te retirás';
+    hastaCol.style.display = 'none';
+  } else if (tipo === 'llegar_tarde') {
+    desdeLabel.textContent = 'Hora a la que vas a llegar';
+    hastaCol.style.display = 'none';
+  } else if (tipo === 'salir_volver') {
+    desdeLabel.textContent = 'Salgo a las';
+    hastaCol.style.display = 'block';
+    hastaCol.querySelector('label').textContent = 'Vuelvo a las';
+  } else {
+    desdeLabel.textContent = 'Desde';
+    hastaCol.style.display = 'block';
+  }
+}
+
+// Cache del turno consultado para no spamear queries
+let _turnoCachePermiso = { fecha: null, turno: null };
+
+async function obtenerTurnoVendedoraDia(fecha) {
+  if (!fecha || !session.empleado_id) return null;
+  if (_turnoCachePermiso.fecha === fecha) return _turnoCachePermiso.turno;
+  const { data: turno } = await sb.from('rrhh_turnos')
+    .select('hora_inicio, hora_fin, es_franco, tipo')
+    .eq('empleado_id', session.empleado_id)
+    .eq('fecha', fecha)
+    .maybeSingle();
+  _turnoCachePermiso = { fecha, turno };
+  return turno;
+}
+
+function _horaAMin(h) {
+  if (!h) return null;
+  const parts = h.split(':');
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
+function _fmtMin(m) {
+  if (m == null || m === 0) return '0 min';
+  const sign = m < 0 ? '-' : '';
+  const abs = Math.abs(m);
+  const h = Math.floor(abs / 60);
+  const min = abs % 60;
+  if (h === 0) return `${sign}${min} min`;
+  if (min === 0) return `${sign}${h}h`;
+  return `${sign}${h}h ${min}min`;
+}
+
+async function actualizarCalcPermiso() {
+  const fecha = document.getElementById('perme-fecha')?.value;
+  const tipo = document.getElementById('perme-tipo')?.value;
+  const hd = document.getElementById('perme-desde')?.value;
+  const hh = document.getElementById('perme-hasta')?.value;
+
+  const turnoInfo = document.getElementById('perme-turno-info');
+  const calcBox = document.getElementById('perme-calc-box');
+  if (!turnoInfo || !calcBox) return;
+
+  // 1) Mostrar turno del día
+  if (fecha) {
+    const turno = await obtenerTurnoVendedoraDia(fecha);
+    if (turno) {
+      if (turno.es_franco) {
+        turnoInfo.innerHTML = `📅 Ese día tenés <strong>franco</strong> planificado.`;
+      } else if (turno.hora_inicio && turno.hora_fin) {
+        turnoInfo.innerHTML = `📅 Turno planificado: <strong>${turno.hora_inicio.substring(0,5)} → ${turno.hora_fin.substring(0,5)}</strong>`;
+      } else {
+        turnoInfo.innerHTML = `📅 No hay turno planificado para ese día.`;
+      }
+      turnoInfo.style.display = 'block';
+    } else {
+      turnoInfo.innerHTML = `📅 No hay turno planificado para ese día.`;
+      turnoInfo.style.display = 'block';
+    }
+  } else {
+    turnoInfo.style.display = 'none';
+  }
+
+  // 2) Calcular minutos según tipo
+  if (!tipo) { calcBox.style.display = 'none'; return; }
+  const turno = await obtenerTurnoVendedoraDia(fecha);
+  let minutos = 0;
+  let explicacion = '';
+
+  if (tipo === 'dia_completo') {
+    if (turno && turno.hora_inicio && turno.hora_fin && !turno.es_franco) {
+      minutos = _horaAMin(turno.hora_fin) - _horaAMin(turno.hora_inicio);
+      explicacion = `Jornada completa del turno (${turno.hora_inicio.substring(0,5)} a ${turno.hora_fin.substring(0,5)})`;
+    } else {
+      explicacion = 'No se puede calcular sin turno planificado.';
+    }
+  } else if (tipo === 'retirarse_antes' && hd) {
+    if (turno && turno.hora_fin && !turno.es_franco) {
+      minutos = _horaAMin(turno.hora_fin) - _horaAMin(hd);
+      if (minutos < 0) {
+        explicacion = `⚠ La hora es posterior al fin del turno (${turno.hora_fin.substring(0,5)})`;
+        minutos = 0;
+      } else {
+        explicacion = `Te retirás a las ${hd}, el turno termina ${turno.hora_fin.substring(0,5)}`;
+      }
+    } else {
+      explicacion = 'Necesito el turno para calcular.';
+    }
+  } else if (tipo === 'llegar_tarde' && hd) {
+    if (turno && turno.hora_inicio && !turno.es_franco) {
+      minutos = _horaAMin(hd) - _horaAMin(turno.hora_inicio);
+      if (minutos < 0) {
+        explicacion = `⚠ La hora es anterior al inicio del turno (${turno.hora_inicio.substring(0,5)})`;
+        minutos = 0;
+      } else {
+        explicacion = `Llegás a las ${hd}, el turno empieza ${turno.hora_inicio.substring(0,5)}`;
+      }
+    } else {
+      explicacion = 'Necesito el turno para calcular.';
+    }
+  } else if (tipo === 'salir_volver' && hd && hh) {
+    minutos = _horaAMin(hh) - _horaAMin(hd);
+    if (minutos < 0) {
+      explicacion = '⚠ La hora de vuelta es anterior a la de salida';
+      minutos = 0;
+    } else {
+      explicacion = `Salís ${hd}, volvés ${hh}`;
+    }
+  }
+
+  if (minutos > 0) {
+    calcBox.innerHTML = `⏱ Estás pidiendo <strong>${_fmtMin(minutos)}</strong> · <span style="font-weight:400;color:#92400e;">${explicacion}</span>`;
+    calcBox.style.display = 'block';
+  } else if (explicacion) {
+    calcBox.innerHTML = `<span style="font-weight:400;">${explicacion}</span>`;
+    calcBox.style.display = 'block';
+  } else {
+    calcBox.style.display = 'none';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -5100,10 +5242,26 @@ async function enviarPermisoEmpleado() {
     return;
   }
 
+  // Calcular minutos pedidos automáticamente
+  const turno = await obtenerTurnoVendedoraDia(fecha);
+  let minutosCalc = 0;
+  if (turno && !turno.es_franco && turno.hora_inicio && turno.hora_fin) {
+    if (tipo === 'dia_completo') {
+      minutosCalc = _horaAMin(turno.hora_fin) - _horaAMin(turno.hora_inicio);
+    } else if (tipo === 'retirarse_antes' && hora_desde) {
+      minutosCalc = Math.max(0, _horaAMin(turno.hora_fin) - _horaAMin(hora_desde));
+    } else if (tipo === 'llegar_tarde' && hora_desde) {
+      minutosCalc = Math.max(0, _horaAMin(hora_desde) - _horaAMin(turno.hora_inicio));
+    } else if (tipo === 'salir_volver' && hora_desde && hora_hasta) {
+      minutosCalc = Math.max(0, _horaAMin(hora_hasta) - _horaAMin(hora_desde));
+    }
+  }
+
   if (editandoPermisoId) {
     // UPDATE — solo permitido si sigue en pendiente (la RLS también lo valida)
     const { error } = await sb.from('rrhh_permisos_puntuales').update({
       fecha, tipo, hora_desde, hora_hasta, motivo,
+      minutos_descontar: minutosCalc,
     }).eq('id', editandoPermisoId);
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     toast('Permiso modificado ✓', 'success');
@@ -5118,6 +5276,7 @@ async function enviarPermisoEmpleado() {
     fecha, tipo, hora_desde, hora_hasta, motivo,
     estado: 'pendiente',
     solicitado_por: session.email,
+    minutos_descontar: minutosCalc,
   }).select().single();
 
   if (error) { toast('Error: ' + error.message, 'error'); return; }
