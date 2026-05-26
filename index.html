@@ -4179,7 +4179,7 @@ async function renderDetalleEmpDia(empId) {
   function puntosErrorPremio(d) {
     if (d.estado === 'falta_fichada') return (!d.entrada && !d.salida) ? 2 : 1;
     if (d.estado === 'ausente' && d.turno?.hora_inicio) return 2;
-    if ((d.minutos_tarde||0) > 60 && ['tarde','puntual'].includes(d.estado)) return 1;
+    if (d.estado === 'tarde') return 1;
     return 0;
   }
   function esErrorPremio(d) { return puntosErrorPremio(d) > 0; }
