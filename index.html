@@ -1,0 +1,2904 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RRHH · Claudia Adorno</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0d9488">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RRHH Adorno">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ────────────────────────────────────────────────────────────── */
+/* RRHH ADORNO — Estilos (consistentes con CRM, acento diferencial) */
+/* ────────────────────────────────────────────────────────────── */
+:root {
+  --bg:        #f4f5f7;
+  --card:      #ffffff;
+  --text:      #1a1a2e;
+  --muted:     #6b7280;
+  --border:    #e5e7eb;
+  --accent:    #1a1a2e;          /* navy (igual que CRM) */
+  --accent2:   #0d9488;          /* teal — distintivo RRHH */
+  --accent2-soft: #d1faf1;
+  --danger:    #dc2626;
+  --warning:   #d97706;
+  --success:   #059669;
+  --info:      #2563eb;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; padding: 0; font-family: 'Josefin Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; font-size: 15px; }
+
+/* ============================================== */
+/* PANTALLA DE LOGIN                              */
+/* ============================================== */
+#login-screen {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #1a1a2e 0%, #2d2d4e 100%);
+  padding: 40px 20px;
+}
+.login-wrap { width: 100%; max-width: 400px; }
+.login-logo { text-align: center; color: white; margin-bottom: 32px; }
+.login-logo .badge { display: inline-block; background: var(--accent2); color: white; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px; }
+.login-logo h1 { font-size: 32px; margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+.login-logo .subtitle { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 6px; }
+.login-card {
+  background: white; border-radius: 20px; padding: 32px 28px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.login-card h2 { margin: 0 0 24px; font-size: 18px; font-weight: 600; text-align: center; color: var(--text); }
+.login-field { margin-bottom: 16px; }
+.login-field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.login-field input {
+  width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px;
+  background: #fafafa; outline: none; transition: all 0.15s;
+}
+.login-field input:focus { border-color: var(--accent2); background: white; }
+.login-btn {
+  width: 100%; padding: 14px; background: var(--accent); color: white; border: none;
+  border-radius: 10px; font-size: 15px; font-weight: 600; margin-top: 8px; transition: background 0.15s;
+}
+.login-btn:hover { background: #2d2d4e; }
+.login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-error {
+  background: #fee2e2; color: var(--danger); padding: 10px 14px; border-radius: 8px;
+  font-size: 13px; margin-top: 12px; display: none;
+}
+.login-error.show { display: block; }
+.login-footer { text-align: center; margin-top: 18px; font-size: 12px; color: rgba(255,255,255,0.5); }
+.login-footer a { color: rgba(255,255,255,0.7); cursor: pointer; text-decoration: underline; }
+
+/* ============================================== */
+/* APP PRINCIPAL                                  */
+/* ============================================== */
+#app-screen { display: none; min-height: 100vh; }
+#app-screen.active { display: flex; flex-direction: column; }
+
+.topbar {
+  background: var(--accent); color: white; padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.topbar-left { display: flex; align-items: center; gap: 16px; }
+.topbar-logo { display: flex; align-items: center; gap: 10px; }
+.topbar-logo .badge {
+  background: var(--accent2); color: white; padding: 3px 10px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.topbar-logo h1 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -0.01em; }
+.topbar-link { font-size: 13px; color: rgba(255,255,255,0.6); padding: 4px 8px; border-radius: 6px; transition: all 0.15s; }
+.topbar-link:hover { color: white; background: rgba(255,255,255,0.1); }
+.topbar-right { display: flex; align-items: center; gap: 14px; }
+.user-info { display: flex; align-items: center; gap: 10px; }
+.user-info .name { font-size: 14px; font-weight: 500; }
+.user-info .role { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--accent2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.user-info .role.admin { background: var(--accent2); }
+.user-info .role.gerente { background: var(--warning); }
+.user-info .role.empleado { background: #6366f1; }
+.logout-btn {
+  background: transparent; color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.2);
+  padding: 6px 12px; border-radius: 8px; font-size: 13px; transition: all 0.15s;
+}
+.logout-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+
+.layout { display: flex; flex: 1; }
+
+.sidebar {
+  width: 240px; background: var(--card); border-right: 1px solid var(--border);
+  padding: 20px 12px; display: flex; flex-direction: column; gap: 4px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px;
+  font-size: 14px; color: var(--muted); cursor: pointer; transition: all 0.15s;
+  border: none; background: transparent; text-align: left; width: 100%;
+}
+.nav-item:hover { background: #f3f4f6; color: var(--text); }
+.nav-item.active { background: var(--accent); color: white; font-weight: 500; }
+.nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+.nav-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 16px 14px 6px; font-weight: 600; }
+
+.main {
+  flex: 1; padding: 32px; overflow-y: auto;
+  max-width: 1400px;
+}
+
+.page-header { margin-bottom: 24px; }
+.page-header h2 { margin: 0 0 6px; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.page-header .subtitle { color: var(--muted); font-size: 14px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; margin-bottom: 16px;
+}
+
+.placeholder {
+  text-align: center; padding: 80px 20px; color: var(--muted);
+}
+.placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+.placeholder h3 { font-size: 18px; font-weight: 500; color: var(--text); margin: 0 0 6px; }
+.placeholder p { margin: 0; font-size: 14px; }
+.placeholder .phase-tag {
+  display: inline-block; margin-top: 16px; background: var(--accent2-soft); color: var(--accent2);
+  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+}
+
+/* Dashboard cards (Fase 0 — métricas simples) */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+.metric-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 8px; }
+.metric-card .value { font-size: 32px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; }
+.metric-card .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.metric-card.accent { border-left: 4px solid var(--accent2); }
+.metric-card.warn   { border-left: 4px solid var(--warning); }
+
+/* Spinner */
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent2); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 40px auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================== */
+/* MÓDULO EMPLEADOS                              */
+/* ============================================== */
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.toolbar input[type="search"], .toolbar select, .toolbar input[type="text"] {
+  padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  background: var(--card); outline: none; transition: border-color 0.15s;
+}
+.toolbar input:focus, .toolbar select:focus { border-color: var(--accent2); }
+.toolbar input[type="search"] { min-width: 260px; flex: 1; }
+.toolbar .right { margin-left: auto; display: flex; gap: 10px; }
+
+.btn { padding: 9px 16px; border: 1.5px solid var(--border); background: var(--card); color: var(--text); border-radius: 10px; font-weight: 500; transition: all 0.15s; cursor: pointer; font-size: 14px; }
+.btn:hover { background: #f3f4f6; }
+.btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn.primary:hover { background: #2d2d4e; }
+.btn.accent2 { background: var(--accent2); color: white; border-color: var(--accent2); }
+.btn.accent2:hover { background: #0b7a6e; }
+.btn.danger { color: var(--danger); border-color: #fecaca; }
+.btn.danger:hover { background: #fee2e2; }
+.btn.small { padding: 5px 10px; font-size: 12px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.emp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.emp-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 18px; cursor: pointer; transition: all 0.15s;
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.emp-card:hover { border-color: var(--accent2); box-shadow: 0 4px 16px rgba(0,0,0,0.06); transform: translateY(-1px); }
+.emp-avatar {
+  width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #6366f1, #a78bfa); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 18px; letter-spacing: -0.01em;
+}
+.emp-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.emp-info { flex: 1; min-width: 0; }
+.emp-info .name { font-weight: 600; font-size: 15px; line-height: 1.2; margin-bottom: 4px; }
+.emp-info .meta { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.emp-info .meta .sep { margin: 0 6px; opacity: 0.5; }
+.emp-info .tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.emp-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; color: var(--muted);
+  font-weight: 500;
+}
+.emp-tag.local-unicenter { background: #dbeafe; color: #1e40af; }
+.emp-tag.local-alcorta   { background: #fce7f3; color: #be185d; }
+.emp-tag.local-oficina   { background: #d1faf1; color: #0d9488; }
+.emp-tag.estado-licencia { background: #fef3c7; color: #92400e; }
+.emp-tag.estado-baja     { background: #fee2e2; color: #b91c1c; }
+
+.emp-empty { text-align: center; padding: 60px 20px; color: var(--muted); background: var(--card); border-radius: 14px; border: 1px dashed var(--border); }
+
+/* ============================================== */
+/* MODAL — Vista 360°                            */
+/* ============================================== */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
+  z-index: 1000; display: none; align-items: flex-start; justify-content: center;
+  padding: 40px 20px; overflow-y: auto;
+}
+.modal-backdrop.show { display: flex; }
+.modal {
+  background: var(--card); border-radius: 16px; width: 100%; max-width: 900px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.4); overflow: hidden;
+  animation: modal-in 0.18s ease-out;
+}
+@keyframes modal-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+.modal-header {
+  padding: 20px 24px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+}
+.modal-header .title { display: flex; align-items: center; gap: 14px; }
+.modal-header h3 { margin: 0; font-size: 18px; font-weight: 600; }
+.modal-header .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.modal-close { background: transparent; border: none; font-size: 22px; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 6px; line-height: 1; }
+.modal-close:hover { background: #f3f4f6; color: var(--text); }
+
+.modal-tabs { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--border); background: #fafafa; overflow-x: auto; }
+.modal-tab {
+  padding: 12px 14px; background: transparent; border: none; border-bottom: 2px solid transparent;
+  font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; white-space: nowrap;
+  transition: all 0.15s;
+}
+.modal-tab:hover { color: var(--text); }
+.modal-tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+.modal-body { padding: 24px; max-height: 60vh; overflow-y: auto; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #fafafa; }
+
+/* Form layouts dentro del modal */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 18px; }
+.form-grid.full-row { grid-template-columns: 1fr; }
+.form-row { display: flex; flex-direction: column; gap: 4px; }
+.form-row label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.form-row input, .form-row select, .form-row textarea {
+  padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+  background: var(--card); outline: none; transition: border-color 0.15s; width: 100%;
+}
+.form-row input:focus, .form-row select:focus, .form-row textarea:focus { border-color: var(--accent2); }
+.form-row.full { grid-column: 1 / -1; }
+.form-row textarea { min-height: 70px; resize: vertical; font-family: inherit; }
+.form-row .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.form-row.readonly input, .form-row.readonly select { background: #f9fafb; cursor: not-allowed; color: var(--muted); }
+
+.section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.section-title:first-child { margin-top: 0; }
+
+.simple-list { list-style: none; padding: 0; margin: 0; }
+.simple-list li { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.simple-list li .meta { color: var(--muted); font-size: 12px; }
+
+.toast {
+  position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: white;
+  padding: 12px 18px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  z-index: 2000; font-size: 14px; opacity: 0; transform: translateY(10px); transition: all 0.2s;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.error { background: var(--danger); }
+.toast.success { background: var(--success); }
+
+@media (max-width: 768px) {
+  .sidebar { width: 60px; padding: 12px 6px; }
+  .nav-item .label { display: none; }
+  .nav-section { display: none; }
+  .main { padding: 16px; }
+  .modal { max-width: 100%; margin: 0; border-radius: 12px; }
+  .form-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- LOGIN SCREEN                                                  -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-wrap">
+    <div class="login-logo">
+      <div class="badge">Recursos Humanos</div>
+      <h1>Claudia Adorno</h1>
+      <div class="subtitle">Portal de RRHH · v0.1</div>
+    </div>
+    <div class="login-card">
+      <h2>Iniciar sesión</h2>
+      <form id="login-form" autocomplete="on">
+        <div class="login-field">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" required autocomplete="email" placeholder="tu@email.com">
+        </div>
+        <div class="login-field">
+          <label for="login-pass">Contraseña</label>
+          <input type="password" id="login-pass" required autocomplete="current-password" placeholder="••••••••">
+        </div>
+        <button type="submit" class="login-btn" id="login-submit">Ingresar</button>
+        <div class="login-error" id="login-error"></div>
+      </form>
+    </div>
+    <div class="login-footer">
+      ¿Olvidaste tu contraseña? <a id="forgot-link">Recuperar</a>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- APP SCREEN                                                    -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div id="app-screen">
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-logo">
+        <span class="badge">RRHH</span>
+        <h1>Claudia Adorno</h1>
+      </div>
+      <a class="topbar-link" href="https://claudiaadornosrl-prog.github.io/crm-adorno/" target="_blank">→ CRM</a>
+    </div>
+    <div class="topbar-right">
+      <div class="user-info">
+        <span class="name" id="user-name">—</span>
+        <span class="role" id="user-role">—</span>
+      </div>
+      <button class="logout-btn" id="logout-btn">Salir</button>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <!-- nav-items se inyectan según rol -->
+    </aside>
+    <main class="main" id="main">
+      <div class="spinner"></div>
+    </main>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- MODAL VISTA 360° EMPLEADO                                     -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop" id="emp-modal-backdrop">
+  <div class="modal" id="emp-modal">
+    <div class="modal-header">
+      <div class="title">
+        <div class="emp-avatar" id="emp-modal-avatar">?</div>
+        <div>
+          <h3 id="emp-modal-name">—</h3>
+          <div class="meta" id="emp-modal-meta">—</div>
+        </div>
+      </div>
+      <button class="modal-close" id="emp-modal-close">×</button>
+    </div>
+    <div class="modal-tabs" id="emp-modal-tabs"></div>
+    <div class="modal-body" id="emp-modal-body">
+      <div class="spinner"></div>
+    </div>
+    <div class="modal-footer">
+      <div id="emp-modal-footer-left"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" id="emp-modal-cancel">Cerrar</button>
+        <button class="btn primary" id="emp-modal-save" style="display:none;">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Supabase JS v2 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════
+const SUPA_URL = 'https://kwwiykssrpabncpqtmwi.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3d2l5a3NzcnBhYm5jcHF0bXdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNjI1NTQsImV4cCI6MjA5NDkzODU1NH0.O1VhKdjPahnJJ9qXcQuSKQbnKGhsEZqYmjDEfRuRpkc';
+
+const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    storageKey: 'rrhh-adorno-auth',  // distinto al CRM para no chocar
+  }
+});
+
+const LOCALES = {
+  unicenter: { nombre: 'Unicenter', icon: '🏬', sub: 'Martínez' },
+  alcorta:   { nombre: 'Alcorta',   icon: '🛍️', sub: 'Palermo' },
+  oficina:   { nombre: 'Oficina',   icon: '💻', sub: 'Don Torcuato' },
+};
+
+// Navegación por rol
+const NAV = {
+  admin: [
+    { id: 'dashboard',   label: 'Dashboard',     icon: '📊', section: null },
+    { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
+    { id: 'sueldos',     label: 'Sueldos',       icon: '💰', section: 'Personal' },
+    { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
+    { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
+    { id: 'documentos',  label: 'Documentos',    icon: '📄', section: 'Personal' },
+    { id: 'reportes',    label: 'Reportes',      icon: '📈', section: 'Análisis' },
+    { id: 'config',      label: 'Configuración', icon: '⚙️', section: 'Admin' },
+  ],
+  gerente: [
+    { id: 'dashboard',   label: 'Mi local',     icon: '📊', section: null },
+    { id: 'empleados',   label: 'Mi equipo',    icon: '👥', section: null },
+    { id: 'asistencias', label: 'Asistencias',  icon: '🕐', section: null },
+    { id: 'vacaciones',  label: 'Vacaciones',   icon: '🌴', section: null },
+  ],
+  empleado: [
+    { id: 'mi-legajo',     label: 'Mi legajo',     icon: '👤', section: null },
+    { id: 'mis-recibos',   label: 'Mis recibos',   icon: '💰', section: null },
+    { id: 'mis-vacaciones',label: 'Mis vacaciones',icon: '🌴', section: null },
+    { id: 'mis-fichadas',  label: 'Mis fichadas',  icon: '🕐', section: null },
+    { id: 'mis-certif',    label: 'Mis certif. médicos', icon: '🏥', section: null },
+  ]
+};
+
+let session = null;  // { user, rol, empleado, empleadoData }
+let currentTab = 'dashboard';
+
+// ════════════════════════════════════════════════════════════
+// AUTH FLOW
+// ════════════════════════════════════════════════════════════
+async function init() {
+  const { data: { session: authSession } } = await sb.auth.getSession();
+  if (authSession) {
+    await onLoggedIn(authSession.user);
+  } else {
+    showLogin();
+  }
+  sb.auth.onAuthStateChange((event, authSession) => {
+    if (event === 'SIGNED_IN' && authSession) onLoggedIn(authSession.user);
+    else if (event === 'SIGNED_OUT') showLogin();
+  });
+}
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app-screen').classList.remove('active');
+  session = null;
+}
+
+async function onLoggedIn(user) {
+  // Cargar info del rrhh_usuarios + empleado
+  const { data: usuarioRow, error: errU } = await sb
+    .from('rrhh_usuarios')
+    .select('id, rol, local_gerencia, empleado_id, email, activo')
+    .eq('auth_user_id', user.id)
+    .eq('activo', true)
+    .maybeSingle();
+
+  if (errU || !usuarioRow) {
+    showLoginError('Tu usuario no está autorizado. Contactá al administrador.');
+    await sb.auth.signOut();
+    return;
+  }
+
+  let empleadoData = null;
+  if (usuarioRow.empleado_id) {
+    const { data: emp } = await sb
+      .from('rrhh_empleados')
+      .select('id, nombre, apellido, nombre_completo, local, fecha_ingreso, dni, foto_url')
+      .eq('id', usuarioRow.empleado_id)
+      .maybeSingle();
+    empleadoData = emp;
+  }
+
+  session = {
+    user,
+    rol: usuarioRow.rol,
+    local_gerencia: usuarioRow.local_gerencia,
+    empleado_id: usuarioRow.empleado_id,
+    empleadoData,
+    email: usuarioRow.email,
+  };
+
+  // Update last_login (best effort, sin bloquear)
+  sb.from('rrhh_usuarios').update({ last_login: new Date().toISOString() }).eq('id', usuarioRow.id);
+
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-screen').classList.add('active');
+
+  renderUserInfo();
+  renderSidebar();
+  // Tab inicial según rol
+  const firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
+  switchTab(firstTab);
+}
+
+function renderUserInfo() {
+  const name = session.empleadoData
+    ? `${session.empleadoData.nombre.split(' ')[0]} ${session.empleadoData.apellido.split(' ')[0]}`
+    : session.email;
+  document.getElementById('user-name').textContent = name;
+  const roleEl = document.getElementById('user-role');
+  roleEl.textContent = session.rol;
+  roleEl.className = 'role ' + session.rol;
+}
+
+function renderSidebar() {
+  const sb_el = document.getElementById('sidebar');
+  const items = NAV[session.rol] || [];
+  let html = '';
+  let lastSection = undefined;
+  items.forEach(item => {
+    if (item.section !== lastSection) {
+      if (item.section) html += `<div class="nav-section">${item.section}</div>`;
+      lastSection = item.section;
+    }
+    html += `<button class="nav-item" data-tab="${item.id}">
+      <span class="icon">${item.icon}</span>
+      <span class="label">${item.label}</span>
+    </button>`;
+  });
+  sb_el.innerHTML = html;
+  sb_el.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// TABS / PÁGINAS
+// ════════════════════════════════════════════════════════════
+function switchTab(tabId) {
+  currentTab = tabId;
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  renderPage(tabId);
+}
+
+async function renderPage(tabId) {
+  const main = document.getElementById('main');
+  // Map tab → función render
+  const renderers = {
+    'dashboard':       renderDashboard,
+    'empleados':       renderEmpleados,
+    'sueldos':         renderSueldosAdmin,
+    'asistencias':     renderAsistenciasAdmin,
+    'vacaciones':      renderVacacionesAdmin,
+    'documentos':      renderDocumentosAdmin,
+    'reportes':        () => placeholder('Reportes', '📈', 'Exports Excel y PDF', 1),
+    'config':          renderConfigAdmin,
+    'mi-legajo':       renderMiLegajo,
+    'mis-recibos':     renderMisRecibos,
+    'mis-vacaciones':  renderMisVacaciones,
+    'mis-fichadas':    renderMisFichadas,
+    'mis-certif':      renderMisCertificados,
+  };
+  const fn = renderers[tabId] || (() => '<div class="placeholder">Página no encontrada</div>');
+  main.innerHTML = '<div class="spinner"></div>';
+  try {
+    const html = await fn();
+    main.innerHTML = html;
+    // Hooks post-render por tab
+    if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
+  } catch (e) {
+    console.error(e);
+    main.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${e.message}</div>`;
+  }
+}
+
+function placeholder(titulo, icon, descripcion, fase) {
+  return `
+    <div class="page-header">
+      <h2>${titulo}</h2>
+      <div class="subtitle">${descripcion}</div>
+    </div>
+    <div class="card">
+      <div class="placeholder">
+        <div class="icon">${icon}</div>
+        <h3>Próximamente</h3>
+        <p>Este módulo se construye en la Fase ${fase}.</p>
+        <div class="phase-tag">Fase ${fase}</div>
+      </div>
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+// DASHBOARD (Fase 0 — métricas básicas para verificar conexión)
+// ════════════════════════════════════════════════════════════
+async function renderDashboard() {
+  // Solo para admin/gerente — empleado tiene su propio "mi-legajo"
+  const isAdmin = session.rol === 'admin';
+  const local = session.local_gerencia;
+
+  let q = sb.from('rrhh_empleados').select('id, local, estado', { count: 'exact' }).eq('estado', 'activo');
+  if (!isAdmin && local) q = q.eq('local', local);
+  const { data: empleados, count: totalEmp } = await q;
+
+  // Conteos por local (solo admin)
+  const conteoPorLocal = {};
+  if (isAdmin && empleados) {
+    empleados.forEach(e => { conteoPorLocal[e.local] = (conteoPorLocal[e.local] || 0) + 1; });
+  }
+
+  // Cumpleaños del mes
+  const hoy = new Date();
+  const mesActual = hoy.getMonth() + 1;
+  const { data: cumple } = await sb
+    .from('rrhh_empleados')
+    .select('id, nombre, apellido, fecha_nacimiento, local')
+    .eq('estado', 'activo')
+    .not('fecha_nacimiento', 'is', null);
+  const cumpleEsteMes = (cumple || []).filter(e => {
+    const m = new Date(e.fecha_nacimiento).getMonth() + 1;
+    return m === mesActual && (isAdmin || e.local === local);
+  });
+
+  // Vacaciones del año
+  const { count: vacPendientes } = await sb
+    .from('rrhh_vacaciones_movimientos')
+    .select('id', { count: 'exact', head: true })
+    .eq('estado', 'solicitada');
+
+  // Próximo feriado
+  const { data: prox } = await sb
+    .from('rrhh_feriados')
+    .select('fecha, nombre')
+    .gte('fecha', hoy.toISOString().split('T')[0])
+    .order('fecha', { ascending: true })
+    .limit(1);
+  const proxFeriado = prox?.[0];
+
+  let html = `
+    <div class="page-header">
+      <h2>${isAdmin ? 'Dashboard general' : 'Dashboard de ' + (LOCALES[local]?.nombre || local)}</h2>
+      <div class="subtitle">${new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card accent">
+        <div class="label">Empleados activos</div>
+        <div class="value">${totalEmp || 0}</div>
+        ${isAdmin ? `<div class="hint">Unicenter ${conteoPorLocal.unicenter||0} · Alcorta ${conteoPorLocal.alcorta||0} · Oficina ${conteoPorLocal.oficina||0}</div>` : '<div class="hint">' + (LOCALES[local]?.nombre || '') + '</div>'}
+      </div>
+
+      <div class="metric-card">
+        <div class="label">Cumpleaños este mes</div>
+        <div class="value">${cumpleEsteMes.length}</div>
+        <div class="hint">${cumpleEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : cumpleEsteMes.slice(0,3).map(c => c.nombre.split(' ')[0]).join(', ')}</div>
+      </div>
+
+      ${isAdmin ? `
+      <div class="metric-card warn">
+        <div class="label">Vacaciones pendientes</div>
+        <div class="value">${vacPendientes || 0}</div>
+        <div class="hint">Solicitudes sin aprobar</div>
+      </div>
+      ` : ''}
+
+      <div class="metric-card">
+        <div class="label">Próximo feriado</div>
+        <div class="value" style="font-size:18px;">${proxFeriado ? new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : '—'}</div>
+        <div class="hint">${proxFeriado?.nombre || 'Sin feriados próximos'}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:16px;font-weight:600;">🚧 Módulo en construcción</h3>
+      <p style="margin:0;color:var(--muted);font-size:14px;line-height:1.5;">
+        Fase 0 (infraestructura) <strong style="color:var(--success);">✓ completa</strong>.
+        Las pestañas del menú izquierdo se irán llenando en las próximas fases:
+        empleados (1), sueldos (2), asistencias (3), vacaciones (4), documentos (5), self-service (6).
+      </p>
+    </div>
+  `;
+  return html;
+}
+
+// ════════════════════════════════════════════════════════════
+// LOGIN HANDLERS
+// ════════════════════════════════════════════════════════════
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function hideLoginError() {
+  document.getElementById('login-error').classList.remove('show');
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hideLoginError();
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-pass').value;
+  const btn   = document.getElementById('login-submit');
+  btn.disabled = true; btn.textContent = 'Ingresando…';
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    // onAuthStateChange dispara onLoggedIn
+  } catch (err) {
+    showLoginError(err.message || 'Error al iniciar sesión');
+    btn.disabled = false; btn.textContent = 'Ingresar';
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+});
+
+document.getElementById('forgot-link').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { showLoginError('Ingresá tu email primero arriba.'); return; }
+  hideLoginError();
+  try {
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.href
+    });
+    if (error) throw error;
+    alert('Te mandamos un mail con el link para resetear la contraseña. Revisá tu casilla (puede caer en spam).');
+  } catch (err) {
+    showLoginError(err.message || 'Error al pedir recuperación');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════
+function toast(msg, kind = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + kind;
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+function initials(apellido, nombre) {
+  const a = (apellido || '').trim()[0] || '';
+  const n = (nombre   || '').trim()[0] || '';
+  return (a + n).toUpperCase() || '?';
+}
+
+function fmtFecha(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function antigüedad(fechaIngreso) {
+  if (!fechaIngreso) return '—';
+  const ing = new Date(fechaIngreso);
+  const hoy = new Date();
+  const años = (hoy - ing) / (1000 * 60 * 60 * 24 * 365.25);
+  if (años < 1) {
+    const meses = Math.floor(años * 12);
+    return meses + (meses === 1 ? ' mes' : ' meses');
+  }
+  return Math.floor(años) + (Math.floor(años) === 1 ? ' año' : ' años');
+}
+
+async function auditLog(accion, tabla, registroId, campo = null, valorAnterior = null, valorNuevo = null) {
+  try {
+    await sb.from('rrhh_log').insert({
+      usuario: session.email,
+      rol: session.rol,
+      accion,
+      tabla,
+      registro_id: registroId,
+      campo,
+      valor_anterior: valorAnterior == null ? null : String(valorAnterior),
+      valor_nuevo:    valorNuevo    == null ? null : String(valorNuevo),
+    });
+  } catch (e) {
+    console.warn('auditLog falló:', e);
+  }
+}
+
+// Cache de categorías CCT (no cambian seguido)
+let CACHE_CATEGORIAS = null;
+async function getCategorias() {
+  if (CACHE_CATEGORIAS) return CACHE_CATEGORIAS;
+  const { data } = await sb.from('rrhh_categorias_cct').select('id, codigo, nombre, sueldo_basico, activa').order('nombre');
+  CACHE_CATEGORIAS = data || [];
+  return CACHE_CATEGORIAS;
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO EMPLEADOS — Listado
+// ════════════════════════════════════════════════════════════
+let empleadosState = {
+  search: '',
+  local: '',
+  estado: 'activo',
+  empleados: [],
+};
+
+async function renderEmpleados() {
+  const isAdmin = session.rol === 'admin';
+  // Listado base
+  const html = `
+    <div class="page-header">
+      <h2>Empleados</h2>
+      <div class="subtitle">${isAdmin ? 'Padrón completo de Claudia Adorno SRL' : 'Empleados de ' + (LOCALES[session.local_gerencia]?.nombre || 'tu local')}</div>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="emp-search" placeholder="Buscar por nombre, DNI, CUIL…" value="${escapeHtml(empleadosState.search)}">
+      ${isAdmin ? `
+      <select id="emp-filter-local">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${empleadosState.local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${empleadosState.local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${empleadosState.local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>
+      ` : ''}
+      <select id="emp-filter-estado">
+        <option value="activo"   ${empleadosState.estado==='activo'  ?'selected':''}>Activos</option>
+        <option value="licencia" ${empleadosState.estado==='licencia'?'selected':''}>En licencia</option>
+        <option value="baja"     ${empleadosState.estado==='baja'    ?'selected':''}>Bajas</option>
+        <option value=""         ${empleadosState.estado===''        ?'selected':''}>Todos</option>
+      </select>
+      ${isAdmin ? `<div class="right"><button class="btn accent2" id="emp-new-btn">+ Nuevo empleado</button></div>` : ''}
+    </div>
+
+    <div id="emp-list-container">
+      <div class="spinner"></div>
+    </div>
+  `;
+  // ⚠️ inyectamos sin esperar — listeners después
+  setTimeout(() => {
+    document.getElementById('emp-search').addEventListener('input', (e) => {
+      empleadosState.search = e.target.value;
+      renderEmpleadosList();
+    });
+    const fl = document.getElementById('emp-filter-local');
+    if (fl) fl.addEventListener('change', (e) => { empleadosState.local = e.target.value; renderEmpleadosList(); });
+    document.getElementById('emp-filter-estado').addEventListener('change', (e) => {
+      empleadosState.estado = e.target.value; renderEmpleadosList();
+    });
+    const newBtn = document.getElementById('emp-new-btn');
+    if (newBtn) newBtn.addEventListener('click', () => openEmpleadoModal(null));
+    renderEmpleadosList();
+  }, 0);
+  return html;
+}
+
+async function renderEmpleadosList() {
+  const cont = document.getElementById('emp-list-container');
+  cont.innerHTML = '<div class="spinner"></div>';
+
+  let q = sb.from('rrhh_empleados').select(`
+    id, dni, cuil, apellido, nombre, nombre_completo, local, estado,
+    fecha_ingreso, foto_url, telefono, email,
+    categoria:rrhh_categorias_cct(nombre)
+  `).order('apellido', { ascending: true });
+
+  if (empleadosState.estado) q = q.eq('estado', empleadosState.estado);
+  if (empleadosState.local)  q = q.eq('local',  empleadosState.local);
+
+  const { data, error } = await q;
+  if (error) {
+    cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`;
+    return;
+  }
+  empleadosState.empleados = data || [];
+
+  // Filtro search en cliente
+  let lista = empleadosState.empleados;
+  if (empleadosState.search.trim()) {
+    const s = empleadosState.search.toLowerCase().trim();
+    lista = lista.filter(e =>
+      (e.nombre_completo || '').toLowerCase().includes(s) ||
+      (e.dni  || '').includes(s) ||
+      (e.cuil || '').includes(s) ||
+      (e.email || '').toLowerCase().includes(s)
+    );
+  }
+
+  if (lista.length === 0) {
+    cont.innerHTML = `<div class="emp-empty">No hay empleados que coincidan con los filtros.</div>`;
+    return;
+  }
+
+  cont.innerHTML = '<div class="emp-grid">' + lista.map(e => `
+    <div class="emp-card" data-id="${e.id}">
+      <div class="emp-avatar">${e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" alt="">` : escapeHtml(initials(e.apellido, e.nombre))}</div>
+      <div class="emp-info">
+        <div class="name">${escapeHtml(e.nombre_completo)}</div>
+        <div class="meta">
+          ${e.categoria?.nombre ? escapeHtml(e.categoria.nombre) : 'Sin categoría'}
+          <span class="sep">·</span>
+          ${antigüedad(e.fecha_ingreso)}
+        </div>
+        <div class="tags">
+          <span class="emp-tag local-${e.local}">${LOCALES[e.local]?.icon || ''} ${LOCALES[e.local]?.nombre || e.local}</span>
+          ${e.estado !== 'activo' ? `<span class="emp-tag estado-${e.estado}">${e.estado}</span>` : ''}
+        </div>
+      </div>
+    </div>
+  `).join('') + '</div>';
+
+  cont.querySelectorAll('.emp-card').forEach(card => {
+    card.addEventListener('click', () => openEmpleadoModal(parseInt(card.dataset.id, 10)));
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO EMPLEADOS — Vista 360° (Modal)
+// ════════════════════════════════════════════════════════════
+let empModalState = {
+  empleadoId: null,
+  empleadoData: null,
+  activeTab: 'datos',
+  isNew: false,
+  editing: false,
+  formData: {},
+};
+
+const EMP_MODAL_TABS = [
+  { id: 'datos',      label: 'Datos personales',  icon: '👤' },
+  { id: 'documentos', label: 'Documentos',        icon: '📄' },
+  { id: 'sueldos',    label: 'Sueldos',           icon: '💰' },
+  { id: 'asistencias',label: 'Asistencias',       icon: '🕐' },
+  { id: 'vacaciones', label: 'Vacaciones',        icon: '🌴' },
+  { id: 'certificados',label:'Certif. médicos',   icon: '🏥' },
+  { id: 'apercibimientos',label:'Apercibimientos',icon: '⚠️' },
+  { id: 'premios',    label: 'Premios',           icon: '🏆' },
+  { id: 'notas',      label: 'Notas',             icon: '📝' },
+];
+
+async function openEmpleadoModal(empleadoId) {
+  empModalState.empleadoId = empleadoId;
+  empModalState.isNew = empleadoId == null;
+  empModalState.editing = empModalState.isNew;  // si es nuevo, ya está en modo edición
+  empModalState.activeTab = 'datos';
+
+  const backdrop = document.getElementById('emp-modal-backdrop');
+  backdrop.classList.add('show');
+  document.getElementById('emp-modal-body').innerHTML = '<div class="spinner"></div>';
+  document.getElementById('emp-modal-name').textContent = empModalState.isNew ? 'Nuevo empleado' : 'Cargando…';
+  document.getElementById('emp-modal-meta').textContent = '';
+  document.getElementById('emp-modal-avatar').textContent = '+';
+  document.getElementById('emp-modal-tabs').innerHTML = '';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  document.getElementById('emp-modal-save').style.display = 'none';
+
+  if (empModalState.isNew) {
+    empModalState.empleadoData = {
+      apellido: '', nombre: '', dni: '', cuil: '',
+      local: '', categoria_cct_id: null, tipo_contrato: 'relacion_dependencia',
+      estado: 'activo', fecha_ingreso: new Date().toISOString().split('T')[0],
+    };
+    empModalState.formData = { ...empModalState.empleadoData };
+    renderModalTabs();
+    renderModalBody();
+  } else {
+    const { data, error } = await sb.from('rrhh_empleados').select(`
+      *, categoria:rrhh_categorias_cct(id, codigo, nombre, sueldo_basico)
+    `).eq('id', empleadoId).maybeSingle();
+    if (error || !data) {
+      document.getElementById('emp-modal-body').innerHTML = `<div style="color:var(--danger);">Error al cargar empleado: ${error?.message || 'no encontrado'}</div>`;
+      return;
+    }
+    empModalState.empleadoData = data;
+    empModalState.formData = { ...data };
+    document.getElementById('emp-modal-name').textContent = data.nombre_completo;
+    document.getElementById('emp-modal-meta').textContent = `${data.categoria?.nombre || 'Sin categoría'} · ${LOCALES[data.local]?.nombre || data.local} · DNI ${data.dni || '—'} · Ingreso ${fmtFecha(data.fecha_ingreso)} (${antigüedad(data.fecha_ingreso)})`;
+    document.getElementById('emp-modal-avatar').innerHTML = data.foto_url
+      ? `<img src="${escapeHtml(data.foto_url)}">`
+      : escapeHtml(initials(data.apellido, data.nombre));
+    renderModalTabs();
+    renderModalBody();
+  }
+}
+
+function renderModalTabs() {
+  const isAdmin = session.rol === 'admin';
+  // tabs visibles según rol
+  const tabs = empModalState.isNew ? [{ id: 'datos', label: 'Datos personales', icon: '👤' }] : EMP_MODAL_TABS;
+  const html = tabs.map(t => `
+    <button class="modal-tab ${empModalState.activeTab === t.id ? 'active' : ''}" data-tab="${t.id}">
+      ${t.icon} ${t.label}
+    </button>
+  `).join('');
+  const el = document.getElementById('emp-modal-tabs');
+  el.innerHTML = html;
+  el.querySelectorAll('.modal-tab').forEach(b => {
+    b.addEventListener('click', () => {
+      empModalState.activeTab = b.dataset.tab;
+      renderModalTabs();
+      renderModalBody();
+    });
+  });
+}
+
+async function renderModalBody() {
+  const body = document.getElementById('emp-modal-body');
+  const saveBtn = document.getElementById('emp-modal-save');
+  const footerLeft = document.getElementById('emp-modal-footer-left');
+  const isAdmin = session.rol === 'admin';
+
+  body.innerHTML = '<div class="spinner"></div>';
+
+  switch (empModalState.activeTab) {
+    case 'datos':       await renderTabDatos();       break;
+    case 'documentos':  await renderTabDocumentos();  break;
+    case 'sueldos':     await renderTabSueldos();     break;
+    case 'asistencias': await renderTabAsistencias(); break;
+    case 'vacaciones':  await renderTabVacaciones();  break;
+    case 'certificados':await renderTabCertificados();break;
+    case 'apercibimientos': await renderTabApercibimientos(); break;
+    case 'premios':     await renderTabPremios();     break;
+    case 'notas':       await renderTabNotas();       break;
+  }
+}
+
+// ─── Tab: Datos personales ───
+async function renderTabDatos() {
+  const body = document.getElementById('emp-modal-body');
+  const saveBtn = document.getElementById('emp-modal-save');
+  const footerLeft = document.getElementById('emp-modal-footer-left');
+  const isAdmin = session.rol === 'admin';
+  const d = empModalState.formData;
+  const editing = empModalState.editing && isAdmin;
+  const categorias = await getCategorias();
+
+  body.innerHTML = `
+    <div class="section-title">Identidad</div>
+    <div class="form-grid">
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Apellido *</label>
+        <input type="text" data-field="apellido" value="${escapeHtml(d.apellido||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Nombre(s) *</label>
+        <input type="text" data-field="nombre" value="${escapeHtml(d.nombre||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>DNI *</label>
+        <input type="text" data-field="dni" value="${escapeHtml(d.dni||'')}" ${!editing?'disabled':''} maxlength="9">
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>CUIL</label>
+        <input type="text" data-field="cuil" value="${escapeHtml(d.cuil||'')}" ${!editing?'disabled':''} placeholder="XX-XXXXXXXX-X" maxlength="13">
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Fecha de nacimiento</label>
+        <input type="date" data-field="fecha_nacimiento" value="${d.fecha_nacimiento||''}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Sexo</label>
+        <select data-field="sexo" ${!editing?'disabled':''}>
+          <option value="">—</option>
+          <option value="F" ${d.sexo==='F'?'selected':''}>Femenino</option>
+          <option value="M" ${d.sexo==='M'?'selected':''}>Masculino</option>
+          <option value="X" ${d.sexo==='X'?'selected':''}>Otro</option>
+        </select>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Estado civil</label>
+        <select data-field="estado_civil" ${!editing?'disabled':''}>
+          <option value="">—</option>
+          <option value="soltero/a"     ${d.estado_civil==='soltero/a'?'selected':''}>Soltero/a</option>
+          <option value="casado/a"      ${d.estado_civil==='casado/a' ?'selected':''}>Casado/a</option>
+          <option value="conviviente"   ${d.estado_civil==='conviviente'?'selected':''}>Conviviente</option>
+          <option value="divorciado/a"  ${d.estado_civil==='divorciado/a'?'selected':''}>Divorciado/a</option>
+          <option value="viudo/a"       ${d.estado_civil==='viudo/a'?'selected':''}>Viudo/a</option>
+        </select>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Nacionalidad</label>
+        <input type="text" data-field="nacionalidad" value="${escapeHtml(d.nacionalidad||'Argentina')}" ${!editing?'disabled':''}>
+      </div>
+    </div>
+
+    <div class="section-title">Laboral</div>
+    <div class="form-grid">
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Local *</label>
+        <select data-field="local" ${!editing?'disabled':''}>
+          <option value="">—</option>
+          <option value="unicenter" ${d.local==='unicenter'?'selected':''}>Unicenter (Martínez)</option>
+          <option value="alcorta"   ${d.local==='alcorta'  ?'selected':''}>Alcorta (Palermo)</option>
+          <option value="oficina"   ${d.local==='oficina'  ?'selected':''}>Oficina (Don Torcuato)</option>
+        </select>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Categoría CCT</label>
+        <select data-field="categoria_cct_id" ${!editing?'disabled':''}>
+          <option value="">—</option>
+          ${categorias.filter(c => c.activa).map(c => `<option value="${c.id}" ${d.categoria_cct_id==c.id?'selected':''}>${escapeHtml(c.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Tipo de contrato</label>
+        <select data-field="tipo_contrato" ${!editing?'disabled':''}>
+          <option value="relacion_dependencia" ${d.tipo_contrato==='relacion_dependencia'?'selected':''}>Relación de dependencia</option>
+          <option value="monotributista"       ${d.tipo_contrato==='monotributista'?'selected':''}>Monotributista</option>
+        </select>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Fecha de ingreso</label>
+        <input type="date" data-field="fecha_ingreso" value="${d.fecha_ingreso||''}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Estado</label>
+        <select data-field="estado" ${!editing?'disabled':''}>
+          <option value="activo"   ${d.estado==='activo'  ?'selected':''}>Activo</option>
+          <option value="licencia" ${d.estado==='licencia'?'selected':''}>En licencia</option>
+          <option value="baja"     ${d.estado==='baja'    ?'selected':''}>Baja</option>
+        </select>
+      </div>
+      ${d.estado === 'baja' || empModalState.formData.estado === 'baja' ? `
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Fecha de baja</label>
+        <input type="date" data-field="fecha_baja" value="${d.fecha_baja||''}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row full ${!editing?'readonly':''}">
+        <label>Motivo de baja</label>
+        <input type="text" data-field="motivo_baja" value="${escapeHtml(d.motivo_baja||'')}" ${!editing?'disabled':''} placeholder="renuncia, despido, jubilación, acuerdo…">
+      </div>
+      ` : ''}
+    </div>
+
+    <div class="section-title">Contacto</div>
+    <div class="form-grid">
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Email</label>
+        <input type="email" data-field="email" value="${escapeHtml(d.email||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Teléfono</label>
+        <input type="text" data-field="telefono" value="${escapeHtml(d.telefono||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row full ${!editing?'readonly':''}">
+        <label>Dirección</label>
+        <input type="text" data-field="direccion" value="${escapeHtml(d.direccion||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Localidad</label>
+        <input type="text" data-field="localidad" value="${escapeHtml(d.localidad||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Provincia</label>
+        <input type="text" data-field="provincia" value="${escapeHtml(d.provincia||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>CP</label>
+        <input type="text" data-field="cp" value="${escapeHtml(d.cp||'')}" ${!editing?'disabled':''}>
+      </div>
+    </div>
+
+    <div class="section-title">Contacto de emergencia</div>
+    <div class="form-grid">
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Nombre</label>
+        <input type="text" data-field="emergencia_nombre" value="${escapeHtml(d.emergencia_nombre||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Teléfono</label>
+        <input type="text" data-field="emergencia_telefono" value="${escapeHtml(d.emergencia_telefono||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Vínculo</label>
+        <input type="text" data-field="emergencia_vinculo" value="${escapeHtml(d.emergencia_vinculo||'')}" ${!editing?'disabled':''} placeholder="madre, pareja, hijo/a…">
+      </div>
+    </div>
+
+    <div class="section-title">Pago</div>
+    <div class="form-grid">
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Banco</label>
+        <input type="text" data-field="banco" value="${escapeHtml(d.banco||'')}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>CBU</label>
+        <input type="text" data-field="cbu" value="${escapeHtml(d.cbu||'')}" ${!editing?'disabled':''} maxlength="22">
+      </div>
+    </div>
+  `;
+
+  // Wire inputs
+  body.querySelectorAll('[data-field]').forEach(input => {
+    input.addEventListener('input', (e) => {
+      let val = e.target.value;
+      if (e.target.dataset.field === 'apellido' || e.target.dataset.field === 'nombre') val = val.toUpperCase();
+      if (e.target.dataset.field === 'categoria_cct_id') val = val ? parseInt(val, 10) : null;
+      empModalState.formData[e.target.dataset.field] = val;
+      // Re-render si cambió el estado a baja (para mostrar campos)
+      if (e.target.dataset.field === 'estado') renderModalBody();
+    });
+  });
+
+  // Footer
+  if (isAdmin) {
+    if (empModalState.editing) {
+      saveBtn.style.display = 'inline-block';
+      saveBtn.textContent = empModalState.isNew ? 'Crear empleado' : 'Guardar cambios';
+      footerLeft.innerHTML = empModalState.isNew ? '' :
+        `<button class="btn" id="emp-cancel-edit">Cancelar edición</button>`;
+      const ce = document.getElementById('emp-cancel-edit');
+      if (ce) ce.addEventListener('click', () => {
+        empModalState.formData = { ...empModalState.empleadoData };
+        empModalState.editing = false;
+        renderModalBody();
+      });
+    } else {
+      saveBtn.style.display = 'none';
+      footerLeft.innerHTML = `<button class="btn primary" id="emp-edit-btn">✏️ Editar</button>`;
+      document.getElementById('emp-edit-btn').addEventListener('click', () => {
+        empModalState.editing = true;
+        renderModalBody();
+      });
+    }
+  }
+}
+
+// ─── Tab: Vacaciones ───
+async function renderTabVacaciones() {
+  const body = document.getElementById('emp-modal-body');
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+
+  const { data: saldos } = await sb.from('rrhh_vacaciones')
+    .select('*').eq('empleado_id', empModalState.empleadoId).order('año', { ascending: false });
+
+  const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
+    .select('*').eq('empleado_id', empModalState.empleadoId).order('fecha_desde', { ascending: false }).limit(50);
+
+  const saldoActual = (saldos || []).find(s => s.año === new Date().getFullYear()) || (saldos || [])[0];
+
+  body.innerHTML = `
+    ${saldoActual ? `
+      <div class="card" style="margin-bottom:16px;border:1px solid var(--accent2-soft);background:var(--accent2-soft);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:12px;color:var(--accent2);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Vacaciones ${saldoActual.año}</div>
+            <div style="font-size:24px;font-weight:600;margin-top:4px;">${saldoActual.dias_pendientes} días pendientes</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:4px;">${saldoActual.dias_tomados} tomados de ${saldoActual.dias_correspondientes} (según antigüedad)</div>
+          </div>
+        </div>
+      </div>
+    ` : '<div class="emp-empty">Sin saldo de vacaciones cargado.</div>'}
+
+    <div class="section-title">Historial de movimientos</div>
+    ${(movs || []).length === 0 ? '<div class="emp-empty">Sin movimientos.</div>' : `
+      <ul class="simple-list">
+        ${movs.map(m => `
+          <li>
+            <div>
+              <strong>${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}</strong>
+              <div class="meta">${m.dias} días · ${m.estado}</div>
+            </div>
+            <span class="emp-tag ${m.estado === 'solicitada' ? 'estado-licencia' : ''}">${m.estado}</span>
+          </li>
+        `).join('')}
+      </ul>
+    `}
+
+    ${(saldos || []).length > 1 ? `
+      <div class="section-title">Saldos históricos</div>
+      <ul class="simple-list">
+        ${saldos.map(s => `
+          <li>
+            <div><strong>${s.año}</strong></div>
+            <span class="meta">${s.dias_tomados} / ${s.dias_correspondientes} días</span>
+          </li>
+        `).join('')}
+      </ul>
+    ` : ''}
+  `;
+}
+
+// ─── Tabs placeholder (Fases siguientes) ───
+async function renderTabDocumentos() {
+  const body = document.getElementById('emp-modal-body');
+  document.getElementById('emp-modal-save').style.display = 'none';
+  const isAdmin = session.rol === 'admin';
+
+  // Mostrar botón "Subir documento" si admin
+  document.getElementById('emp-modal-footer-left').innerHTML = isAdmin
+    ? '<button class="btn accent2" id="doc-upload-btn">📎 Subir documento</button>'
+    : '';
+
+  const { data, error } = await sb.from('rrhh_documentos')
+    .select('*').eq('empleado_id', empModalState.empleadoId)
+    .order('created_at', { ascending: false });
+  if (error) { body.innerHTML = `<div style="color:var(--danger)">${error.message}</div>`; return; }
+
+  // Agrupar por tipo
+  const grupos = {};
+  (data || []).forEach(d => { (grupos[d.tipo] = grupos[d.tipo] || []).push(d); });
+  const TIPOS_LABEL = {
+    contrato: 'Contrato laboral', alta_afip: 'Alta AFIP',
+    cbu: 'CBU', dni_frente: 'DNI (frente)', dni_dorso: 'DNI (dorso)',
+    cv: 'Curriculum', titulo: 'Título', cuit_monotrib: 'Constancia CUIT/Monotrib.',
+    planilla_horaria: 'Planilla horaria', otro: 'Otros'
+  };
+
+  body.innerHTML = (data || []).length === 0
+    ? '<div class="emp-empty">Sin documentos cargados. ' + (isAdmin ? 'Tocá "Subir documento" abajo.' : '') + '</div>'
+    : Object.keys(grupos).map(tipo => `
+        <div class="section-title">${TIPOS_LABEL[tipo] || tipo} <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(${grupos[tipo].length})</span></div>
+        <ul class="simple-list">
+          ${grupos[tipo].map(d => `
+            <li>
+              <div>
+                <strong>${escapeHtml(d.nombre)}</strong>
+                <div class="meta">Subido ${fmtFecha(d.fecha_alta)}${d.fecha_vencimiento ? ' · Vence ' + fmtFecha(d.fecha_vencimiento) : ''}${d.cargado_por ? ' · por ' + escapeHtml(d.cargado_por) : ''}</div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn small" data-doc="${d.id}" data-action="ver">Ver</button>
+                ${isAdmin ? `<button class="btn small danger" data-doc="${d.id}" data-action="eliminar">🗑️</button>` : ''}
+              </div>
+            </li>
+          `).join('')}
+        </ul>
+      `).join('');
+
+  // Listeners
+  body.querySelectorAll('[data-doc]').forEach(btn => {
+    btn.addEventListener('click', () => docAction(parseInt(btn.dataset.doc, 10), btn.dataset.action));
+  });
+  if (isAdmin) {
+    document.getElementById('doc-upload-btn').addEventListener('click', () => abrirSubirDoc());
+  }
+}
+
+async function docAction(docId, action) {
+  const doc = (await sb.from('rrhh_documentos').select('*').eq('id', docId).single()).data;
+  if (!doc) return;
+  if (action === 'ver') {
+    // Generar signed URL del bucket
+    const path = doc.archivo_url; // guardamos el path interno
+    const { data, error } = await sb.storage.from('rrhh-documentos').createSignedUrl(path, 60);
+    if (error) { toast('Error al generar enlace: ' + error.message, 'error'); return; }
+    window.open(data.signedUrl, '_blank');
+  } else if (action === 'eliminar') {
+    if (!confirm('¿Eliminar este documento? Esta acción no se puede deshacer.')) return;
+    await sb.storage.from('rrhh-documentos').remove([doc.archivo_url]);
+    const { error } = await sb.from('rrhh_documentos').delete().eq('id', docId);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    await auditLog('eliminar', 'rrhh_documentos', docId, null, doc.nombre, null);
+    toast('Documento eliminado', 'success');
+    renderTabDocumentos();
+  }
+}
+
+function abrirSubirDoc() {
+  // Mini-modal in-place (formulario simple)
+  const body = document.getElementById('emp-modal-body');
+  body.innerHTML = `
+    <div class="section-title">Subir documento</div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Tipo *</label>
+        <select id="doc-tipo">
+          <option value="contrato">Contrato laboral</option>
+          <option value="alta_afip">Alta AFIP</option>
+          <option value="cbu">CBU</option>
+          <option value="dni_frente">DNI (frente)</option>
+          <option value="dni_dorso">DNI (dorso)</option>
+          <option value="cv">Curriculum</option>
+          <option value="titulo">Título</option>
+          <option value="cuit_monotrib">Constancia CUIT/Monotributo</option>
+          <option value="planilla_horaria">Planilla horaria</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Nombre / descripción *</label>
+        <input type="text" id="doc-nombre" placeholder="ej. Contrato indefinido 2024">
+      </div>
+      <div class="form-row">
+        <label>Fecha de vencimiento (opcional)</label>
+        <input type="date" id="doc-vence">
+      </div>
+      <div class="form-row full">
+        <label>Archivo *</label>
+        <input type="file" id="doc-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+        <div class="hint">PDF / imagen / Word · hasta 20MB</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('emp-modal-footer-left').innerHTML = '<button class="btn" id="doc-cancel-upload">Cancelar</button>';
+  document.getElementById('emp-modal-save').style.display = 'inline-block';
+  document.getElementById('emp-modal-save').textContent = 'Subir';
+  document.getElementById('emp-modal-save').onclick = doSubirDoc;
+  document.getElementById('doc-cancel-upload').addEventListener('click', () => {
+    document.getElementById('emp-modal-save').onclick = saveEmpleado; // restaurar
+    renderTabDocumentos();
+  });
+}
+
+async function doSubirDoc() {
+  const tipo = document.getElementById('doc-tipo').value;
+  const nombre = document.getElementById('doc-nombre').value.trim();
+  const vence = document.getElementById('doc-vence').value || null;
+  const fileInput = document.getElementById('doc-file');
+  const file = fileInput.files[0];
+  if (!nombre) { toast('Falta el nombre', 'error'); return; }
+  if (!file) { toast('Falta el archivo', 'error'); return; }
+  if (file.size > 20 * 1024 * 1024) { toast('Archivo > 20MB', 'error'); return; }
+
+  const btn = document.getElementById('emp-modal-save');
+  btn.disabled = true; btn.textContent = 'Subiendo…';
+
+  try {
+    // Path: {empleado_id}/{tipo}/{timestamp}_{filename}
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${empModalState.empleadoId}/${tipo}/${Date.now()}_${safeName}`;
+    const { error: errUpload } = await sb.storage.from('rrhh-documentos').upload(path, file, { contentType: file.type });
+    if (errUpload) throw errUpload;
+    const { data: created, error: errDb } = await sb.from('rrhh_documentos').insert({
+      empleado_id: empModalState.empleadoId,
+      tipo, nombre, archivo_url: path,
+      fecha_vencimiento: vence,
+      cargado_por: session.email,
+    }).select().single();
+    if (errDb) throw errDb;
+    await auditLog('crear', 'rrhh_documentos', created.id, 'archivo', null, nombre);
+    toast('Documento subido ✓', 'success');
+    document.getElementById('emp-modal-save').onclick = saveEmpleado;
+    renderTabDocumentos();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Subir';
+  }
+}
+async function renderTabSueldos() {
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  document.getElementById('emp-modal-body').innerHTML = `
+    <div class="placeholder">
+      <div class="icon">💰</div>
+      <h3>Próximamente</h3>
+      <p>Historial mes a mes con control automático contra CCT 130/75.</p>
+      <div class="phase-tag">Fase 2</div>
+    </div>`;
+}
+async function renderTabAsistencias() {
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  document.getElementById('emp-modal-body').innerHTML = `
+    <div class="placeholder">
+      <div class="icon">🕐</div>
+      <h3>Próximamente</h3>
+      <p>Mes a mes con fichadas de CrossChex y tardanzas.</p>
+      <div class="phase-tag">Fase 3</div>
+    </div>`;
+}
+async function renderTabCertificados() {
+  const body = document.getElementById('emp-modal-body');
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  const { data } = await sb.from('rrhh_certificados_medicos')
+    .select('*').eq('empleado_id', empModalState.empleadoId).order('fecha_desde', { ascending: false });
+  body.innerHTML = (data || []).length === 0
+    ? '<div class="emp-empty">Sin certificados cargados.</div>'
+    : '<ul class="simple-list">' + data.map(c => `
+        <li>
+          <div>
+            <strong>${fmtFecha(c.fecha_desde)} → ${fmtFecha(c.fecha_hasta)}</strong> (${c.dias} días)
+            <div class="meta">${escapeHtml(c.diagnostico||'Sin diagnóstico')} · ${escapeHtml(c.medico||'')}</div>
+          </div>
+          ${c.archivo_url ? `<a class="btn small" href="${escapeHtml(c.archivo_url)}" target="_blank">Ver</a>` : ''}
+        </li>
+      `).join('') + '</ul>';
+}
+async function renderTabApercibimientos() {
+  const body = document.getElementById('emp-modal-body');
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  const { data } = await sb.from('rrhh_apercibimientos')
+    .select('*').eq('empleado_id', empModalState.empleadoId).order('fecha', { ascending: false });
+  body.innerHTML = (data || []).length === 0
+    ? '<div class="emp-empty">Sin apercibimientos. 👍</div>'
+    : '<ul class="simple-list">' + data.map(a => `
+        <li>
+          <div>
+            <strong>${fmtFecha(a.fecha)}</strong> · <span class="emp-tag estado-${a.severidad==='leve'?'licencia':'baja'}">${a.severidad}</span>
+            <div class="meta">${escapeHtml(a.motivo||'')}</div>
+          </div>
+          ${a.archivo_url ? `<a class="btn small" href="${escapeHtml(a.archivo_url)}" target="_blank">Ver</a>` : ''}
+        </li>
+      `).join('') + '</ul>';
+}
+async function renderTabPremios() {
+  const body = document.getElementById('emp-modal-body');
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  const { data } = await sb.from('rrhh_premios')
+    .select('*').eq('empleado_id', empModalState.empleadoId).order('fecha', { ascending: false });
+  body.innerHTML = (data || []).length === 0
+    ? '<div class="emp-empty">Sin premios registrados.</div>'
+    : '<ul class="simple-list">' + data.map(p => `
+        <li>
+          <div>
+            <strong>${fmtFecha(p.fecha)}</strong> · ${escapeHtml(p.tipo||'—')}
+            <div class="meta">${escapeHtml(p.motivo||'')} · $${(p.monto||0).toLocaleString('es-AR')}</div>
+          </div>
+        </li>
+      `).join('') + '</ul>';
+}
+async function renderTabNotas() {
+  const body = document.getElementById('emp-modal-body');
+  const isAdmin = session.rol === 'admin';
+  document.getElementById('emp-modal-save').style.display = 'none';
+  document.getElementById('emp-modal-footer-left').innerHTML = '';
+  const notas = empModalState.empleadoData.notas_internas || '';
+  body.innerHTML = `
+    <div class="form-row">
+      <label>Notas internas (solo admin)</label>
+      <textarea id="emp-notas-text" style="min-height:200px;" ${!isAdmin?'disabled':''}>${escapeHtml(notas)}</textarea>
+      ${isAdmin ? '<button class="btn primary" id="emp-notas-save" style="margin-top:10px;align-self:flex-start;">Guardar notas</button>' : ''}
+    </div>
+  `;
+  if (isAdmin) {
+    document.getElementById('emp-notas-save').addEventListener('click', async () => {
+      const nuevoTexto = document.getElementById('emp-notas-text').value;
+      const viejo = empModalState.empleadoData.notas_internas || '';
+      const { error } = await sb.from('rrhh_empleados').update({ notas_internas: nuevoTexto }).eq('id', empModalState.empleadoId);
+      if (error) { toast('Error: ' + error.message, 'error'); return; }
+      empModalState.empleadoData.notas_internas = nuevoTexto;
+      await auditLog('editar', 'rrhh_empleados', empModalState.empleadoId, 'notas_internas', viejo, nuevoTexto);
+      toast('Notas guardadas', 'success');
+    });
+  }
+}
+
+// ─── Guardar empleado (crear o actualizar) ───
+async function saveEmpleado() {
+  const d = empModalState.formData;
+  // Validaciones mínimas
+  if (!d.apellido?.trim()) { toast('Falta el apellido', 'error'); return; }
+  if (!d.nombre?.trim())   { toast('Falta el nombre', 'error'); return; }
+  if (!d.dni?.trim())      { toast('Falta el DNI', 'error'); return; }
+  if (!d.local)            { toast('Falta el local', 'error'); return; }
+  if (!/^\d{7,9}$/.test(d.dni.replace(/\./g, '').trim())) { toast('DNI inválido', 'error'); return; }
+
+  const payload = {
+    apellido: d.apellido.trim().toUpperCase(),
+    nombre:   d.nombre.trim().toUpperCase(),
+    dni:      d.dni.replace(/\./g, '').trim(),
+    cuil:     d.cuil?.trim() || null,
+    fecha_nacimiento: d.fecha_nacimiento || null,
+    sexo: d.sexo || null,
+    estado_civil: d.estado_civil || null,
+    nacionalidad: d.nacionalidad || 'Argentina',
+    direccion: d.direccion || null,
+    localidad: d.localidad || null,
+    provincia: d.provincia || null,
+    cp: d.cp || null,
+    telefono: d.telefono || null,
+    email: d.email || null,
+    emergencia_nombre: d.emergencia_nombre || null,
+    emergencia_telefono: d.emergencia_telefono || null,
+    emergencia_vinculo: d.emergencia_vinculo || null,
+    local: d.local,
+    categoria_cct_id: d.categoria_cct_id || null,
+    tipo_contrato: d.tipo_contrato || 'relacion_dependencia',
+    fecha_ingreso: d.fecha_ingreso || null,
+    fecha_baja: d.estado === 'baja' ? (d.fecha_baja || new Date().toISOString().split('T')[0]) : null,
+    motivo_baja: d.estado === 'baja' ? (d.motivo_baja || null) : null,
+    estado: d.estado || 'activo',
+    cbu: d.cbu || null,
+    banco: d.banco || null,
+  };
+
+  const saveBtn = document.getElementById('emp-modal-save');
+  saveBtn.disabled = true; saveBtn.textContent = 'Guardando…';
+
+  try {
+    if (empModalState.isNew) {
+      const { data: created, error } = await sb.from('rrhh_empleados').insert(payload).select().single();
+      if (error) throw error;
+      await auditLog('crear', 'rrhh_empleados', created.id, null, null, created.nombre_completo);
+      // Crear saldo de vacaciones del año
+      const año = new Date().getFullYear();
+      const antigüedadAños = created.fecha_ingreso ? Math.floor((new Date() - new Date(created.fecha_ingreso)) / (1000*60*60*24*365.25)) : 0;
+      const dias = antigüedadAños >= 20 ? 35 : antigüedadAños >= 10 ? 28 : antigüedadAños >= 5 ? 21 : 14;
+      await sb.from('rrhh_vacaciones').insert({ empleado_id: created.id, año, dias_correspondientes: dias, dias_tomados: 0 });
+      toast('Empleado creado', 'success');
+      empModalState.empleadoId = created.id;
+      empModalState.isNew = false;
+      empModalState.editing = false;
+      await openEmpleadoModal(created.id);
+    } else {
+      // Detectar cambios para audit log
+      const old = empModalState.empleadoData;
+      const cambios = [];
+      Object.keys(payload).forEach(k => {
+        const ov = old[k] == null ? '' : String(old[k]);
+        const nv = payload[k] == null ? '' : String(payload[k]);
+        if (ov !== nv) cambios.push({ campo: k, viejo: ov, nuevo: nv });
+      });
+      const { error } = await sb.from('rrhh_empleados').update(payload).eq('id', empModalState.empleadoId);
+      if (error) throw error;
+      // Log cada cambio
+      for (const c of cambios) await auditLog('editar', 'rrhh_empleados', empModalState.empleadoId, c.campo, c.viejo, c.nuevo);
+      toast(`Guardado (${cambios.length} cambio${cambios.length!==1?'s':''})`, 'success');
+      empModalState.editing = false;
+      await openEmpleadoModal(empModalState.empleadoId);
+    }
+    // Refrescar listado abajo
+    renderEmpleadosList();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+    saveBtn.disabled = false;
+    saveBtn.textContent = empModalState.isNew ? 'Crear empleado' : 'Guardar cambios';
+  }
+}
+
+// ─── Cerrar modal ───
+function closeEmpModal() {
+  document.getElementById('emp-modal-backdrop').classList.remove('show');
+  empModalState.empleadoId = null;
+  empModalState.empleadoData = null;
+  empModalState.formData = {};
+}
+document.getElementById('emp-modal-close').addEventListener('click', closeEmpModal);
+document.getElementById('emp-modal-cancel').addEventListener('click', closeEmpModal);
+document.getElementById('emp-modal-save').addEventListener('click', saveEmpleado);
+document.getElementById('emp-modal-backdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'emp-modal-backdrop') closeEmpModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('emp-modal-backdrop').classList.contains('show')) closeEmpModal();
+});
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO DOCUMENTOS (admin — vista global)
+// ════════════════════════════════════════════════════════════
+let docState = { tipo: '', local: '', search: '' };
+
+async function renderDocumentosAdmin() {
+  const isAdmin = session.rol === 'admin';
+  const TIPOS = [
+    { id: '', label: 'Todos los tipos' },
+    { id: 'contrato', label: 'Contratos' },
+    { id: 'alta_afip', label: 'Alta AFIP' },
+    { id: 'cbu', label: 'CBU' },
+    { id: 'dni_frente', label: 'DNI frente' },
+    { id: 'dni_dorso', label: 'DNI dorso' },
+    { id: 'cv', label: 'CV' },
+    { id: 'titulo', label: 'Títulos' },
+    { id: 'cuit_monotrib', label: 'CUIT/Monotr.' },
+    { id: 'planilla_horaria', label: 'Planillas horarias' },
+    { id: 'otro', label: 'Otros' },
+  ];
+
+  const html = `
+    <div class="page-header">
+      <h2>Documentos</h2>
+      <div class="subtitle">Repositorio digital de legajos · Storage Supabase</div>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="doc-search" placeholder="Buscar por empleado o nombre…" value="${escapeHtml(docState.search)}">
+      <select id="doc-filter-tipo">
+        ${TIPOS.map(t => `<option value="${t.id}" ${docState.tipo===t.id?'selected':''}>${t.label}</option>`).join('')}
+      </select>
+      ${isAdmin ? `
+      <select id="doc-filter-local">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${docState.local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${docState.local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${docState.local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : ''}
+    </div>
+
+    <div id="doc-list-container"><div class="spinner"></div></div>
+  `;
+  setTimeout(() => {
+    document.getElementById('doc-search').addEventListener('input', e => { docState.search = e.target.value; renderDocList(); });
+    document.getElementById('doc-filter-tipo').addEventListener('change', e => { docState.tipo = e.target.value; renderDocList(); });
+    const fl = document.getElementById('doc-filter-local');
+    if (fl) fl.addEventListener('change', e => { docState.local = e.target.value; renderDocList(); });
+    renderDocList();
+  }, 0);
+  return html;
+}
+
+async function renderDocList() {
+  const cont = document.getElementById('doc-list-container');
+  cont.innerHTML = '<div class="spinner"></div>';
+  let q = sb.from('rrhh_documentos')
+    .select(`*, empleado:rrhh_empleados!inner(id, nombre_completo, local, estado)`)
+    .order('created_at', { ascending: false }).limit(500);
+  if (docState.tipo)  q = q.eq('tipo', docState.tipo);
+  if (docState.local) q = q.eq('empleado.local', docState.local);
+
+  const { data, error } = await q;
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">${error.message}</div>`; return; }
+
+  let lista = data || [];
+  if (docState.search.trim()) {
+    const s = docState.search.toLowerCase().trim();
+    lista = lista.filter(d =>
+      (d.nombre || '').toLowerCase().includes(s) ||
+      (d.empleado?.nombre_completo || '').toLowerCase().includes(s)
+    );
+  }
+
+  if (lista.length === 0) { cont.innerHTML = '<div class="emp-empty">Sin documentos.</div>'; return; }
+
+  // Alertas: documentos por vencer próximos 30 días
+  const hoy = new Date();
+  const en30 = new Date(); en30.setDate(en30.getDate() + 30);
+  const porVencer = lista.filter(d => d.fecha_vencimiento && new Date(d.fecha_vencimiento) <= en30 && new Date(d.fecha_vencimiento) >= hoy);
+  let alertHtml = '';
+  if (porVencer.length > 0) {
+    alertHtml = `
+      <div class="card" style="background:#fef3c7;border-color:#fde68a;margin-bottom:16px;">
+        <strong style="color:#92400e;">⚠️ ${porVencer.length} documento${porVencer.length!==1?'s':''} vencen en los próximos 30 días</strong>
+        <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;">
+          ${porVencer.slice(0,5).map(d => `<li>${escapeHtml(d.empleado?.nombre_completo)} · ${escapeHtml(d.nombre)} (vence ${fmtFecha(d.fecha_vencimiento)})</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }
+
+  cont.innerHTML = alertHtml + `
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-transform:uppercase;">Empleado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Tipo</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Nombre</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Cargado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Vence</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lista.map(d => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:12px 16px;font-size:14px;">${escapeHtml(d.empleado?.nombre_completo||'—')}</td>
+            <td style="padding:12px 16px;"><span class="emp-tag">${escapeHtml(d.tipo)}</span></td>
+            <td style="padding:12px 16px;font-size:13px;">${escapeHtml(d.nombre)}</td>
+            <td style="padding:12px 16px;font-size:12px;color:var(--muted);">${fmtFecha(d.fecha_alta)}</td>
+            <td style="padding:12px 16px;font-size:12px;color:${d.fecha_vencimiento && new Date(d.fecha_vencimiento) <= en30 ? 'var(--warning)' : 'var(--muted)'};">${d.fecha_vencimiento ? fmtFecha(d.fecha_vencimiento) : '—'}</td>
+            <td style="padding:12px 16px;text-align:right;">
+              <button class="btn small" data-doc-id="${d.id}">Abrir</button>
+              <button class="btn small" data-emp-id="${d.empleado?.id}">Ver legajo</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  cont.querySelectorAll('[data-doc-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const docId = parseInt(btn.dataset.docId, 10);
+      const doc = (await sb.from('rrhh_documentos').select('*').eq('id', docId).single()).data;
+      if (!doc) return;
+      const { data, error } = await sb.storage.from('rrhh-documentos').createSignedUrl(doc.archivo_url, 60);
+      if (error) { toast('Error: '+error.message, 'error'); return; }
+      window.open(data.signedUrl, '_blank');
+    });
+  });
+  cont.querySelectorAll('[data-emp-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.empId, 10);
+      if (id) openEmpleadoModal(id);
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO VACACIONES (admin / gerente)
+// ════════════════════════════════════════════════════════════
+let vacState = { tab: 'pendientes' };
+
+async function renderVacacionesAdmin() {
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? null : session.local_gerencia;
+
+  const html = `
+    <div class="page-header">
+      <h2>Vacaciones</h2>
+      <div class="subtitle">${isAdmin ? 'Aprobaciones, saldos y calendario' : 'Equipo de ' + (LOCALES[localFiltro]?.nombre || localFiltro)}</div>
+    </div>
+
+    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
+      <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
+      <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
+      <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos ${new Date().getFullYear()}</button>
+      <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
+    </div>
+
+    <div id="vac-content" style="margin-top:20px;">
+      <div class="spinner"></div>
+    </div>
+  `;
+  setTimeout(() => {
+    document.querySelectorAll('[data-vactab]').forEach(b => {
+      b.addEventListener('click', async () => {
+        vacState.tab = b.dataset.vactab;
+        document.getElementById('main').innerHTML = await renderVacacionesAdmin();
+      });
+    });
+    renderVacContent();
+  }, 0);
+  return html;
+}
+
+async function renderVacContent() {
+  const cont = document.getElementById('vac-content');
+  if (!cont) return;
+  cont.innerHTML = '<div class="spinner"></div>';
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? null : session.local_gerencia;
+
+  if (vacState.tab === 'pendientes') {
+    let q = sb.from('rrhh_vacaciones_movimientos')
+      .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
+      .eq('estado', 'solicitada').order('fecha_desde', { ascending: true });
+    const { data, error } = await q;
+    if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`; return; }
+    const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
+    if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">🎉 No hay solicitudes pendientes.</div>`; return; }
+    cont.innerHTML = '<ul class="simple-list">' + lista.map(m => `
+      <li>
+        <div>
+          <strong>${escapeHtml(m.empleado?.nombre_completo || '—')}</strong>
+          <span class="emp-tag local-${m.empleado?.local||''}" style="margin-left:8px;">${LOCALES[m.empleado?.local]?.nombre||''}</span>
+          <div class="meta">${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} · ${m.dias} días · solicitado por ${escapeHtml(m.solicitado_por||'—')}</div>
+          ${m.observaciones ? `<div class="meta" style="margin-top:4px;font-style:italic;">"${escapeHtml(m.observaciones)}"</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn small accent2" data-mov="${m.id}" data-action="aprobar">✓ Aprobar</button>
+          <button class="btn small danger" data-mov="${m.id}" data-action="rechazar">✗ Rechazar</button>
+        </div>
+      </li>
+    `).join('') + '</ul>';
+    cont.querySelectorAll('[data-mov]').forEach(btn => {
+      btn.addEventListener('click', () => decidirVacacion(parseInt(btn.dataset.mov,10), btn.dataset.action));
+    });
+
+  } else if (vacState.tab === 'aprobadas') {
+    const hoy = new Date().toISOString().split('T')[0];
+    let q = sb.from('rrhh_vacaciones_movimientos')
+      .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
+      .in('estado', ['aprobada','tomada'])
+      .gte('fecha_hasta', hoy)
+      .order('fecha_desde', { ascending: true });
+    const { data } = await q;
+    const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
+    cont.innerHTML = lista.length === 0
+      ? '<div class="emp-empty">Sin vacaciones programadas próximas.</div>'
+      : '<ul class="simple-list">' + lista.map(m => `
+          <li>
+            <div>
+              <strong>${escapeHtml(m.empleado?.nombre_completo)}</strong>
+              <span class="emp-tag local-${m.empleado?.local||''}" style="margin-left:8px;">${LOCALES[m.empleado?.local]?.nombre||''}</span>
+              <div class="meta">${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} · ${m.dias} días</div>
+            </div>
+            <span class="emp-tag">${m.estado}</span>
+          </li>
+        `).join('') + '</ul>';
+
+  } else if (vacState.tab === 'saldos') {
+    const año = new Date().getFullYear();
+    let q = sb.from('rrhh_vacaciones')
+      .select(`*, empleado:rrhh_empleados!inner(id, nombre_completo, local, estado, fecha_ingreso)`)
+      .eq('año', año)
+      .eq('empleado.estado', 'activo');
+    const { data } = await q;
+    const lista = (data || [])
+      .filter(s => !localFiltro || s.empleado?.local === localFiltro)
+      .sort((a,b) => (a.empleado?.nombre_completo||'').localeCompare(b.empleado?.nombre_completo||''));
+    cont.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleado</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Antigüedad</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Corresponden</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Tomadas</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Pendientes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.map(s => `
+            <tr style="border-top:1px solid var(--border);">
+              <td style="padding:12px 16px;">${escapeHtml(s.empleado?.nombre_completo)}</td>
+              <td style="padding:12px 16px;"><span class="emp-tag local-${s.empleado?.local||''}">${LOCALES[s.empleado?.local]?.nombre||'—'}</span></td>
+              <td style="padding:12px 16px;font-size:13px;color:var(--muted);">${antigüedad(s.empleado?.fecha_ingreso)}</td>
+              <td style="padding:12px 16px;text-align:center;">${s.dias_correspondientes}</td>
+              <td style="padding:12px 16px;text-align:center;">${s.dias_tomados}</td>
+              <td style="padding:12px 16px;text-align:center;"><strong style="color:${s.dias_pendientes>0?'var(--accent2)':'var(--muted)'};">${s.dias_pendientes}</strong></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+  } else if (vacState.tab === 'calendario') {
+    const hoy = new Date();
+    const fin = new Date(); fin.setDate(fin.getDate() + 90);
+    const { data } = await sb.from('rrhh_vacaciones_movimientos')
+      .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
+      .in('estado', ['aprobada','tomada'])
+      .gte('fecha_hasta', hoy.toISOString().split('T')[0])
+      .lte('fecha_desde', fin.toISOString().split('T')[0])
+      .order('fecha_desde');
+    const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
+    cont.innerHTML = `
+      <div class="card">
+        <h3 style="margin:0 0 12px;font-size:15px;">Próximos 90 días</h3>
+        ${lista.length === 0 ? '<div class="emp-empty" style="padding:30px;">Nadie programado.</div>' : `
+          <div style="position:relative;padding:16px 0;">
+            ${lista.map(m => {
+              const desde = new Date(m.fecha_desde + 'T12:00:00');
+              const offsetDias = Math.max(0, Math.round((desde - hoy) / (1000*60*60*24)));
+              const totalDias = m.dias;
+              const left = (offsetDias / 90) * 100;
+              const width = (totalDias / 90) * 100;
+              const colorMap = { unicenter:'#3b82f6', alcorta:'#ec4899', oficina:'#0d9488' };
+              return `
+                <div style="margin-bottom:14px;">
+                  <div style="font-size:13px;display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <strong>${escapeHtml(m.empleado?.nombre_completo)}</strong>
+                    <span style="color:var(--muted);font-size:12px;">${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} (${m.dias}d)</span>
+                  </div>
+                  <div style="position:relative;height:8px;background:#f3f4f6;border-radius:99px;">
+                    <div style="position:absolute;left:${left}%;width:${width}%;height:100%;background:${colorMap[m.empleado?.local]||'#999'};border-radius:99px;"></div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:8px;">
+              <span>Hoy</span><span>+30d</span><span>+60d</span><span>+90d</span>
+            </div>
+          </div>
+        `}
+      </div>
+    `;
+  }
+}
+
+async function decidirVacacion(movId, accion) {
+  const motivo = accion === 'rechazar' ? prompt('Motivo del rechazo:') : null;
+  if (accion === 'rechazar' && !motivo) return;
+  const nuevoEstado = accion === 'aprobar' ? 'aprobada' : 'rechazada';
+  const patch = {
+    estado: nuevoEstado,
+    aprobado_por: session.email,
+    fecha_aprobacion: new Date().toISOString(),
+  };
+  if (accion === 'rechazar') patch.motivo_rechazo = motivo;
+  const { error } = await sb.from('rrhh_vacaciones_movimientos').update(patch).eq('id', movId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog(accion === 'aprobar' ? 'aprobar_vacaciones' : 'rechazar_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', nuevoEstado);
+  toast(accion === 'aprobar' ? 'Aprobada ✓' : 'Rechazada', 'success');
+  renderVacContent();
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO SELF-SERVICE EMPLEADOS
+// ════════════════════════════════════════════════════════════
+
+async function renderMiLegajo() {
+  const emp = session.empleadoData;
+  if (!emp) return '<div class="emp-empty">No se encontró tu legajo. Contactá a RRHH.</div>';
+
+  // Categorías
+  const cats = await getCategorias();
+  const { data: full } = await sb.from('rrhh_empleados').select('*, categoria:rrhh_categorias_cct(nombre)').eq('id', emp.id).single();
+
+  return `
+    <div class="page-header">
+      <h2>Mi legajo</h2>
+      <div class="subtitle">${escapeHtml(full?.nombre_completo || '')} · ${LOCALES[full?.local]?.nombre || full?.local} · ${antigüedad(full?.fecha_ingreso)} de antigüedad</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Identidad</div>
+      <div class="form-grid">
+        <div class="form-row readonly"><label>Apellido y nombre</label><input value="${escapeHtml(full?.nombre_completo||'')}" disabled></div>
+        <div class="form-row readonly"><label>DNI</label><input value="${escapeHtml(full?.dni||'—')}" disabled></div>
+        <div class="form-row readonly"><label>CUIL</label><input value="${escapeHtml(full?.cuil||'—')}" disabled></div>
+        <div class="form-row readonly"><label>Fecha de nacimiento</label><input value="${full?.fecha_nacimiento ? fmtFecha(full.fecha_nacimiento) : '—'}" disabled></div>
+      </div>
+
+      <div class="section-title">Laboral</div>
+      <div class="form-grid">
+        <div class="form-row readonly"><label>Local</label><input value="${LOCALES[full?.local]?.nombre || full?.local}" disabled></div>
+        <div class="form-row readonly"><label>Categoría</label><input value="${escapeHtml(full?.categoria?.nombre||'—')}" disabled></div>
+        <div class="form-row readonly"><label>Fecha de ingreso</label><input value="${fmtFecha(full?.fecha_ingreso)}" disabled></div>
+        <div class="form-row readonly"><label>Antigüedad</label><input value="${antigüedad(full?.fecha_ingreso)}" disabled></div>
+      </div>
+
+      <div class="section-title">Contacto <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(podés editar)</span></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Email</label><input type="email" id="self-email" value="${escapeHtml(full?.email||'')}"></div>
+        <div class="form-row"><label>Teléfono</label><input type="text" id="self-telefono" value="${escapeHtml(full?.telefono||'')}"></div>
+        <div class="form-row full"><label>Dirección</label><input type="text" id="self-direccion" value="${escapeHtml(full?.direccion||'')}"></div>
+      </div>
+
+      <div class="section-title">Contacto de emergencia <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(podés editar)</span></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Nombre</label><input type="text" id="self-emer-nombre" value="${escapeHtml(full?.emergencia_nombre||'')}"></div>
+        <div class="form-row"><label>Teléfono</label><input type="text" id="self-emer-tel" value="${escapeHtml(full?.emergencia_telefono||'')}"></div>
+        <div class="form-row"><label>Vínculo</label><input type="text" id="self-emer-vinc" value="${escapeHtml(full?.emergencia_vinculo||'')}"></div>
+      </div>
+
+      <div style="margin-top:20px;text-align:right;">
+        <button class="btn primary" onclick="guardarMisDatos()">Guardar cambios</button>
+      </div>
+    </div>
+  `;
+}
+
+async function guardarMisDatos() {
+  const fields = {
+    email: document.getElementById('self-email').value.trim() || null,
+    telefono: document.getElementById('self-telefono').value.trim() || null,
+    direccion: document.getElementById('self-direccion').value.trim() || null,
+    emergencia_nombre: document.getElementById('self-emer-nombre').value.trim() || null,
+    emergencia_telefono: document.getElementById('self-emer-tel').value.trim() || null,
+    emergencia_vinculo: document.getElementById('self-emer-vinc').value.trim() || null,
+  };
+  const { error } = await sb.from('rrhh_empleados').update(fields).eq('id', session.empleado_id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('editar', 'rrhh_empleados', session.empleado_id, 'self-edit', null, JSON.stringify(fields));
+  toast('Datos actualizados ✓', 'success');
+}
+
+async function renderMisRecibos() {
+  // Listar archivos del bucket rrhh-recibos bajo {empleado_id}/
+  const { data: files, error } = await sb.storage.from('rrhh-recibos').list(String(session.empleado_id), { limit: 200, sortBy: { column: 'name', order: 'desc' } });
+  if (error) {
+    return `<div class="page-header"><h2>Mis recibos</h2></div><div class="card" style="color:var(--danger)">${error.message}</div>`;
+  }
+
+  // También intentar leer la tabla rrhh_sueldos
+  const { data: sueldos } = await sb.from('rrhh_sueldos')
+    .select('id, periodo, neto, recibo_url, fecha_pago').eq('empleado_id', session.empleado_id)
+    .order('periodo', { ascending: false });
+
+  return `
+    <div class="page-header">
+      <h2>Mis recibos de sueldo</h2>
+      <div class="subtitle">${(files||[]).length} archivos · ${(sueldos||[]).length} liquidaciones registradas</div>
+    </div>
+
+    ${(sueldos||[]).length > 0 ? `
+      <div class="section-title">Liquidaciones</div>
+      <ul class="simple-list">
+        ${sueldos.map(s => `
+          <li>
+            <div>
+              <strong>${s.periodo}</strong>
+              <div class="meta">Pagado ${fmtFecha(s.fecha_pago)} · Neto $${(s.neto||0).toLocaleString('es-AR')}</div>
+            </div>
+            ${s.recibo_url ? `<button class="btn small" onclick="descargarRecibo('${s.recibo_url}')">Descargar PDF</button>` : ''}
+          </li>
+        `).join('')}
+      </ul>
+    ` : ''}
+
+    ${(files||[]).length > 0 ? `
+      <div class="section-title">Archivos (bucket)</div>
+      <ul class="simple-list">
+        ${files.filter(f => f.name && !f.name.startsWith('.')).map(f => `
+          <li>
+            <div><strong>${escapeHtml(f.name)}</strong><div class="meta">${(f.metadata?.size||0).toLocaleString()} bytes</div></div>
+            <button class="btn small" onclick="descargarRecibo('${session.empleado_id}/${f.name}')">Descargar</button>
+          </li>
+        `).join('')}
+      </ul>
+    ` : (sueldos||[]).length === 0 ? '<div class="emp-empty">Todavía no hay recibos cargados para vos.</div>' : ''}
+  `;
+}
+
+async function descargarRecibo(path) {
+  const { data, error } = await sb.storage.from('rrhh-recibos').createSignedUrl(path, 60);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  window.open(data.signedUrl, '_blank');
+}
+
+async function renderMisVacaciones() {
+  const año = new Date().getFullYear();
+  const { data: saldo } = await sb.from('rrhh_vacaciones')
+    .select('*').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
+  const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
+    .select('*').eq('empleado_id', session.empleado_id).order('fecha_desde', { ascending: false }).limit(20);
+
+  return `
+    <div class="page-header">
+      <h2>Mis vacaciones</h2>
+      <div class="subtitle">Año ${año}</div>
+    </div>
+
+    ${saldo ? `
+      <div class="metrics-grid">
+        <div class="metric-card accent">
+          <div class="label">Días pendientes</div>
+          <div class="value">${saldo.dias_pendientes}</div>
+          <div class="hint">de ${saldo.dias_correspondientes} que te corresponden</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Días tomados</div>
+          <div class="value">${saldo.dias_tomados}</div>
+        </div>
+      </div>
+    ` : '<div class="card">Sin saldo cargado para ${año}.</div>'}
+
+    <div class="card">
+      <div class="section-title" style="margin-top:0;">Solicitar vacaciones</div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Desde *</label>
+          <input type="date" id="vac-desde" min="${new Date().toISOString().split('T')[0]}">
+        </div>
+        <div class="form-row">
+          <label>Hasta *</label>
+          <input type="date" id="vac-hasta" min="${new Date().toISOString().split('T')[0]}">
+        </div>
+        <div class="form-row full">
+          <label>Observaciones (opcional)</label>
+          <input type="text" id="vac-obs" placeholder="ej. viaje familiar, ya consultado con encargada">
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
+        <div id="vac-preview" style="font-size:13px;color:var(--muted);">Seleccioná fechas para calcular días</div>
+        <button class="btn accent2" onclick="solicitarVacaciones()">Solicitar</button>
+      </div>
+    </div>
+
+    <div class="section-title">Mis solicitudes</div>
+    ${(movs||[]).length === 0 ? '<div class="emp-empty">Sin solicitudes previas.</div>' : `
+      <ul class="simple-list">
+        ${movs.map(m => {
+          const colorEstado = {solicitada:'estado-licencia',aprobada:'',tomada:'',rechazada:'estado-baja',cancelada:''}[m.estado]||'';
+          return `
+            <li>
+              <div>
+                <strong>${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}</strong>
+                <div class="meta">${m.dias} días${m.fecha_aprobacion ? ' · respondido ' + fmtFecha(m.fecha_aprobacion.split('T')[0]) : ''}${m.motivo_rechazo ? ' · "'+escapeHtml(m.motivo_rechazo)+'"' : ''}</div>
+              </div>
+              <span class="emp-tag ${colorEstado}">${m.estado}</span>
+            </li>
+          `;
+        }).join('')}
+      </ul>
+    `}
+
+  `;
+}
+
+// Wiring post-render para mis-vacaciones (calculador de días)
+function wireVacacionesForm() {
+  const dEl = document.getElementById('vac-desde');
+  const hEl = document.getElementById('vac-hasta');
+  if (!dEl || !hEl) return;
+  const calc = () => {
+    const d = dEl.value, h = hEl.value;
+    const prev = document.getElementById('vac-preview');
+    if (!d || !h) { prev.textContent = 'Seleccioná fechas'; return; }
+    const dias = Math.round((new Date(h) - new Date(d)) / (1000*60*60*24)) + 1;
+    if (dias <= 0) { prev.textContent = 'Las fechas son inválidas'; return; }
+    prev.textContent = dias + ' días corridos';
+  };
+  dEl.addEventListener('change', calc);
+  hEl.addEventListener('change', calc);
+}
+
+async function solicitarVacaciones() {
+  const desde = document.getElementById('vac-desde').value;
+  const hasta = document.getElementById('vac-hasta').value;
+  const obs   = document.getElementById('vac-obs').value;
+  if (!desde || !hasta) { toast('Faltan fechas', 'error'); return; }
+  const dias = Math.round((new Date(hasta) - new Date(desde)) / (1000*60*60*24)) + 1;
+  if (dias <= 0) { toast('Fechas inválidas', 'error'); return; }
+  const año = new Date(desde).getFullYear();
+  const { data: saldo } = await sb.from('rrhh_vacaciones').select('id, dias_pendientes').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
+  if (!saldo) { toast('No hay saldo cargado para ' + año, 'error'); return; }
+  if (dias > saldo.dias_pendientes) {
+    if (!confirm(`Estás pidiendo ${dias} días pero tenés ${saldo.dias_pendientes} pendientes. ¿Solicitar igual?`)) return;
+  }
+  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert({
+    vacaciones_id: saldo.id, empleado_id: session.empleado_id,
+    fecha_desde: desde, fecha_hasta: hasta, dias,
+    estado: 'solicitada',
+    solicitado_por: session.email,
+    observaciones: obs || null,
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('solicitar_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d)`);
+  toast('Solicitud enviada ✓ Te avisamos cuando la aprueben', 'success');
+  switchTab('mis-vacaciones');
+}
+
+async function renderMisFichadas() {
+  const año = new Date().getFullYear();
+  const mes = String(new Date().getMonth() + 1).padStart(2, '0');
+  const periodo = `${año}-${mes}`;
+  const { data: resumen } = await sb.from('rrhh_asistencias')
+    .select('*').eq('empleado_id', session.empleado_id).eq('periodo', periodo).maybeSingle();
+
+  return `
+    <div class="page-header">
+      <h2>Mis fichadas</h2>
+      <div class="subtitle">Mes en curso · ${periodo}</div>
+    </div>
+
+    ${resumen ? `
+      <div class="metrics-grid">
+        <div class="metric-card accent"><div class="label">Días trabajados</div><div class="value">${resumen.dias_trabajados}</div></div>
+        <div class="metric-card"><div class="label">Ausencias</div><div class="value">${resumen.dias_ausente}</div></div>
+        <div class="metric-card warn"><div class="label">Llegadas tarde</div><div class="value">${resumen.llegadas_tarde}</div><div class="hint">${resumen.minutos_tarde_total} min acumulados</div></div>
+        <div class="metric-card"><div class="label">Horas extras</div><div class="value">${resumen.horas_extras}</div></div>
+      </div>
+    ` : `
+      <div class="card">
+        <div class="placeholder">
+          <div class="icon">🕐</div>
+          <h3>Sin datos cargados para este mes</h3>
+          <p>El reporte de asistencias se procesa cada principio de mes.</p>
+        </div>
+      </div>
+    `}
+  `;
+}
+
+async function renderMisCertificados() {
+  const { data, error } = await sb.from('rrhh_certificados_medicos')
+    .select('*').eq('empleado_id', session.empleado_id).order('fecha_desde', { ascending: false });
+
+  return `
+    <div class="page-header">
+      <h2>Certificados médicos</h2>
+      <div class="subtitle">Subí tu certificado para que quede registrado</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="margin-top:0;">Cargar certificado</div>
+      <div class="form-grid">
+        <div class="form-row"><label>Desde *</label><input type="date" id="cert-desde"></div>
+        <div class="form-row"><label>Hasta *</label><input type="date" id="cert-hasta"></div>
+        <div class="form-row"><label>Médico</label><input type="text" id="cert-medico" placeholder="Dr/Dra"></div>
+        <div class="form-row"><label>Diagnóstico</label><input type="text" id="cert-diag" placeholder="reposo, gripe, etc."></div>
+        <div class="form-row full"><label>Archivo (PDF / foto)</label><input type="file" id="cert-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+      </div>
+      <div style="margin-top:14px;text-align:right;">
+        <button class="btn accent2" onclick="subirMiCertificado()">📎 Subir</button>
+      </div>
+    </div>
+
+    <div class="section-title">Mis certificados</div>
+    ${(data||[]).length === 0 ? '<div class="emp-empty">Sin certificados.</div>' : `
+      <ul class="simple-list">
+        ${data.map(c => `
+          <li>
+            <div>
+              <strong>${fmtFecha(c.fecha_desde)} → ${fmtFecha(c.fecha_hasta)}</strong> (${c.dias} días)
+              <div class="meta">${escapeHtml(c.diagnostico||'')} ${c.medico ? '· ' + escapeHtml(c.medico) : ''} ${c.validado ? '· ✅ validado' : '· ⏳ pendiente validación'}</div>
+            </div>
+            ${c.archivo_url ? `<button class="btn small" onclick="verCertif('${c.archivo_url}')">Ver</button>` : ''}
+          </li>
+        `).join('')}
+      </ul>
+    `}
+  `;
+}
+
+async function verCertif(path) {
+  const { data, error } = await sb.storage.from('rrhh-certificados').createSignedUrl(path, 60);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  window.open(data.signedUrl, '_blank');
+}
+
+async function subirMiCertificado() {
+  const desde = document.getElementById('cert-desde').value;
+  const hasta = document.getElementById('cert-hasta').value;
+  const medico = document.getElementById('cert-medico').value.trim() || null;
+  const diag = document.getElementById('cert-diag').value.trim() || null;
+  const file = document.getElementById('cert-file').files[0];
+  if (!desde || !hasta) { toast('Faltan fechas', 'error'); return; }
+  if (!file) { toast('Subí el archivo', 'error'); return; }
+  const dias = Math.round((new Date(hasta) - new Date(desde)) / (1000*60*60*24)) + 1;
+
+  try {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${session.empleado_id}/certificado/${Date.now()}_${safeName}`;
+    const { error: errUp } = await sb.storage.from('rrhh-certificados').upload(path, file, { contentType: file.type });
+    if (errUp) throw errUp;
+    const { data, error: errDb } = await sb.from('rrhh_certificados_medicos').insert({
+      empleado_id: session.empleado_id,
+      fecha_desde: desde, fecha_hasta: hasta, dias,
+      medico, diagnostico: diag,
+      archivo_url: path, validado: false,
+    }).select().single();
+    if (errDb) throw errDb;
+    await auditLog('crear', 'rrhh_certificados_medicos', data.id, null, null, `${desde}→${hasta}`);
+    toast('Certificado subido ✓', 'success');
+    switchTab('mis-certif');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO SUELDOS (admin)
+// ════════════════════════════════════════════════════════════
+let sueldosState = { periodo: null, local: '' };
+
+async function renderSueldosAdmin() {
+  // Período por defecto: mes anterior (los sueldos del mes anterior se pagan a fin de mes)
+  if (!sueldosState.periodo) {
+    const hoy = new Date();
+    let m = hoy.getMonth(); // 0..11 → mes anterior
+    let y = hoy.getFullYear();
+    if (m === 0) { m = 12; y -= 1; }
+    sueldosState.periodo = `${y}-${String(m).padStart(2,'0')}`;
+  }
+
+  const html = `
+    <div class="page-header">
+      <h2>Sueldos</h2>
+      <div class="subtitle">Liquidaciones mes a mes con control automático vs CCT 130/75</div>
+    </div>
+
+    <div class="toolbar">
+      <select id="sueldo-periodo">
+        ${generarPeriodos(sueldosState.periodo).map(p => `<option value="${p}" ${sueldosState.periodo===p?'selected':''}>${p}</option>`).join('')}
+      </select>
+      <select id="sueldo-local">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${sueldosState.local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${sueldosState.local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${sueldosState.local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>
+      <div class="right">
+        <button class="btn accent2" id="sueldo-upload-btn">📎 Subir recibos del mes</button>
+      </div>
+    </div>
+
+    <div id="sueldo-content"><div class="spinner"></div></div>
+  `;
+  setTimeout(() => {
+    document.getElementById('sueldo-periodo').addEventListener('change', e => { sueldosState.periodo = e.target.value; renderSueldoContent(); });
+    document.getElementById('sueldo-local').addEventListener('change', e => { sueldosState.local = e.target.value; renderSueldoContent(); });
+    document.getElementById('sueldo-upload-btn').addEventListener('click', abrirSubirSueldosBulk);
+    renderSueldoContent();
+  }, 0);
+  return html;
+}
+
+function generarPeriodos(actual) {
+  // Genera 24 meses hacia atrás desde el seleccionado
+  const periodos = new Set([actual]);
+  const [y0, m0] = actual.split('-').map(Number);
+  for (let i = 0; i < 24; i++) {
+    let m = m0 - i; let y = y0;
+    while (m <= 0) { m += 12; y -= 1; }
+    periodos.add(`${y}-${String(m).padStart(2,'0')}`);
+  }
+  return [...periodos].sort().reverse();
+}
+
+async function renderSueldoContent() {
+  const cont = document.getElementById('sueldo-content');
+  cont.innerHTML = '<div class="spinner"></div>';
+  // Traer todos los empleados activos + sueldos del período (LEFT JOIN simulado)
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local, categoria:rrhh_categorias_cct(nombre, sueldo_basico)').eq('estado', 'activo');
+  if (sueldosState.local) qEmp = qEmp.eq('local', sueldosState.local);
+  const { data: empleados } = await qEmp;
+
+  const { data: sueldos } = await sb.from('rrhh_sueldos')
+    .select('*').eq('periodo', sueldosState.periodo);
+  const sueldoMap = {};
+  (sueldos || []).forEach(s => { sueldoMap[s.empleado_id] = s; });
+
+  const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+  const total_cargados = lista.filter(e => sueldoMap[e.id]).length;
+  const total_validados = lista.filter(e => sueldoMap[e.id]?.validado).length;
+  const total_con_errores = lista.filter(e => sueldoMap[e.id]?.errores_detectados?.length > 0).length;
+
+  cont.innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric-card accent"><div class="label">Período</div><div class="value" style="font-size:22px;">${sueldosState.periodo}</div></div>
+      <div class="metric-card"><div class="label">Cargados</div><div class="value">${total_cargados} / ${lista.length}</div></div>
+      <div class="metric-card"><div class="label">Validados ✓</div><div class="value">${total_validados}</div></div>
+      <div class="metric-card warn"><div class="label">Con observaciones</div><div class="value">${total_con_errores}</div></div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Empleado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Categoría</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Bruto</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Neto</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Estado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lista.map(e => {
+          const s = sueldoMap[e.id];
+          let estado = '<span class="emp-tag" style="background:#f3f4f6;">📋 Sin cargar</span>';
+          if (s) {
+            if (s.errores_detectados?.length > 0) estado = `<span class="emp-tag estado-licencia">⚠️ ${s.errores_detectados.length} obs.</span>`;
+            else if (s.validado) estado = '<span class="emp-tag" style="background:#d1faf1;color:#0d9488;">✅ Validado</span>';
+            else estado = '<span class="emp-tag" style="background:#fef3c7;color:#92400e;">⏳ Sin validar</span>';
+          }
+          return `
+            <tr style="border-top:1px solid var(--border);">
+              <td style="padding:10px 16px;font-size:14px;">${escapeHtml(e.nombre_completo)}</td>
+              <td style="padding:10px 16px;"><span class="emp-tag local-${e.local}">${LOCALES[e.local]?.nombre||''}</span></td>
+              <td style="padding:10px 16px;font-size:13px;color:var(--muted);">${escapeHtml(e.categoria?.nombre||'—')}</td>
+              <td style="padding:10px 16px;text-align:right;font-size:13px;">${s?.bruto ? '$'+s.bruto.toLocaleString('es-AR') : '—'}</td>
+              <td style="padding:10px 16px;text-align:right;font-size:13px;font-weight:600;">${s?.neto ? '$'+s.neto.toLocaleString('es-AR') : '—'}</td>
+              <td style="padding:10px 16px;text-align:center;">${estado}</td>
+              <td style="padding:10px 16px;text-align:right;">
+                ${s?.recibo_url ? `<button class="btn small" onclick="verReciboAdmin('${s.recibo_url}')">Ver</button>` : ''}
+                <button class="btn small" onclick="openEmpleadoModal(${e.id})">Legajo</button>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+
+    ${total_cargados < lista.length ? `
+      <div class="card" style="background:#eff6ff;border-color:#bfdbfe;margin-top:16px;">
+        <strong style="color:#1e40af;">💡 Tip:</strong> Para subir varios recibos a la vez, usá el botón <em>"Subir recibos del mes"</em>. Cada PDF debe nombrarse con el apellido del empleado (ej. <code>BIANCHI 04-2026.pdf</code>) para que se asocie automáticamente.
+      </div>
+    ` : ''}
+  `;
+}
+
+async function verReciboAdmin(path) {
+  const { data, error } = await sb.storage.from('rrhh-recibos').createSignedUrl(path, 60);
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  window.open(data.signedUrl, '_blank');
+}
+
+function abrirSubirSueldosBulk() {
+  // Para el bulk upload usamos el script de migración como fallback,
+  // y en la UI ofrecemos drag&drop de varios PDFs juntos
+  toast('Bulk upload: usá el script migrations/01_migrar_recibos.py por ahora', '');
+  setTimeout(() => alert(
+    'Para subir muchos recibos a la vez:\n\n' +
+    '1) Poné todos los PDFs en C:\CRM_Adorno\rrhh-adorno\inbox\\\n' +
+    '2) Cada archivo nombrado: APELLIDO MM-YYYY.pdf\n' +
+    '3) Corré: python migrations/01_migrar_recibos.py\n\n' +
+    'El upload individual desde acá (drag&drop) se agrega en próxima iteración.'
+  ), 100);
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO ASISTENCIAS (admin)
+// ════════════════════════════════════════════════════════════
+let asisState = { periodo: null, local: '' };
+
+async function renderAsistenciasAdmin() {
+  if (!asisState.periodo) {
+    const hoy = new Date();
+    let m = hoy.getMonth(); let y = hoy.getFullYear();
+    if (m === 0) { m = 12; y -= 1; }
+    asisState.periodo = `${y}-${String(m).padStart(2,'0')}`;
+  }
+
+  const html = `
+    <div class="page-header">
+      <h2>Asistencias</h2>
+      <div class="subtitle">Dashboard mensual por local · Import desde CrossChex</div>
+    </div>
+
+    <div class="toolbar">
+      <select id="asis-periodo">
+        ${generarPeriodos(asisState.periodo).map(p => `<option value="${p}" ${asisState.periodo===p?'selected':''}>${p}</option>`).join('')}
+      </select>
+      <select id="asis-local">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${asisState.local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${asisState.local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${asisState.local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>
+    </div>
+
+    <div id="asis-content"><div class="spinner"></div></div>
+  `;
+  setTimeout(() => {
+    document.getElementById('asis-periodo').addEventListener('change', e => { asisState.periodo = e.target.value; renderAsisContent(); });
+    document.getElementById('asis-local').addEventListener('change', e => { asisState.local = e.target.value; renderAsisContent(); });
+    renderAsisContent();
+  }, 0);
+  return html;
+}
+
+async function renderAsisContent() {
+  const cont = document.getElementById('asis-content');
+  cont.innerHTML = '<div class="spinner"></div>';
+
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado', 'activo');
+  if (asisState.local) qEmp = qEmp.eq('local', asisState.local);
+  const { data: empleados } = await qEmp;
+
+  const { data: asis } = await sb.from('rrhh_asistencias').select('*').eq('periodo', asisState.periodo);
+  const map = {};
+  (asis || []).forEach(a => { map[a.empleado_id] = a; });
+
+  const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+  const stats = {
+    cargados: lista.filter(e => map[e.id]).length,
+    total_tardanzas: lista.reduce((s,e) => s + (map[e.id]?.llegadas_tarde || 0), 0),
+    total_ausencias: lista.reduce((s,e) => s + (map[e.id]?.dias_ausente || 0), 0),
+    total_extras: lista.reduce((s,e) => s + (map[e.id]?.horas_extras || 0), 0),
+  };
+
+  cont.innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric-card accent"><div class="label">Período</div><div class="value" style="font-size:22px;">${asisState.periodo}</div></div>
+      <div class="metric-card"><div class="label">Empleados con datos</div><div class="value">${stats.cargados} / ${lista.length}</div></div>
+      <div class="metric-card warn"><div class="label">Tardanzas totales</div><div class="value">${stats.total_tardanzas}</div></div>
+      <div class="metric-card"><div class="label">Ausencias totales</div><div class="value">${stats.total_ausencias}</div></div>
+    </div>
+
+    ${stats.cargados === 0 ? `
+      <div class="card" style="margin-top:16px;">
+        <div class="placeholder">
+          <div class="icon">🕐</div>
+          <h3>Sin datos cargados</h3>
+          <p>Para cargar el mes, usá la skill <strong>control-asistencias-crosschex</strong> o <strong>fichadas-claudia-adorno</strong> con los reportes XLS de CrossChex.</p>
+          <p style="margin-top:8px;font-size:12px;">El resultado se carga vía script (próxima iteración: upload directo desde la UI).</p>
+        </div>
+      </div>
+    ` : `
+      <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Empleado</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Días trab.</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Ausencias</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Tarde</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Min tarde</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">HS extras</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.map(e => {
+            const a = map[e.id];
+            return `
+              <tr style="border-top:1px solid var(--border);">
+                <td style="padding:10px 16px;font-size:14px;">${escapeHtml(e.nombre_completo)}</td>
+                <td style="padding:10px 16px;"><span class="emp-tag local-${e.local}">${LOCALES[e.local]?.nombre||''}</span></td>
+                <td style="padding:10px 16px;text-align:center;font-size:13px;">${a?.dias_trabajados ?? '—'}</td>
+                <td style="padding:10px 16px;text-align:center;font-size:13px;color:${a?.dias_ausente>0?'var(--danger)':'var(--muted)'};">${a?.dias_ausente ?? '—'}</td>
+                <td style="padding:10px 16px;text-align:center;font-size:13px;color:${a?.llegadas_tarde>0?'var(--warning)':'var(--muted)'};">${a?.llegadas_tarde ?? '—'}</td>
+                <td style="padding:10px 16px;text-align:center;font-size:13px;color:var(--muted);">${a?.minutos_tarde_total ?? '—'}</td>
+                <td style="padding:10px 16px;text-align:center;font-size:13px;">${a?.horas_extras ?? '—'}</td>
+                <td style="padding:10px 16px;text-align:right;">
+                  <button class="btn small" onclick="openEmpleadoModal(${e.id})">Legajo</button>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `}
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO CONFIGURACIÓN (admin)
+// ════════════════════════════════════════════════════════════
+let configState = { tab: 'usuarios' };
+
+async function renderConfigAdmin() {
+  const html = `
+    <div class="page-header">
+      <h2>Configuración</h2>
+      <div class="subtitle">Usuarios, categorías CCT y feriados</div>
+    </div>
+
+    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
+      <button class="modal-tab ${configState.tab==='usuarios'?'active':''}" data-cfg="usuarios" style="border-bottom:2px solid transparent;padding:12px 14px;">🔑 Usuarios</button>
+      <button class="modal-tab ${configState.tab==='cct'?'active':''}" data-cfg="cct" style="border-bottom:2px solid transparent;padding:12px 14px;">💼 Categorías CCT</button>
+      <button class="modal-tab ${configState.tab==='feriados'?'active':''}" data-cfg="feriados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗓️ Feriados</button>
+      <button class="modal-tab ${configState.tab==='log'?'active':''}" data-cfg="log" style="border-bottom:2px solid transparent;padding:12px 14px;">📜 Audit log</button>
+    </div>
+
+    <div id="cfg-content" style="margin-top:20px;"><div class="spinner"></div></div>
+  `;
+  setTimeout(() => {
+    document.querySelectorAll('[data-cfg]').forEach(b => {
+      b.addEventListener('click', async () => {
+        configState.tab = b.dataset.cfg;
+        document.getElementById('main').innerHTML = await renderConfigAdmin();
+      });
+    });
+    renderConfigContent();
+  }, 0);
+  return html;
+}
+
+async function renderConfigContent() {
+  const cont = document.getElementById('cfg-content');
+  if (!cont) return;
+  if      (configState.tab === 'usuarios') await renderConfigUsuarios(cont);
+  else if (configState.tab === 'cct')      await renderConfigCCT(cont);
+  else if (configState.tab === 'feriados') await renderConfigFeriados(cont);
+  else if (configState.tab === 'log')      await renderConfigLog(cont);
+}
+
+async function renderConfigUsuarios(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data: usuarios, error } = await sb.from('rrhh_usuarios')
+    .select(`*, empleado:rrhh_empleados(nombre_completo, local)`)
+    .order('rol').order('email');
+  if (error) { cont.innerHTML = `<div style="color:var(--danger)">${error.message}</div>`; return; }
+
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:16px;background:#eff6ff;border-color:#bfdbfe;">
+      <strong style="color:#1e40af;">ℹ️ Para crear un usuario:</strong>
+      <ol style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.6;">
+        <li>En Supabase → <em>Authentication → Users → Add user</em>, crear con email + password</li>
+        <li>Copiar el UUID que se generó</li>
+        <li>Volver acá, tocar <strong>+ Vincular usuario</strong> y pegar el UUID + asignar empleado + rol</li>
+      </ol>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <strong>${usuarios.length} usuarios configurados</strong>
+      <button class="btn accent2" onclick="abrirNuevoUsuario()">+ Vincular usuario</button>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Email</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Empleado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Rol</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local (si gerente)</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Activo</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Último ingreso</th>
+          <th style="padding:12px 16px;text-align:right;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${usuarios.map(u => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:10px 16px;font-size:13px;">${escapeHtml(u.email)}</td>
+            <td style="padding:10px 16px;font-size:13px;">${escapeHtml(u.empleado?.nombre_completo||'—')}</td>
+            <td style="padding:10px 16px;"><span class="emp-tag" style="background:${u.rol==='admin'?'#d1faf1':u.rol==='gerente'?'#fef3c7':'#e0e7ff'};color:${u.rol==='admin'?'#0d9488':u.rol==='gerente'?'#92400e':'#3730a3'};">${u.rol}</span></td>
+            <td style="padding:10px 16px;font-size:13px;">${u.local_gerencia ? LOCALES[u.local_gerencia]?.nombre : '—'}</td>
+            <td style="padding:10px 16px;font-size:13px;">${u.activo ? '✅' : '⏸️'}</td>
+            <td style="padding:10px 16px;font-size:12px;color:var(--muted);">${u.last_login ? fmtFecha(u.last_login.split('T')[0]) : '—'}</td>
+            <td style="padding:10px 16px;text-align:right;">
+              <button class="btn small" onclick="toggleActivoUsuario(${u.id}, ${u.activo})">${u.activo ? 'Desactivar' : 'Activar'}</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function toggleActivoUsuario(id, currentActivo) {
+  const nuevoActivo = !currentActivo;
+  const { error } = await sb.from('rrhh_usuarios').update({ activo: nuevoActivo }).eq('id', id);
+  if (error) { toast('Error: '+error.message, 'error'); return; }
+  await auditLog('editar', 'rrhh_usuarios', id, 'activo', String(currentActivo), String(nuevoActivo));
+  toast(nuevoActivo ? 'Usuario activado' : 'Usuario desactivado', 'success');
+  renderConfigContent();
+}
+
+function abrirNuevoUsuario() {
+  const cont = document.getElementById('cfg-content');
+  cont.innerHTML = `
+    <div class="card">
+      <h3 style="margin:0 0 16px;">Vincular nuevo usuario</h3>
+      <div class="form-grid">
+        <div class="form-row full">
+          <label>UUID de Supabase Auth *</label>
+          <input type="text" id="cfg-uuid" placeholder="ej. d1ad0957-770a-40cd-a410-e1460b02f5a0">
+          <div class="hint">Copialo desde Supabase → Authentication → Users</div>
+        </div>
+        <div class="form-row full">
+          <label>Email *</label>
+          <input type="email" id="cfg-email" placeholder="empleado@email.com">
+          <div class="hint">Debe coincidir con el email del usuario en Supabase Auth</div>
+        </div>
+        <div class="form-row">
+          <label>Rol *</label>
+          <select id="cfg-rol">
+            <option value="empleado">Empleado (self-service)</option>
+            <option value="gerente">Gerente de local</option>
+            <option value="admin">Admin (acceso total)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Empleado vinculado *</label>
+          <select id="cfg-empleado">
+            <option value="">Cargando…</option>
+          </select>
+        </div>
+        <div class="form-row full" id="cfg-local-row" style="display:none;">
+          <label>Local que administra (solo gerente)</label>
+          <select id="cfg-local-gerencia">
+            <option value="">—</option>
+            <option value="unicenter">Unicenter</option>
+            <option value="alcorta">Alcorta</option>
+            <option value="oficina">Oficina</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn" onclick="renderConfigContent()">Cancelar</button>
+        <button class="btn primary" onclick="crearUsuario()">Crear vinculación</button>
+      </div>
+    </div>
+  `;
+  // Cargar empleados
+  sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').order('nombre_completo').then(({ data }) => {
+    document.getElementById('cfg-empleado').innerHTML = '<option value="">— Seleccionar —</option>' +
+      (data||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('');
+  });
+  document.getElementById('cfg-rol').addEventListener('change', e => {
+    document.getElementById('cfg-local-row').style.display = e.target.value === 'gerente' ? 'flex' : 'none';
+  });
+}
+
+async function crearUsuario() {
+  const uuid = document.getElementById('cfg-uuid').value.trim();
+  const email = document.getElementById('cfg-email').value.trim();
+  const rol = document.getElementById('cfg-rol').value;
+  const empId = parseInt(document.getElementById('cfg-empleado').value, 10);
+  const localGerencia = rol === 'gerente' ? document.getElementById('cfg-local-gerencia').value || null : null;
+
+  if (!uuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
+    toast('UUID inválido', 'error'); return;
+  }
+  if (!email || !email.includes('@')) { toast('Email inválido', 'error'); return; }
+  if (!empId) { toast('Falta empleado', 'error'); return; }
+  if (rol === 'gerente' && !localGerencia) { toast('Si es gerente, falta el local', 'error'); return; }
+
+  const { data, error } = await sb.from('rrhh_usuarios').insert({
+    auth_user_id: uuid, empleado_id: empId, email, rol, local_gerencia: localGerencia, activo: true,
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('crear', 'rrhh_usuarios', data.id, null, null, email + ' / ' + rol);
+  toast('Usuario vinculado ✓', 'success');
+  configState.tab = 'usuarios';
+  document.getElementById('main').innerHTML = await renderConfigAdmin();
+}
+
+async function renderConfigCCT(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const cats = await getCategorias();
+  CACHE_CATEGORIAS = null; // forzar reload next time
+  const fresh = await getCategorias();
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:16px;background:#eff6ff;border-color:#bfdbfe;">
+      <strong style="color:#1e40af;">📐 Escalas vigentes</strong>
+      <p style="margin:6px 0 0;font-size:13px;line-height:1.5;">Estos básicos se usan para validar los recibos contra la paritaria. Actualizar cuando salga una nueva escala paritaria de FAECYS / CAC. La skill <code>control-sueldos-adorno</code> también tiene una copia de referencia.</p>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+      <thead><tr style="background:#f9fafb;text-align:left;">
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Código</th>
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Nombre</th>
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Sueldo básico</th>
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Vigencia</th>
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Activa</th>
+        <th style="padding:12px 16px;text-align:right;"></th>
+      </tr></thead>
+      <tbody>
+        ${fresh.map(c => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:10px 16px;font-family:monospace;font-size:12px;color:var(--muted);">${escapeHtml(c.codigo)}</td>
+            <td style="padding:10px 16px;font-size:14px;">${escapeHtml(c.nombre)}</td>
+            <td style="padding:10px 16px;text-align:right;">$${(c.sueldo_basico||0).toLocaleString('es-AR')}</td>
+            <td style="padding:10px 16px;font-size:12px;color:var(--muted);">—</td>
+            <td style="padding:10px 16px;">${c.activa ? '✅' : '⏸️'}</td>
+            <td style="padding:10px 16px;text-align:right;">
+              <button class="btn small" onclick="editarCategoria(${c.id})">Editar</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function editarCategoria(id) {
+  const cats = await getCategorias();
+  const c = cats.find(x => x.id === id);
+  if (!c) return;
+  const nuevo = prompt(`Nuevo sueldo básico para ${c.nombre}:\n(actual: $${(c.sueldo_basico||0).toLocaleString('es-AR')})`, c.sueldo_basico);
+  if (!nuevo) return;
+  const valor = parseFloat(nuevo.replace(/[.,]/g, ''));
+  if (isNaN(valor) || valor < 0) { toast('Valor inválido', 'error'); return; }
+  const { error } = await sb.from('rrhh_categorias_cct').update({ sueldo_basico: valor }).eq('id', id);
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  await auditLog('editar', 'rrhh_categorias_cct', id, 'sueldo_basico', String(c.sueldo_basico), String(valor));
+  CACHE_CATEGORIAS = null;
+  toast('Actualizado', 'success');
+  renderConfigContent();
+}
+
+async function renderConfigFeriados(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data } = await sb.from('rrhh_feriados').select('*').order('fecha', { ascending: true });
+  cont.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+      <thead><tr style="background:#f9fafb;text-align:left;">
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Fecha</th>
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Nombre</th>
+        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Tipo</th>
+      </tr></thead>
+      <tbody>
+        ${(data||[]).map(f => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:10px 16px;font-family:monospace;font-size:13px;">${f.fecha}</td>
+            <td style="padding:10px 16px;font-size:14px;">${escapeHtml(f.nombre)}</td>
+            <td style="padding:10px 16px;"><span class="emp-tag">${f.tipo}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function renderConfigLog(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data } = await sb.from('rrhh_log').select('*').order('timestamp', { ascending: false }).limit(100);
+  cont.innerHTML = `
+    <div class="hint" style="margin-bottom:12px;font-size:13px;color:var(--muted);">Últimas 100 acciones registradas</div>
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);font-size:13px;">
+      <thead><tr style="background:#f9fafb;text-align:left;">
+        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Fecha</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Usuario</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Acción</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Tabla</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">ID</th>
+        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Cambio</th>
+      </tr></thead>
+      <tbody>
+        ${(data||[]).map(l => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px 12px;font-size:11px;color:var(--muted);">${new Date(l.timestamp).toLocaleString('es-AR')}</td>
+            <td style="padding:8px 12px;font-size:12px;">${escapeHtml(l.usuario||'')}</td>
+            <td style="padding:8px 12px;"><span class="emp-tag">${l.accion}</span></td>
+            <td style="padding:8px 12px;font-family:monospace;font-size:11px;color:var(--muted);">${escapeHtml(l.tabla||'')}</td>
+            <td style="padding:8px 12px;font-size:11px;color:var(--muted);">${l.registro_id||''}</td>
+            <td style="padding:8px 12px;font-size:11px;">${l.campo ? `<strong>${escapeHtml(l.campo)}</strong>: ${escapeHtml((l.valor_anterior||'').substring(0,30))} → ${escapeHtml((l.valor_nuevo||'').substring(0,30))}` : ''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+// SERVICE WORKER (PWA)
+// ════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js')
+      .then(reg => console.log('SW registrado:', reg.scope))
+      .catch(err => console.warn('SW falló:', err));
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// START
+// ════════════════════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
