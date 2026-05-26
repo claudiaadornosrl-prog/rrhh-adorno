@@ -515,8 +515,20 @@ async function init() {
     showLogin();
   }
   sb.auth.onAuthStateChange((event, authSession) => {
-    if (event === 'SIGNED_IN' && authSession) onLoggedIn(authSession.user);
-    else if (event === 'SIGNED_OUT') showLogin();
+    if (event === 'SIGNED_IN' && authSession) {
+      onLoggedIn(authSession.user).catch(err => {
+        console.error('Error en onLoggedIn:', err);
+        showLoginError('Error cargando tu sesión: ' + (err.message || err));
+        const btn = document.getElementById('login-submit');
+        if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
+        sb.auth.signOut();
+      });
+    }
+    else if (event === 'SIGNED_OUT') {
+      showLogin();
+      const btn = document.getElementById('login-submit');
+      if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
+    }
   });
 }
 
@@ -527,13 +539,16 @@ function showLogin() {
 }
 
 async function onLoggedIn(user) {
+  console.log('[LOGIN] onLoggedIn start, user.id=', user.id);
   // Cargar info del rrhh_usuarios + empleado
+  console.log('[LOGIN] querying rrhh_usuarios...');
   const { data: usuarioRow, error: errU } = await sb
     .from('rrhh_usuarios')
     .select('id, rol, local_gerencia, empleado_id, email, activo')
     .eq('auth_user_id', user.id)
     .eq('activo', true)
     .maybeSingle();
+  console.log('[LOGIN] rrhh_usuarios result:', { usuarioRow, errU });
 
   if (errU || !usuarioRow) {
     showLoginError('Tu usuario no está autorizado. Contactá al administrador.');
@@ -543,11 +558,13 @@ async function onLoggedIn(user) {
 
   let empleadoData = null;
   if (usuarioRow.empleado_id) {
-    const { data: emp } = await sb
+    console.log('[LOGIN] querying rrhh_empleados id=', usuarioRow.empleado_id);
+    const { data: emp, error: errE } = await sb
       .from('rrhh_empleados')
       .select('id, nombre, apellido, nombre_completo, local, fecha_ingreso, dni, foto_url')
       .eq('id', usuarioRow.empleado_id)
       .maybeSingle();
+    console.log('[LOGIN] rrhh_empleados result:', { emp, errE });
     empleadoData = emp;
   }
 
@@ -559,24 +576,36 @@ async function onLoggedIn(user) {
     empleadoData,
     email: usuarioRow.email,
   };
+  console.log('[LOGIN] session set:', session);
 
   // Update last_login (best effort, sin bloquear)
-  sb.from('rrhh_usuarios').update({ last_login: new Date().toISOString() }).eq('id', usuarioRow.id);
+  try {
+    sb.from('rrhh_usuarios').update({ last_login: new Date().toISOString() }).eq('id', usuarioRow.id).then(() => {}, () => {});
+  } catch(_) {}
 
+  console.log('[LOGIN] hiding login, showing app...');
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-screen').classList.add('active');
 
+  console.log('[LOGIN] renderUserInfo...');
   renderUserInfo();
+  console.log('[LOGIN] renderSidebar...');
   renderSidebar();
   // Tab inicial según rol
   const firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
+  console.log('[LOGIN] switchTab firstTab=', firstTab);
   switchTab(firstTab);
+  console.log('[LOGIN] DONE ✓');
 }
 
 function renderUserInfo() {
-  const name = session.empleadoData
-    ? `${session.empleadoData.nombre.split(' ')[0]} ${session.empleadoData.apellido.split(' ')[0]}`
-    : session.email;
+  let name = session.email;
+  if (session.empleadoData) {
+    const nom = (session.empleadoData.nombre || '').split(' ')[0] || '';
+    const ape = (session.empleadoData.apellido || '').split(' ')[0] || '';
+    const full = (nom + ' ' + ape).trim();
+    name = full || session.empleadoData.nombre_completo || session.email;
+  }
   document.getElementById('user-name').textContent = name;
   const roleEl = document.getElementById('user-role');
   roleEl.textContent = session.rol;
@@ -3494,6 +3523,9 @@ async function renderFichadas(cont) {
 async function renderResumenMensual(cont) {
   const isAdmin = session.rol === 'admin';
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
 
   cont.innerHTML = `
     <div class="cal-toolbar">
@@ -3509,24 +3541,709 @@ async function renderResumenMensual(cont) {
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : ''}
+      <button class="btn accent2" id="btn-procesar-mes" onclick="procesarMesUI()" style="margin-left:auto;">⚙️ Procesar mes</button>
     </div>
 
-    <div class="card">
-      <div class="placeholder">
-        <div class="icon">📊</div>
-        <h3>Próximamente</h3>
-        <p>Una vez que se hagan las primeras corridas del cruce automático (Fase H), acá vas a ver:</p>
-        <ul style="text-align:left;max-width:480px;margin:12px auto;font-size:13px;line-height:1.6;color:var(--muted);">
-          <li>Días trabajados / ausencias / vacaciones / licencias por empleado</li>
-          <li>Llegadas tarde y minutos acumulados</li>
-          <li>Horas extras realizadas y autorizadas</li>
-          <li>Movimientos del banco de minutos del mes</li>
-        </ul>
-        <div class="phase-tag">Fase H</div>
+    <div id="resumen-content"><div class="spinner"></div></div>
+  `;
+
+  renderResumenContent();
+}
+
+async function renderResumenContent() {
+  const cont = document.getElementById('resumen-content');
+  if (!cont) return;
+  cont.innerHTML = '<div class="spinner"></div>';
+
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+  // Empleados + detalle del mes
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local, ficha').eq('estado', 'activo');
+  if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
+  const { data: empleadosRaw } = await qEmp;
+  const empleados = (empleadosRaw || []).filter(e => e.ficha !== false);
+
+  const { data: detalle } = await sb.from('rrhh_asistencias_detalle')
+    .select('*').gte('fecha', fechaDesde).lte('fecha', fechaHasta);
+
+  // Agrupar por empleado + contar errores de fichada
+  const porEmp = {};
+  (detalle || []).forEach(d => {
+    if (!porEmp[d.empleado_id]) porEmp[d.empleado_id] = {
+      puntual: 0, tarde: 0, ausente: 0, franco: 0, vacaciones: 0,
+      licencia: 0, feriado: 0, falta_fichada: 0,
+      min_tarde: 0, min_temp: 0, min_extra: 0, min_banco: 0,
+      errores: 0,
+    };
+    const r = porEmp[d.empleado_id];
+    r[d.estado] = (r[d.estado] || 0) + 1;
+    r.min_tarde += d.minutos_tarde || 0;
+    r.min_temp  += d.minutos_salida_temp || 0;
+    r.min_extra += d.minutos_extra || 0;
+    r.min_banco += d.minutos_banco || 0;
+    // Error = falta_fichada O entrada muy fuera de horario (>60 min)
+    // No contar si el error fue salvado por encargada/admin
+    const esError = (d.estado === 'falta_fichada')
+      || ((d.minutos_tarde || 0) > 60 && ['tarde','puntual'].includes(d.estado));
+    if (esError && !d.error_salvado) r.errores += 1;
+    if (esError && d.error_salvado) r.errores_salvados = (r.errores_salvados || 0) + 1;
+  });
+
+  // Cargar config de tolerancias por local (para max_errores_premio)
+  const { data: tols } = await sb.from('rrhh_config_tolerancias').select('local, max_errores_premio');
+  const maxErrPorLocal = {};
+  (tols || []).forEach(t => { maxErrPorLocal[t.local] = t.max_errores_premio || 4; });
+
+  const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+
+  if (lista.length === 0 || Object.keys(porEmp).length === 0) {
+    cont.innerHTML = `
+      <div class="card">
+        <div class="placeholder">
+          <div class="icon">📊</div>
+          <h3>Sin datos procesados para ${asisState.mes}</h3>
+          <p>Tocá <strong>"⚙️ Procesar mes"</strong> arriba para cruzar fichadas y turnos.</p>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Totales
+  const tot = { puntual:0, tarde:0, ausente:0, min_tarde:0, min_extra:0, min_banco:0 };
+  Object.values(porEmp).forEach(r => {
+    tot.puntual += r.puntual; tot.tarde += r.tarde; tot.ausente += r.ausente;
+    tot.min_tarde += r.min_tarde; tot.min_extra += r.min_extra; tot.min_banco += r.min_banco;
+  });
+
+  const fmtMin = (m) => {
+    if (m == null) return '—';
+    const sign = m < 0 ? '-' : '';
+    const abs = Math.abs(m);
+    return `${sign}${Math.floor(abs/60)}:${String(abs%60).padStart(2,'0')}`;
+  };
+
+  cont.innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric-card accent"><div class="label">Empleados procesados</div><div class="value">${Object.keys(porEmp).length}</div></div>
+      <div class="metric-card"><div class="label">Días puntuales</div><div class="value">${tot.puntual}</div></div>
+      <div class="metric-card warn"><div class="label">Llegadas tarde</div><div class="value">${tot.tarde}</div><div class="hint">${fmtMin(tot.min_tarde)} acumulado</div></div>
+      <div class="metric-card" style="border-left:4px solid var(--danger);"><div class="label">Ausencias</div><div class="value">${tot.ausente}</div></div>
+      <div class="metric-card" style="border-left:4px solid #6366f1;"><div class="label">🎖 Pierden premio</div><div class="value">${(() => {
+        return Object.entries(porEmp).filter(([eid, r]) => {
+          const emp = lista.find(e => e.id == eid);
+          if (!emp) return false;
+          const max = maxErrPorLocal[emp.local] || 4;
+          return (r.errores || 0) > max;
+        }).length;
+      })()}</div><div class="hint">empleados con +límite errores</div></div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Empleado</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Local</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">✓ Punt.</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">⚠ Tarde</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">✗ Aus.</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">🌴 Vac.</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">📋 Lic.</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Min tarde</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Min extra</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Δ banco</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">🎖 Premio</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lista.map(e => {
+          const r = porEmp[e.id] || {};
+          return `
+            <tr class="emp-row" data-emp="${e.id}" style="border-top:1px solid var(--border);cursor:pointer;" onclick="toggleDetalleResumen(${e.id})">
+              <td style="padding:8px 12px;font-size:13px;"><span class="caret" id="caret-${e.id}" style="display:inline-block;width:14px;color:var(--muted);font-size:10px;">▶</span> ${escapeHtml(e.nombre_completo)}</td>
+              <td style="padding:8px 12px;"><span class="emp-tag local-${e.local}">${LOCALES[e.local]?.nombre||''}</span></td>
+              <td style="padding:8px 12px;text-align:center;font-size:13px;">${r.puntual||0}</td>
+              <td style="padding:8px 12px;text-align:center;font-size:13px;color:${(r.tarde||0)>0?'var(--warning)':'var(--muted)'};">${r.tarde||0}</td>
+              <td style="padding:8px 12px;text-align:center;font-size:13px;color:${(r.ausente||0)>0?'var(--danger)':'var(--muted)'};">${r.ausente||0}</td>
+              <td style="padding:8px 12px;text-align:center;font-size:13px;color:var(--muted);">${r.vacaciones||0}</td>
+              <td style="padding:8px 12px;text-align:center;font-size:13px;color:var(--muted);">${r.licencia||0}</td>
+              <td style="padding:8px 12px;text-align:right;font-size:13px;color:${(r.min_tarde||0)>0?'var(--warning)':'var(--muted)'};">${fmtMin(r.min_tarde||0)}</td>
+              <td style="padding:8px 12px;text-align:right;font-size:13px;">${fmtMin(r.min_extra||0)}</td>
+              <td style="padding:8px 12px;text-align:right;font-size:13px;font-weight:600;color:${(r.min_banco||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(r.min_banco||0)}</td>
+              <td style="padding:8px 12px;text-align:center;font-size:12px;">${(() => {
+                const max = maxErrPorLocal[e.local] || 4;
+                const err = r.errores || 0;
+                let bg, color, label;
+                if (err > max) { bg = '#fee2e2'; color = '#b91c1c'; label = `✗ Perdió (${err}/${max})`; }
+                else if (err === max) { bg = '#fef3c7'; color = '#92400e'; label = `⚠ ${err}/${max}`; }
+                else { bg = '#d1faf1'; color = '#0d9488'; label = `✓ ${err}/${max}`; }
+                return `<span style="background:${bg};color:${color};padding:3px 9px;border-radius:99px;font-weight:600;white-space:nowrap;">${label}</span>`;
+              })()}</td>
+            </tr>
+            <tr id="detalle-${e.id}" style="display:none;background:#fafafa;">
+              <td colspan="11" style="padding:0;">
+                <div id="detalle-cont-${e.id}" style="padding:16px 20px;">
+                  <div class="spinner"></div>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+
+    <div class="hint" style="margin-top:10px;font-size:12px;color:var(--muted);text-align:right;">
+      <strong>Δ banco</strong> = minutos extras − minutos tarde sobre tolerancia − minutos faltantes por ausencias. Verde = a favor, rojo = deuda.
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+// FASE H — Cruce fichadas vs turnos
+// ════════════════════════════════════════════════════════════
+async function procesarMesUI() {
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+  if (!confirm(`¿Procesar ${asisState.mes}${localFiltro ? ' ('+LOCALES[localFiltro]?.nombre+')' : ''}?\n\nEsto va a cruzar fichadas vs turnos planificados y generar el detalle día×día + movimientos del banco de minutos. Si ya estaba procesado, se sobrescribe.`)) return;
+
+  const btn = document.getElementById('btn-procesar-mes');
+  btn.disabled = true; btn.textContent = '⏳ Procesando…';
+
+  try {
+    const stats = await procesarMes(asisState.mes, localFiltro);
+    toast(`✓ Procesado: ${stats.dias_total} días, ${stats.tardanzas} tardanzas, ${stats.ausencias} ausencias`, 'success');
+    renderResumenContent();
+  } catch (e) {
+    console.error(e);
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '⚙️ Procesar mes';
+  }
+}
+
+async function procesarMes(periodo, local = null) {
+  const [y, m] = periodo.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+  const diasMes = new Date(y, m, 0).getDate();
+
+  // 1) Empleados activos del local
+  let qEmp = sb.from('rrhh_empleados').select('id, local, fecha_ingreso').eq('estado', 'activo').eq('ficha', true);
+  if (local) qEmp = qEmp.eq('local', local);
+  const { data: empleados } = await qEmp;
+  if (!empleados || empleados.length === 0) throw new Error('Sin empleados para procesar');
+
+  const empIds = empleados.map(e => e.id);
+  const empByLocal = {};
+  empleados.forEach(e => { empByLocal[e.id] = e.local; });
+
+  // 2) Turnos planificados
+  const { data: turnos } = await sb.from('rrhh_turnos')
+    .select('*').in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
+  const turnoMap = {};
+  (turnos || []).forEach(t => { turnoMap[`${t.empleado_id}_${t.fecha}`] = t; });
+
+  // 3) Fichadas raw
+  const { data: fichadas } = await sb.from('rrhh_fichadas_raw')
+    .select('empleado_id, fecha, hora, checktype, fecha_hora')
+    .in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .order('fecha_hora', { ascending: true });
+  // Agrupar por (emp, fecha)
+  const fichMap = {};
+  (fichadas || []).forEach(f => {
+    const k = `${f.empleado_id}_${f.fecha}`;
+    if (!fichMap[k]) fichMap[k] = [];
+    fichMap[k].push(f.hora);
+  });
+
+  // 4) Vacaciones aprobadas/tomadas
+  const { data: vacs } = await sb.from('rrhh_vacaciones_movimientos')
+    .select('empleado_id, fecha_desde, fecha_hasta')
+    .in('empleado_id', empIds)
+    .in('estado', ['aprobada','tomada']);
+  const vacSet = new Set();
+  (vacs || []).forEach(v => {
+    let d = new Date(v.fecha_desde + 'T12:00:00');
+    const f = new Date(v.fecha_hasta + 'T12:00:00');
+    while (d <= f) {
+      vacSet.add(`${v.empleado_id}_${d.toISOString().split('T')[0]}`);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+
+  // 5) Licencias y certificados médicos
+  const licSet = new Set();
+  const { data: lics } = await sb.from('rrhh_licencias')
+    .select('empleado_id, fecha_desde, fecha_hasta').in('empleado_id', empIds);
+  (lics || []).forEach(l => {
+    let d = new Date(l.fecha_desde + 'T12:00:00');
+    const f = new Date(l.fecha_hasta + 'T12:00:00');
+    while (d <= f) {
+      licSet.add(`${l.empleado_id}_${d.toISOString().split('T')[0]}`);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  const { data: certs } = await sb.from('rrhh_certificados_medicos')
+    .select('empleado_id, fecha_desde, fecha_hasta').in('empleado_id', empIds);
+  (certs || []).forEach(c => {
+    let d = new Date(c.fecha_desde + 'T12:00:00');
+    const f = new Date(c.fecha_hasta + 'T12:00:00');
+    while (d <= f) {
+      licSet.add(`${c.empleado_id}_${d.toISOString().split('T')[0]}`);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+
+  // 6) Feriados
+  const { data: feriados } = await sb.from('rrhh_feriados')
+    .select('fecha, cierra_oficina, cierra_shoppings')
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
+  const feriadoMap = {};
+  (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
+
+  // 7) Permisos aprobados
+  const { data: permisos } = await sb.from('rrhh_permisos')
+    .select('empleado_id, fecha, minutos, estado').in('empleado_id', empIds).eq('estado','aprobado');
+  const permisosMap = {};
+  (permisos || []).forEach(p => { permisosMap[`${p.empleado_id}_${p.fecha}`] = p.minutos || 0; });
+
+  // 8) Horas extras autorizadas
+  const { data: extras } = await sb.from('rrhh_horas_extras')
+    .select('empleado_id, fecha, minutos').in('empleado_id', empIds);
+  const extrasMap = {};
+  (extras || []).forEach(x => { extrasMap[`${x.empleado_id}_${x.fecha}`] = x.minutos || 0; });
+
+  // 9) Tolerancias por local
+  const { data: tolDb } = await sb.from('rrhh_config_tolerancias').select('*');
+  const tols = {};
+  (tolDb || []).forEach(t => { tols[t.local] = t; });
+
+  // 10) Procesar día a día
+  const detalleRows = [];
+  const bancoMovs = [];
+  const stats = { dias_total: 0, puntuales: 0, tardanzas: 0, ausencias: 0, extras: 0 };
+  // Acumulador mensual de tardanzas por empleado (para aplicar umbral al final)
+  const tardanzaAcum = {}; // empleado_id -> minutos tarde acumulados
+
+  // Preservar salvados previos antes de borrar el detalle (idempotencia)
+  // Los re-aplicamos al final para que los salvados sobrevivan al re-procesamiento
+  const { data: salvadosPrevios } = await sb.from('rrhh_asistencias_detalle')
+    .select('empleado_id, fecha, salvado_por, salvado_motivo, salvado_at')
+    .in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .eq('error_salvado', true);
+  const salvadosMap = {};
+  (salvadosPrevios || []).forEach(s => {
+    salvadosMap[`${s.empleado_id}_${s.fecha}`] = s;
+  });
+  const horaToMin = (h) => {
+    if (!h) return null;
+    const [hh, mm] = h.split(':').map(Number);
+    return hh*60 + mm;
+  };
+
+  for (const emp of empleados) {
+    const tol = tols[emp.local] || { minutos_tarde: 20, minutos_temprano: 5, buffer_entrada: 15 };
+    for (let d = 1; d <= diasMes; d++) {
+      const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const k = `${emp.id}_${fecha}`;
+      stats.dias_total++;
+
+      // Skip si fecha previa al ingreso
+      if (emp.fecha_ingreso && fecha < emp.fecha_ingreso) continue;
+
+      const turno = turnoMap[k];
+      const fichs = (fichMap[k] || []).sort();
+      const hayFichada = fichs.length > 0;
+      const esVac = vacSet.has(k);
+      const esLic = licSet.has(k);
+      const feriado = feriadoMap[fecha];
+      const cierraLocal = feriado && (
+        (emp.local === 'oficina' && feriado.cierra_oficina) ||
+        ((emp.local === 'unicenter' || emp.local === 'alcorta') && feriado.cierra_shoppings)
+      );
+
+      let estado = 'sin_definir';
+      let minTarde = 0, minTemp = 0, minExtra = 0, minBanco = 0;
+      let entrada = null, salida = null;
+
+      // Prioridad: vacaciones > licencia > feriado > sin turno > sin fichada > análisis
+      if (esVac) estado = 'vacaciones';
+      else if (esLic) estado = 'licencia';
+      else if (cierraLocal) estado = 'feriado';
+      else if (!turno) {
+        // Sin turno planificado — si fichó, registramos puntual; si no, ignoramos
+        if (hayFichada) {
+          estado = 'puntual';  // trabajó sin turno asignado
+          entrada = fichs[0]; salida = fichs[fichs.length-1];
+        } else continue;  // sin turno ni fichada, no se registra
+      } else if (turno.es_franco) {
+        if (hayFichada) {
+          estado = 'puntual';  // vino en franco — cuenta como extra
+          entrada = fichs[0]; salida = fichs[fichs.length-1];
+        } else estado = 'franco';
+      } else {
+        // Turno normal planificado
+        const ti = horaToMin(turno.hora_inicio);
+        const tf = horaToMin(turno.hora_fin);
+        if (!hayFichada) {
+          estado = 'ausente';
+          // -minutos del turno completo al banco
+          if (ti != null && tf != null) minBanco = -(tf - ti);
+        } else if (fichs.length === 1) {
+          estado = 'falta_fichada';
+          entrada = fichs[0];
+        } else {
+          entrada = fichs[0];
+          salida = fichs[fichs.length-1];
+          const ei = horaToMin(entrada);
+          const es = horaToMin(salida);
+          // Tarde = entró después del horario - buffer
+          const entradaReal = ti + (tol.buffer_entrada || 15);   // horario real del turno
+          minTarde = Math.max(0, ei - entradaReal);
+          // Salida temprana = se fue antes del fin
+          minTemp = Math.max(0, tf - es);
+          // Extra = se quedó después
+          minExtra = Math.max(0, es - tf);
+
+          // Clasificar
+          if (minTarde > (tol.minutos_tarde || 20) || minTemp > (tol.minutos_temprano || 5)) {
+            estado = 'tarde';
+          } else if (minExtra > 5) {
+            estado = 'puntual';   // siguió siendo puntual pero hizo extra
+          } else {
+            estado = 'puntual';
+          }
+
+          // Banco — las tardanzas se acumulan, NO se descuentan día a día.
+          //         Al final del mes, si superan el umbral, descuento el excedente.
+          //         Las salidas tempranas SI se descuentan día a día (siguen siendo error puntual).
+          if (minTemp > (tol.minutos_temprano || 5)) {
+            minBanco -= (minTemp - (tol.minutos_temprano || 5));
+          }
+          if (extrasMap[k]) {
+            // Extras autorizadas suman al banco
+            minBanco += extrasMap[k];
+          }
+        }
+      }
+
+      // Stats
+      if (estado === 'puntual') stats.puntuales++;
+      if (estado === 'tarde') stats.tardanzas++;
+      if (estado === 'ausente') stats.ausencias++;
+      // Acumular tardanzas (solo los minutos que pasan tolerancia diaria)
+      // Excluir días que estaban salvados previamente
+      const eraSalvado = !!salvadosMap[k];
+      if (minTarde > (tol.minutos_tarde || 20) && !eraSalvado) {
+        tardanzaAcum[emp.id] = (tardanzaAcum[emp.id] || 0) + (minTarde - (tol.minutos_tarde || 20));
+      }
+
+      // Permisos (restan del banco si están aprobados)
+      if (permisosMap[k]) minBanco -= permisosMap[k];
+
+      detalleRows.push({
+        empleado_id: emp.id,
+        fecha,
+        entrada,
+        salida,
+        estado,
+        minutos_tarde: minTarde,
+        minutos_salida_temp: minTemp,
+        minutos_extra: minExtra,
+        minutos_banco: minBanco,
+        turno_id: turno?.id || null,
+        procesado_at: new Date().toISOString(),
+      });
+
+      // Movimiento en banco si != 0
+      if (minBanco !== 0) {
+        let tipo = 'ajuste';
+        if (estado === 'ausente') tipo = 'falta';
+        else if (estado === 'tarde') tipo = 'tarde';
+        else if (extrasMap[k]) tipo = 'hora_extra';
+        else if (permisosMap[k]) tipo = 'permiso_compensado';
+        bancoMovs.push({
+          empleado_id: emp.id, fecha, minutos: minBanco, tipo,
+          referencia_tipo: 'asistencia', creado_por: 'sistema-cruce',
+        });
+      }
+    }
+  }
+
+  // 10.5) Movimiento mensual de tardanzas
+  //       Si total acumulado > umbral (60min) → descuenta TODO el acumulado
+  //       Si total ≤ umbral → no descuenta nada
+  //       (los días salvados ya están excluidos del acumulado)
+  const fechaMesUltimo = fechaHasta;
+  for (const emp of empleados) {
+    const tol = tols[emp.local] || { umbral_mensual_tardanzas: 60 };
+    const umbral = tol.umbral_mensual_tardanzas || 60;
+    const acum = tardanzaAcum[emp.id] || 0;
+    if (acum > umbral) {
+      const descuento = -acum;   // ← descuenta el total completo
+      bancoMovs.push({
+        empleado_id: emp.id,
+        fecha: fechaMesUltimo,
+        minutos: descuento,
+        tipo: 'tarde',
+        referencia_tipo: 'tarde_mensual',
+        observaciones: `Tardanzas del mes: ${acum} min (supera umbral ${umbral}). Descuento total: ${Math.abs(descuento)} min.`,
+        creado_por: 'sistema-cruce',
+      });
+    }
+  }
+
+  // 11) Borrar detalle previo del mes (para no duplicar) y reinsertar
+  await sb.from('rrhh_asistencias_detalle').delete()
+    .in('empleado_id', empIds).gte('fecha', fechaDesde).lte('fecha', fechaHasta);
+  // Borrar movs del banco generados por sistema en este período
+  await sb.from('rrhh_banco_minutos').delete()
+    .in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .eq('creado_por', 'sistema-cruce');
+
+  // Insertar en batches
+  const BATCH = 200;
+  for (let i = 0; i < detalleRows.length; i += BATCH) {
+    const batch = detalleRows.slice(i, i+BATCH);
+    const { error } = await sb.from('rrhh_asistencias_detalle').insert(batch);
+    if (error) throw error;
+  }
+  for (let i = 0; i < bancoMovs.length; i += BATCH) {
+    const batch = bancoMovs.slice(i, i+BATCH);
+    const { error } = await sb.from('rrhh_banco_minutos').insert(batch);
+    if (error) throw error;
+  }
+
+  // Re-aplicar salvados previos (preservar la decisión de la encargada)
+  let restaurados = 0;
+  for (const key in salvadosMap) {
+    const s = salvadosMap[key];
+    const { error: e1 } = await sb.from('rrhh_asistencias_detalle')
+      .update({
+        error_salvado: true,
+        salvado_por: s.salvado_por,
+        salvado_motivo: s.salvado_motivo,
+        salvado_at: s.salvado_at,
+      })
+      .eq('empleado_id', s.empleado_id)
+      .eq('fecha', s.fecha);
+    if (!e1) restaurados++;
+  }
+  if (restaurados > 0) {
+    console.log(`✓ ${restaurados} salvados previos restaurados`);
+  }
+
+  // Audit log
+  await auditLog('procesar_mes', 'rrhh_asistencias_detalle', null, periodo, null,
+    `${detalleRows.length} días, ${bancoMovs.length} movimientos`);
+
+  return stats;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Dropdown detalle día×día por empleado en Resumen mensual
+// ─────────────────────────────────────────────────────────────
+async function toggleDetalleResumen(empId) {
+  const row = document.getElementById(`detalle-${empId}`);
+  const caret = document.getElementById(`caret-${empId}`);
+  if (!row) return;
+  if (row.style.display === 'none' || row.style.display === '') {
+    row.style.display = 'table-row';
+    if (caret) caret.textContent = '▼';
+    await renderDetalleEmpDia(empId);
+  } else {
+    row.style.display = 'none';
+    if (caret) caret.textContent = '▶';
+  }
+}
+
+async function salvarError(detalleId, empId) {
+  if (!['admin','gerente'].includes(session.rol)) {
+    toast('Solo encargada/admin pueden salvar errores', 'error');
+    return;
+  }
+  const motivo = prompt('Motivo del salvado (ej. equipo de fichadas no funcionaba):');
+  if (!motivo || !motivo.trim()) return;
+
+  const { error } = await sb.from('rrhh_asistencias_detalle').update({
+    error_salvado: true,
+    salvado_por: session.email,
+    salvado_motivo: motivo.trim(),
+    salvado_at: new Date().toISOString(),
+  }).eq('id', detalleId);
+
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  await auditLog('salvar_error', 'rrhh_asistencias_detalle', detalleId, 'error_salvado', 'false', 'true');
+  toast('Error salvado ✓', 'success');
+  // Re-render del detalle y del resumen
+  await renderDetalleEmpDia(empId);
+  await renderResumenContent();
+}
+
+async function quitarSalvado(detalleId, empId) {
+  if (!confirm('¿Quitar el salvado? El día va a volver a contar como error.')) return;
+  const { error } = await sb.from('rrhh_asistencias_detalle').update({
+    error_salvado: false,
+    salvado_por: null, salvado_motivo: null, salvado_at: null,
+  }).eq('id', detalleId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('quitar_salvado', 'rrhh_asistencias_detalle', detalleId, 'error_salvado', 'true', 'false');
+  toast('Salvado removido', 'success');
+  await renderDetalleEmpDia(empId);
+  await renderResumenContent();
+}
+
+async function renderDetalleEmpDia(empId) {
+  const cont = document.getElementById(`detalle-cont-${empId}`);
+  if (!cont) return;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+  const { data: detalle } = await sb.from('rrhh_asistencias_detalle')
+    .select('*, turno:rrhh_turnos(hora_inicio, hora_fin, tipo, es_franco)')
+    .eq('empleado_id', empId)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .order('fecha', { ascending: true });
+
+  if (!detalle || detalle.length === 0) {
+    cont.innerHTML = '<div class="emp-empty" style="padding:20px;">Sin días procesados.</div>';
+    return;
+  }
+
+  const DIAS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const fmtMin = (mm) => {
+    if (mm == null || mm === 0) return '—';
+    const sign = mm < 0 ? '-' : '';
+    const abs = Math.abs(mm);
+    return `${sign}${Math.floor(abs/60)}:${String(abs%60).padStart(2,'0')}`;
+  };
+  const fmtHora = (h) => h ? h.substring(0,5) : '—';
+  const ESTADO_MAP = {
+    'puntual':       { label: '✓ Puntual',         color: 'var(--success)', bg: '#d1faf1' },
+    'tarde':         { label: '⚠ Tarde',           color: 'var(--warning)', bg: '#fef3c7' },
+    'ausente':       { label: '✗ Ausente',         color: 'var(--danger)',  bg: '#fee2e2' },
+    'vacaciones':    { label: '🌴 Vacaciones',     color: 'var(--accent2)', bg: '#d1faf1' },
+    'licencia':      { label: '📋 Licencia',       color: '#92400e',        bg: '#fef3c7' },
+    'feriado':       { label: '🔒 Feriado',        color: '#b91c1c',        bg: '#fee2e2' },
+    'franco':        { label: '— Franco',          color: 'var(--muted)',   bg: '#f3f4f6' },
+    'falta_fichada': { label: '⚠ Falta fichada',   color: '#92400e',        bg: '#fef3c7' },
+    'sin_definir':   { label: '?',                 color: 'var(--muted)',   bg: 'white' },
+  };
+
+  function detectarAnomalia(d) {
+    if (d.estado === 'ausente' || d.estado === 'vacaciones' || d.estado === 'licencia' ||
+        d.estado === 'feriado' || d.estado === 'franco') return null;
+    if (!d.entrada && !d.salida) return null;
+    if (d.estado === 'falta_fichada') {
+      if (!d.entrada) return '🎖 ERROR · Olvidó fichar entrada';
+      if (!d.salida)  return '🎖 ERROR · Olvidó fichar salida';
+    }
+    if (d.turno?.hora_inicio && (d.minutos_tarde||0) > 60) return '🎖 ERROR · Entrada fuera de horario';
+    return null;
+  }
+  function esErrorPremio(d) {
+    return (d.estado === 'falta_fichada') ||
+           ((d.minutos_tarde||0) > 60 && ['tarde','puntual'].includes(d.estado));
+  }
+
+  // Contar errores del mes (excluyendo los salvados) para info al pie
+  const totalErrores = detalle.filter(d => esErrorPremio(d) && !d.error_salvado).length;
+  const totalSalvados = detalle.filter(d => esErrorPremio(d) && d.error_salvado).length;
+  const puedeSalvar = ['admin','gerente'].includes(session.rol);
+
+  // Cargar max errores del local del empleado
+  let maxErr = 4;
+  try {
+    const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
+    const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio').eq('local', emp.local).single();
+    if (tol) maxErr = tol.max_errores_premio || 4;
+  } catch(e) {}
+
+  cont.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Detalle día por día</div>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden;border:1px solid var(--border);font-size:12px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Fecha</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Día</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Turno planificado</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:center;">Entrada</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:center;">Salida</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:center;">Estado</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Tarde</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Extra</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Δ Banco</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Observación</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${detalle.map(d => {
+          const fecha = new Date(d.fecha + 'T12:00:00');
+          const dow = DIAS[fecha.getDay()];
+          const dia_num = fecha.getDate();
+          const est = ESTADO_MAP[d.estado] || ESTADO_MAP.sin_definir;
+          const turnoTxt = d.turno?.es_franco ? '— Franco' :
+                           (d.turno?.hora_inicio ? `${fmtHora(d.turno.hora_inicio)} → ${fmtHora(d.turno.hora_fin)}` : '—');
+          const anomalia = detectarAnomalia(d);
+          const banco = d.minutos_banco || 0;
+          const sinEntrada = !d.entrada && ['tarde','puntual','falta_fichada'].includes(d.estado);
+          const sinSalida = !d.salida && ['tarde','puntual','falta_fichada'].includes(d.estado);
+          return `
+            <tr style="border-top:1px solid var(--border);${anomalia ? 'background:#fffbeb;' : ''}">
+              <td style="padding:5px 10px;font-family:monospace;font-size:11px;color:var(--muted);">${d.fecha}</td>
+              <td style="padding:5px 10px;font-weight:600;">${dow} ${String(dia_num).padStart(2,'0')}</td>
+              <td style="padding:5px 10px;font-size:11px;color:var(--muted);">${turnoTxt}</td>
+              <td style="padding:5px 10px;text-align:center;font-family:monospace;font-weight:${d.entrada?'600':'400'};color:${sinEntrada?'var(--danger)':'var(--text)'};">${sinEntrada?'⚠ falta':fmtHora(d.entrada)}</td>
+              <td style="padding:5px 10px;text-align:center;font-family:monospace;font-weight:${d.salida?'600':'400'};color:${sinSalida?'var(--danger)':'var(--text)'};">${sinSalida?'⚠ falta':fmtHora(d.salida)}</td>
+              <td style="padding:5px 10px;text-align:center;"><span style="background:${est.bg};color:${est.color};padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;white-space:nowrap;">${est.label}</span></td>
+              <td style="padding:5px 10px;text-align:right;color:${(d.minutos_tarde||0)>0?'var(--warning)':'var(--muted)'};">${fmtMin(d.minutos_tarde||0)}</td>
+              <td style="padding:5px 10px;text-align:right;color:${(d.minutos_extra||0)>0?'var(--success)':'var(--muted)'};">${fmtMin(d.minutos_extra||0)}</td>
+              <td style="padding:5px 10px;text-align:right;font-weight:600;color:${banco>=0?'var(--success)':'var(--danger)'};">${fmtMin(banco)}</td>
+              <td style="padding:5px 10px;font-size:11px;">
+                ${(() => {
+                  if (!anomalia) return '';
+                  if (d.error_salvado) {
+                    return `<span style="text-decoration:line-through;color:#0d9488;">${anomalia}</span><br><span style="color:#0d9488;font-size:10px;">✓ Salvado: ${escapeHtml(d.salvado_motivo||'')} <em style="color:var(--muted);">— ${escapeHtml(d.salvado_por||'')}</em></span>`;
+                  }
+                  let html = `<span style="color:#92400e;">${anomalia}</span>`;
+                  if (esErrorPremio(d) && puedeSalvar) {
+                    html += ` <button class="btn small accent2" style="padding:1px 6px;font-size:10px;margin-left:6px;" onclick="event.stopPropagation();salvarError(${d.id}, ${empId})">Salvar</button>`;
+                  }
+                  return html;
+                })()}
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;flex-wrap:wrap;">
+      <div style="color:var(--muted);">
+        💡 <strong>🎖 ERROR</strong>: días que cuentan contra el premio. Encargada/admin puede <strong>Salvar</strong> un error (queda registrado el motivo).
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        ${totalSalvados > 0 ? `<span style="font-size:11px;color:#0d9488;">✓ ${totalSalvados} salvado${totalSalvados!==1?'s':''}</span>` : ''}
+        <div style="font-weight:600;padding:6px 14px;border-radius:99px;background:${totalErrores > maxErr ? '#fee2e2' : totalErrores === maxErr ? '#fef3c7' : '#d1faf1'};color:${totalErrores > maxErr ? '#b91c1c' : totalErrores === maxErr ? '#92400e' : '#0d9488'};">
+          ${totalErrores > maxErr ? `✗ Perdió premio (${totalErrores}/${maxErr})` : totalErrores === maxErr ? `⚠ En el límite (${totalErrores}/${maxErr})` : `✓ Premio OK (${totalErrores}/${maxErr})`}
+        </div>
       </div>
     </div>
   `;
 }
+
 
 // ════════════════════════════════════════════════════════════
 // MÓDULO CONFIGURACIÓN (admin)
@@ -3544,6 +4261,7 @@ async function renderConfigAdmin() {
       <button class="modal-tab ${configState.tab==='usuarios'?'active':''}" data-cfg="usuarios" style="border-bottom:2px solid transparent;padding:12px 14px;">🔑 Usuarios</button>
       <button class="modal-tab ${configState.tab==='cct'?'active':''}" data-cfg="cct" style="border-bottom:2px solid transparent;padding:12px 14px;">💼 Categorías CCT</button>
       <button class="modal-tab ${configState.tab==='feriados'?'active':''}" data-cfg="feriados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗓️ Feriados</button>
+      <button class="modal-tab ${configState.tab==='salvados'?'active':''}" data-cfg="salvados" style="border-bottom:2px solid transparent;padding:12px 14px;">🛡 Errores salvados</button>
       <button class="modal-tab ${configState.tab==='log'?'active':''}" data-cfg="log" style="border-bottom:2px solid transparent;padding:12px 14px;">📜 Audit log</button>
     </div>
 
@@ -3567,7 +4285,89 @@ async function renderConfigContent() {
   if      (configState.tab === 'usuarios') await renderConfigUsuarios(cont);
   else if (configState.tab === 'cct')      await renderConfigCCT(cont);
   else if (configState.tab === 'feriados') await renderConfigFeriados(cont);
+  else if (configState.tab === 'salvados') await renderConfigSalvados(cont);
   else if (configState.tab === 'log')      await renderConfigLog(cont);
+}
+
+async function renderConfigSalvados(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data, error } = await sb.from('rrhh_asistencias_detalle')
+    .select('id, empleado_id, fecha, estado, minutos_tarde, salvado_por, salvado_motivo, salvado_at, empleado:rrhh_empleados(nombre_completo, local)')
+    .eq('error_salvado', true)
+    .order('salvado_at', { ascending: false });
+  if (error) { cont.innerHTML = '<div style="color:var(--danger)">'+error.message+'</div>'; return; }
+  if (!data || data.length === 0) {
+    cont.innerHTML = `
+      <div class="card">
+        <div class="placeholder">
+          <div class="icon">🛡</div>
+          <h3>Sin errores salvados</h3>
+          <p>Cuando una encargada salve un error de fichada, va a aparecer acá con su motivo y fecha.</p>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Stats: salvados por persona
+  const porSalvador = {};
+  data.forEach(d => {
+    if (!d.salvado_por) return;
+    porSalvador[d.salvado_por] = (porSalvador[d.salvado_por] || 0) + 1;
+  });
+
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:14px;background:#eff6ff;border-color:#bfdbfe;">
+      <strong style="color:#1e40af;">🛡 Auditoría de errores salvados</strong>
+      <p style="margin:6px 0 0;font-size:13px;line-height:1.5;">
+        Cuando una encargada considera que un error de fichada no debe contar contra el premio
+        (ej. dispositivo Anviz roto, corte de luz), lo "salva" indicando el motivo.
+        Tenés visibilidad completa de cuándo y por qué se hizo cada salvado.
+      </p>
+    </div>
+
+    <div class="metrics-grid" style="margin-bottom:14px;">
+      <div class="metric-card accent"><div class="label">Total salvados</div><div class="value">${data.length}</div></div>
+      <div class="metric-card"><div class="label">Salvadores únicos</div><div class="value">${Object.keys(porSalvador).length}</div></div>
+      ${Object.keys(porSalvador).length > 0 ? `
+      <div class="metric-card warn"><div class="label">Top salvador</div><div class="value" style="font-size:16px;">${escapeHtml(Object.entries(porSalvador).sort((a,b)=>b[1]-a[1])[0][0].split('@')[0])}</div><div class="hint">${Object.entries(porSalvador).sort((a,b)=>b[1]-a[1])[0][1]} salvados</div></div>
+      ` : ''}
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;">Fecha</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Empleada</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Local</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Tipo de error</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Motivo</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Salvado por</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Cuando</th>
+          <th style="padding:10px 14px;text-align:right;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${data.map(d => {
+          let tipoErr = '⚠ Falta fichada';
+          if ((d.minutos_tarde||0) > 60) tipoErr = '⚠ Tarde fuera de horario (' + d.minutos_tarde + ' min)';
+          return `
+            <tr style="border-top:1px solid var(--border);">
+              <td style="padding:9px 14px;font-family:monospace;font-size:12px;">${d.fecha}</td>
+              <td style="padding:9px 14px;font-size:13px;">${escapeHtml(d.empleado?.nombre_completo || '—')}</td>
+              <td style="padding:9px 14px;"><span class="emp-tag local-${d.empleado?.local||''}">${LOCALES[d.empleado?.local]?.nombre || ''}</span></td>
+              <td style="padding:9px 14px;font-size:12px;color:#92400e;">${tipoErr}</td>
+              <td style="padding:9px 14px;font-size:12px;font-style:italic;">"${escapeHtml(d.salvado_motivo || '')}"</td>
+              <td style="padding:9px 14px;font-size:12px;">${escapeHtml((d.salvado_por||'').split('@')[0])}</td>
+              <td style="padding:9px 14px;font-size:11px;color:var(--muted);">${d.salvado_at ? new Date(d.salvado_at).toLocaleString('es-AR') : '—'}</td>
+              <td style="padding:9px 14px;text-align:right;">
+                <button class="btn small danger" onclick="quitarSalvado(${d.id}, ${d.empleado_id})">Quitar</button>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 async function renderConfigUsuarios(cont) {
@@ -3709,131 +4509,9 @@ async function crearUsuario() {
   await auditLog('crear', 'rrhh_usuarios', data.id, null, null, email + ' / ' + rol);
   toast('Usuario vinculado ✓', 'success');
   configState.tab = 'usuarios';
-  document.getElementById('main').innerHTML = await renderConfigAdmin();
-}
-
-async function renderConfigCCT(cont) {
-  cont.innerHTML = '<div class="spinner"></div>';
-  const cats = await getCategorias();
-  CACHE_CATEGORIAS = null; // forzar reload next time
-  const fresh = await getCategorias();
-  cont.innerHTML = `
-    <div class="card" style="margin-bottom:16px;background:#eff6ff;border-color:#bfdbfe;">
-      <strong style="color:#1e40af;">📐 Escalas vigentes</strong>
-      <p style="margin:6px 0 0;font-size:13px;line-height:1.5;">Estos básicos se usan para validar los recibos contra la paritaria. Actualizar cuando salga una nueva escala paritaria de FAECYS / CAC. La skill <code>control-sueldos-adorno</code> también tiene una copia de referencia.</p>
-    </div>
-
-    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
-      <thead><tr style="background:#f9fafb;text-align:left;">
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Código</th>
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Nombre</th>
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Sueldo básico</th>
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Vigencia</th>
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Activa</th>
-        <th style="padding:12px 16px;text-align:right;"></th>
-      </tr></thead>
-      <tbody>
-        ${fresh.map(c => `
-          <tr style="border-top:1px solid var(--border);">
-            <td style="padding:10px 16px;font-family:monospace;font-size:12px;color:var(--muted);">${escapeHtml(c.codigo)}</td>
-            <td style="padding:10px 16px;font-size:14px;">${escapeHtml(c.nombre)}</td>
-            <td style="padding:10px 16px;text-align:right;">$${(c.sueldo_basico||0).toLocaleString('es-AR')}</td>
-            <td style="padding:10px 16px;font-size:12px;color:var(--muted);">—</td>
-            <td style="padding:10px 16px;">${c.activa ? '✅' : '⏸️'}</td>
-            <td style="padding:10px 16px;text-align:right;">
-              <button class="btn small" onclick="editarCategoria(${c.id})">Editar</button>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-async function editarCategoria(id) {
-  const cats = await getCategorias();
-  const c = cats.find(x => x.id === id);
-  if (!c) return;
-  const nuevo = prompt(`Nuevo sueldo básico para ${c.nombre}:\n(actual: $${(c.sueldo_basico||0).toLocaleString('es-AR')})`, c.sueldo_basico);
-  if (!nuevo) return;
-  const valor = parseFloat(nuevo.replace(/[.,]/g, ''));
-  if (isNaN(valor) || valor < 0) { toast('Valor inválido', 'error'); return; }
-  const { error } = await sb.from('rrhh_categorias_cct').update({ sueldo_basico: valor }).eq('id', id);
-  if (error) { toast('Error: '+error.message,'error'); return; }
-  await auditLog('editar', 'rrhh_categorias_cct', id, 'sueldo_basico', String(c.sueldo_basico), String(valor));
-  CACHE_CATEGORIAS = null;
-  toast('Actualizado', 'success');
   renderConfigContent();
 }
 
-async function renderConfigFeriados(cont) {
-  cont.innerHTML = '<div class="spinner"></div>';
-  const { data } = await sb.from('rrhh_feriados').select('*').order('fecha', { ascending: true });
-  cont.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
-      <thead><tr style="background:#f9fafb;text-align:left;">
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Fecha</th>
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Nombre</th>
-        <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Tipo</th>
-      </tr></thead>
-      <tbody>
-        ${(data||[]).map(f => `
-          <tr style="border-top:1px solid var(--border);">
-            <td style="padding:10px 16px;font-family:monospace;font-size:13px;">${f.fecha}</td>
-            <td style="padding:10px 16px;font-size:14px;">${escapeHtml(f.nombre)}</td>
-            <td style="padding:10px 16px;"><span class="emp-tag">${f.tipo}</span></td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-async function renderConfigLog(cont) {
-  cont.innerHTML = '<div class="spinner"></div>';
-  const { data } = await sb.from('rrhh_log').select('*').order('timestamp', { ascending: false }).limit(100);
-  cont.innerHTML = `
-    <div class="hint" style="margin-bottom:12px;font-size:13px;color:var(--muted);">Últimas 100 acciones registradas</div>
-    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);font-size:13px;">
-      <thead><tr style="background:#f9fafb;text-align:left;">
-        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Fecha</th>
-        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Usuario</th>
-        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Acción</th>
-        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Tabla</th>
-        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">ID</th>
-        <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Cambio</th>
-      </tr></thead>
-      <tbody>
-        ${(data||[]).map(l => `
-          <tr style="border-top:1px solid var(--border);">
-            <td style="padding:8px 12px;font-size:11px;color:var(--muted);">${new Date(l.timestamp).toLocaleString('es-AR')}</td>
-            <td style="padding:8px 12px;font-size:12px;">${escapeHtml(l.usuario||'')}</td>
-            <td style="padding:8px 12px;"><span class="emp-tag">${l.accion}</span></td>
-            <td style="padding:8px 12px;font-family:monospace;font-size:11px;color:var(--muted);">${escapeHtml(l.tabla||'')}</td>
-            <td style="padding:8px 12px;font-size:11px;color:var(--muted);">${l.registro_id||''}</td>
-            <td style="padding:8px 12px;font-size:11px;">${l.campo ? `<strong>${escapeHtml(l.campo)}</strong>: ${escapeHtml((l.valor_anterior||'').substring(0,30))} → ${escapeHtml((l.valor_nuevo||'').substring(0,30))}` : ''}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-// ════════════════════════════════════════════════════════════
-// SERVICE WORKER (PWA)
-// ════════════════════════════════════════════════════════════
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./service-worker.js')
-      .then(reg => console.log('SW registrado:', reg.scope))
-      .catch(err => console.warn('SW falló:', err));
-  });
-}
-
-// ════════════════════════════════════════════════════════════
-// START
-// ════════════════════════════════════════════════════════════
-init();
 </script>
 </body>
 </html>
