@@ -284,6 +284,65 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 .toast.error { background: var(--danger); }
 .toast.success { background: var(--success); }
 
+
+/* ============================================== */
+/* CALENDARIO DE TURNOS                          */
+/* ============================================== */
+.cal-container { background: var(--card); border-radius: 12px; border: 1px solid var(--border); overflow: auto; max-height: 75vh; }
+.cal-grid { display: grid; min-width: max-content; }
+.cal-header-row { display: contents; }
+.cal-cell-header { background: #f9fafb; padding: 10px 8px; text-align: center; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 0; z-index: 2; border-bottom: 2px solid var(--border); }
+.cal-cell-header.weekend { background: #fef3c7; color: #92400e; }
+.cal-cell-header.feriado { background: #fee2e2; color: #b91c1c; }
+.cal-cell-header.today { background: var(--accent2); color: white; }
+.cal-cell-emp { background: white; padding: 8px 12px; font-size: 13px; font-weight: 500; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); position: sticky; left: 0; z-index: 1; min-width: 200px; display: flex; align-items: center; gap: 8px; }
+.cal-cell-emp .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #a78bfa); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.cal-cell-emp .info { min-width: 0; }
+.cal-cell-emp .info .name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-cell-emp .info .role { font-size: 10px; color: var(--muted); }
+.cal-cell-day { background: white; padding: 4px; text-align: center; font-size: 11px; border-bottom: 1px solid var(--border); border-right: 1px solid #f3f4f6; cursor: pointer; min-width: 56px; min-height: 50px; transition: background 0.1s; position: relative; }
+.cal-cell-day:hover { background: #f3f4f6; }
+.cal-cell-day.weekend { background: #fefce8; }
+.cal-cell-day.feriado { background: #fef2f2; }
+.cal-cell-day.today { background: #ecfdf5; box-shadow: inset 0 0 0 2px var(--accent2); }
+.cal-cell-day.has-turno { color: white; font-weight: 600; }
+.cal-cell-day .turno-time { font-size: 10px; line-height: 1.2; }
+.cal-cell-day .turno-icon { font-size: 14px; }
+.cal-cell-day.franco { background: #f3f4f6; color: var(--muted); }
+.cal-cell-day.vacaciones { background: #d1faf1; color: #0d9488; }
+.cal-cell-day.licencia   { background: #fef3c7; color: #92400e; }
+.cal-cell-day.feriado-cerrado { background: #fee2e2; }
+
+/* Popover para asignar turno */
+.tpl-popover {
+  position: fixed; z-index: 3000;
+  background: white; border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+  padding: 8px; min-width: 240px; max-width: 320px;
+  display: none;
+}
+.tpl-popover.show { display: block; }
+.tpl-popover-header { padding: 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.tpl-popover-header .title { font-size: 13px; font-weight: 600; }
+.tpl-popover-header .meta  { font-size: 11px; color: var(--muted); }
+.tpl-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  font-size: 13px; transition: background 0.1s;
+}
+.tpl-option:hover { background: #f3f4f6; }
+.tpl-option .swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+.tpl-option .label { flex: 1; }
+.tpl-option .hint { font-size: 11px; color: var(--muted); }
+.tpl-popover hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
+.tpl-option.danger { color: var(--danger); }
+
+.cal-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.cal-toolbar .month-nav { display: flex; align-items: center; gap: 4px; background: var(--card); border: 1.5px solid var(--border); border-radius: 10px; padding: 2px; }
+.cal-toolbar .month-nav button { background: transparent; border: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text); font-size: 14px; }
+.cal-toolbar .month-nav button:hover { background: #f3f4f6; }
+.cal-toolbar .month-label { padding: 8px 16px; font-weight: 600; font-size: 14px; min-width: 140px; text-align: center; }
+
 @media (max-width: 768px) {
   .sidebar { width: 60px; padding: 12px 6px; }
   .nav-item .label { display: none; }
@@ -433,6 +492,7 @@ const NAV = {
     { id: 'vacaciones',  label: 'Vacaciones',   icon: '🌴', section: null },
   ],
   empleado: [
+    { id: 'mi-calendario', label: 'Mi calendario', icon: '📅', section: null },
     { id: 'mi-legajo',     label: 'Mi legajo',     icon: '👤', section: null },
     { id: 'mis-recibos',   label: 'Mis recibos',   icon: '💰', section: null },
     { id: 'mis-vacaciones',label: 'Mis vacaciones',icon: '🌴', section: null },
@@ -565,6 +625,7 @@ async function renderPage(tabId) {
     'documentos':      renderDocumentosAdmin,
     'reportes':        () => placeholder('Reportes', '📈', 'Exports Excel y PDF', 1),
     'config':          renderConfigAdmin,
+    'mi-calendario':   renderMiCalendario,
     'mi-legajo':       renderMiLegajo,
     'mis-recibos':     renderMisRecibos,
     'mis-vacaciones':  renderMisVacaciones,
@@ -2214,6 +2275,211 @@ async function decidirVacacion(movId, accion) {
 // ════════════════════════════════════════════════════════════
 // MÓDULO SELF-SERVICE EMPLEADOS
 // ════════════════════════════════════════════════════════════
+let miCalState = { mes: null };
+
+async function renderMiCalendario() {
+  if (!miCalState.mes) miCalState.mes = mesActualString();
+  const [y, m] = miCalState.mes.split('-').map(Number);
+  const fechaDesde = new Date(y, m-1, 1);
+  const fechaHasta = new Date(y, m, 0);
+  const diasMes = fechaHasta.getDate();
+  const hoyStr = new Date().toISOString().split('T')[0];
+
+  // Cargar turnos del empleado del mes
+  const { data: turnos } = await sb.from('rrhh_turnos')
+    .select('*, template:rrhh_templates_turno(codigo, nombre, color, icono)')
+    .eq('empleado_id', session.empleado_id)
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0])
+    .order('fecha');
+
+  // Vacaciones aprobadas del mes
+  const { data: vacaciones } = await sb.from('rrhh_vacaciones_movimientos')
+    .select('fecha_desde, fecha_hasta, estado')
+    .eq('empleado_id', session.empleado_id)
+    .in('estado', ['aprobada','tomada'])
+    .gte('fecha_hasta', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha_desde', fechaHasta.toISOString().split('T')[0]);
+
+  // Permisos aprobados del mes
+  const { data: permisos } = await sb.from('rrhh_permisos')
+    .select('fecha, hora_desde, hora_hasta, estado, motivo')
+    .eq('empleado_id', session.empleado_id)
+    .eq('estado', 'aprobado')
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+
+  // Feriados del mes
+  const { data: feriados } = await sb.from('rrhh_feriados')
+    .select('fecha, nombre, cierra_oficina, cierra_shoppings')
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+  const feriadoMap = {};
+  (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
+
+  const turnoMap = {};
+  (turnos || []).forEach(t => { turnoMap[t.fecha] = t; });
+
+  // Marcar días dentro de vacaciones
+  const enVacaciones = new Set();
+  (vacaciones || []).forEach(v => {
+    let d = new Date(v.fecha_desde + 'T12:00:00');
+    const fin = new Date(v.fecha_hasta + 'T12:00:00');
+    while (d <= fin) {
+      enVacaciones.add(d.toISOString().split('T')[0]);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+
+  const permisoMap = {};
+  (permisos || []).forEach(p => { permisoMap[p.fecha] = p; });
+
+  // Stats del mes
+  const turnosTrabajados = (turnos || []).filter(t => !t.es_franco && t.tipo === 'planificado').length;
+  const francos = (turnos || []).filter(t => t.es_franco).length;
+  const diasVacaciones = enVacaciones.size;
+
+  // Calcular total de horas planificadas
+  let totalMinutos = 0;
+  (turnos || []).forEach(t => {
+    if (t.hora_inicio && t.hora_fin) {
+      const [h1, m1] = t.hora_inicio.split(':').map(Number);
+      const [h2, m2] = t.hora_fin.split(':').map(Number);
+      totalMinutos += (h2*60+m2) - (h1*60+m1);
+    }
+  });
+  const totalHoras = Math.floor(totalMinutos/60) + ':' + String(totalMinutos%60).padStart(2,'0');
+
+  // Construir grid: 7 columnas (L M M J V S D) con vista mes completo estilo calendario
+  const primerDow = new Date(y, m-1, 1).getDay(); // 0=domingo
+  const offset = primerDow === 0 ? 6 : primerDow - 1; // empezar en lunes
+
+  let html = `
+    <div class="page-header">
+      <h2>Mi calendario</h2>
+      <div class="subtitle">${escapeHtml(session.empleadoData?.nombre_completo || '')} · ${LOCALES[session.empleadoData?.local]?.nombre || ''}</div>
+    </div>
+
+    <div class="cal-toolbar">
+      <div class="month-nav">
+        <button onclick="cambiarMiMes(-1)">‹</button>
+        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <button onclick="cambiarMiMes(1)">›</button>
+      </div>
+      <button class="btn" onclick="miCalState.mes = mesActualString(); switchTab('mi-calendario');">Hoy</button>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card accent"><div class="label">Días a trabajar</div><div class="value">${turnosTrabajados}</div></div>
+      <div class="metric-card"><div class="label">Francos</div><div class="value">${francos}</div></div>
+      <div class="metric-card"><div class="label">Vacaciones</div><div class="value">${diasVacaciones}</div></div>
+      <div class="metric-card"><div class="label">Total horas</div><div class="value" style="font-size:24px;">${totalHoras}</div></div>
+    </div>
+
+    <div class="card" style="padding:18px;">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
+        ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => `
+          <div style="text-align:center;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;padding:4px 0;">${d}</div>
+        `).join('')}
+        ${Array.from({length: offset}).map(() => '<div></div>').join('')}
+        ${Array.from({length: diasMes}, (_, i) => {
+          const d = i + 1;
+          const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const date = new Date(y, m-1, d);
+          const dow = date.getDay();
+          const turno = turnoMap[fecha];
+          const esVac = enVacaciones.has(fecha);
+          const esFeriado = feriadoMap[fecha];
+          const esHoy = fecha === hoyStr;
+          const permiso = permisoMap[fecha];
+          const local = session.empleadoData?.local;
+          const cierraLocal = esFeriado && (
+            (local === 'oficina' && esFeriado.cierra_oficina) ||
+            ((local === 'unicenter' || local === 'alcorta') && esFeriado.cierra_shoppings)
+          );
+
+          let bg = 'white';
+          let fg = 'var(--text)';
+          let icon = '';
+          let label = '';
+          let titleAttr = '';
+
+          if (esVac) {
+            bg = '#d1faf1'; fg = '#0d9488';
+            icon = '🌴';
+            label = 'Vacaciones';
+          } else if (cierraLocal) {
+            bg = '#fee2e2'; fg = '#b91c1c';
+            icon = '🔒';
+            label = 'Cerrado';
+            titleAttr = `title="${esFeriado.nombre}"`;
+          } else if (turno?.es_franco) {
+            bg = '#f3f4f6'; fg = 'var(--muted)';
+            icon = '—';
+            label = 'Franco';
+          } else if (turno?.tipo === 'licencia') {
+            bg = '#fef3c7'; fg = '#92400e';
+            icon = '📋';
+            label = 'Licencia';
+          } else if (turno && turno.hora_inicio) {
+            bg = turno.template?.color || '#6366f1';
+            fg = 'white';
+            icon = turno.template?.icono || '🕐';
+            label = `${turno.hora_inicio.substring(0,5)} - ${turno.hora_fin?.substring(0,5)||''}`;
+          }
+
+          if (dow === 0 && bg === 'white') bg = '#fefce8'; // domingo claro
+          if (esFeriado && bg === 'white') { bg = '#fef2f2'; titleAttr = `title="${esFeriado.nombre}"`; }
+          if (esHoy) {
+            // Borde resaltado
+          }
+
+          return `
+            <div style="background:${bg};color:${fg};border:${esHoy ? '2px solid var(--accent2)' : '1px solid var(--border)'};border-radius:10px;padding:10px 8px;min-height:88px;display:flex;flex-direction:column;text-align:center;position:relative;" ${titleAttr}>
+              <div style="font-size:12px;font-weight:600;opacity:0.7;text-align:left;">${d}</div>
+              ${icon ? `<div style="font-size:22px;margin:4px 0;">${icon}</div>` : ''}
+              <div style="font-size:11px;font-weight:600;line-height:1.2;">${label}</div>
+              ${permiso ? `<div style="font-size:9px;margin-top:auto;background:#fef3c7;color:#92400e;border-radius:4px;padding:2px;">⏱ Permiso</div>` : ''}
+              ${esHoy ? '<div style="position:absolute;top:4px;right:4px;background:var(--accent2);color:white;border-radius:50%;width:8px;height:8px;"></div>' : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    ${(permisos || []).length > 0 ? `
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;">⏱ Permisos aprobados este mes</h3>
+        <ul class="simple-list">
+          ${permisos.map(p => `
+            <li>
+              <div>
+                <strong>${fmtFecha(p.fecha)}</strong> · ${p.hora_desde?.substring(0,5)} a ${p.hora_hasta?.substring(0,5)}
+                ${p.motivo ? `<div class="meta">${escapeHtml(p.motivo)}</div>` : ''}
+              </div>
+              <span class="emp-tag" style="background:#d1faf1;color:#0d9488;">aprobado</span>
+            </li>
+          `).join('')}
+        </ul>
+      </div>
+    ` : ''}
+
+    <div class="card" style="margin-top:14px;background:#eff6ff;border-color:#bfdbfe;">
+      <strong style="color:#1e40af;">💡 Tip:</strong> Si necesitás retirarte antes algún día o pedir un permiso puntual, andá a <a href="javascript:switchTab('mis-vacaciones');" style="color:#1e40af;text-decoration:underline;font-weight:600;">Mis vacaciones</a> y solicitalo. La encargada va a recibir el pedido para aprobar.
+    </div>
+  `;
+  return html;
+}
+
+function cambiarMiMes(delta) {
+  const [y, m] = miCalState.mes.split('-').map(Number);
+  let ny = y, nm = m + delta;
+  if (nm < 1)  { nm = 12; ny -= 1; }
+  if (nm > 12) { nm = 1;  ny += 1; }
+  miCalState.mes = `${ny}-${String(nm).padStart(2,'0')}`;
+  switchTab('mi-calendario');
+}
+
 
 async function renderMiLegajo() {
   const emp = session.empleadoData;
@@ -2709,118 +2975,556 @@ function abrirSubirSueldosBulk() {
 }
 
 // ════════════════════════════════════════════════════════════
-// MÓDULO ASISTENCIAS (admin)
+// MÓDULO ASISTENCIAS (admin / encargada)
+// Sub-tabs: Calendario / Fichadas / Resumen mensual
 // ════════════════════════════════════════════════════════════
-let asisState = { periodo: null, local: '' };
+let asisState = { tab: 'calendario', mes: null, local: '' };
+
+function mesActualString() {
+  const h = new Date();
+  return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}`;
+}
 
 async function renderAsistenciasAdmin() {
-  if (!asisState.periodo) {
-    const hoy = new Date();
-    let m = hoy.getMonth(); let y = hoy.getFullYear();
-    if (m === 0) { m = 12; y -= 1; }
-    asisState.periodo = `${y}-${String(m).padStart(2,'0')}`;
-  }
+  if (!asisState.mes) asisState.mes = mesActualString();
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
 
   const html = `
     <div class="page-header">
       <h2>Asistencias</h2>
-      <div class="subtitle">Dashboard mensual por local · Import desde CrossChex</div>
+      <div class="subtitle">${isAdmin ? 'Planificación y control de turnos' : 'Planificación de ' + (LOCALES[localFiltro]?.nombre || localFiltro)}</div>
     </div>
 
-    <div class="toolbar">
-      <select id="asis-periodo">
-        ${generarPeriodos(asisState.periodo).map(p => `<option value="${p}" ${asisState.periodo===p?'selected':''}>${p}</option>`).join('')}
-      </select>
-      <select id="asis-local">
-        <option value="">Todos los locales</option>
-        <option value="unicenter" ${asisState.local==='unicenter'?'selected':''}>Unicenter</option>
-        <option value="alcorta"   ${asisState.local==='alcorta'  ?'selected':''}>Alcorta</option>
-        <option value="oficina"   ${asisState.local==='oficina'  ?'selected':''}>Oficina</option>
-      </select>
+    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
+      <button class="modal-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario de turnos</button>
+      <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas (Anviz)</button>
+      <button class="modal-tab ${asisState.tab==='resumen'?'active':''}"    data-asistab="resumen"    style="border-bottom:2px solid transparent;padding:12px 14px;">📊 Resumen mensual</button>
     </div>
 
-    <div id="asis-content"><div class="spinner"></div></div>
+    <div id="asis-content" style="margin-top:20px;"><div class="spinner"></div></div>
   `;
   setTimeout(() => {
-    document.getElementById('asis-periodo').addEventListener('change', e => { asisState.periodo = e.target.value; renderAsisContent(); });
-    document.getElementById('asis-local').addEventListener('change', e => { asisState.local = e.target.value; renderAsisContent(); });
-    renderAsisContent();
+    document.querySelectorAll('[data-asistab]').forEach(b => {
+      b.addEventListener('click', async () => {
+        asisState.tab = b.dataset.asistab;
+        document.getElementById('main').innerHTML = await renderAsistenciasAdmin();
+      });
+    });
+    renderAsisTab();
   }, 0);
   return html;
 }
 
-async function renderAsisContent() {
+async function renderAsisTab() {
   const cont = document.getElementById('asis-content');
-  cont.innerHTML = '<div class="spinner"></div>';
+  if (!cont) return;
+  if      (asisState.tab === 'calendario') await renderCalendario(cont);
+  else if (asisState.tab === 'fichadas')   await renderFichadas(cont);
+  else if (asisState.tab === 'resumen')    await renderResumenMensual(cont);
+}
 
-  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado', 'activo');
-  if (asisState.local) qEmp = qEmp.eq('local', asisState.local);
-  const { data: empleados } = await qEmp;
-
-  const { data: asis } = await sb.from('rrhh_asistencias').select('*').eq('periodo', asisState.periodo);
-  const map = {};
-  (asis || []).forEach(a => { map[a.empleado_id] = a; });
-
-  const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
-  const stats = {
-    cargados: lista.filter(e => map[e.id]).length,
-    total_tardanzas: lista.reduce((s,e) => s + (map[e.id]?.llegadas_tarde || 0), 0),
-    total_ausencias: lista.reduce((s,e) => s + (map[e.id]?.dias_ausente || 0), 0),
-    total_extras: lista.reduce((s,e) => s + (map[e.id]?.horas_extras || 0), 0),
-  };
+// ─────────────────────────────────────────────────────────────
+// CALENDARIO DE TURNOS — grid empleados × días
+// ─────────────────────────────────────────────────────────────
+async function renderCalendario(cont) {
+  const isAdmin = session.rol === 'admin';
+  const local = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = new Date(y, m-1, 1);
+  const fechaHasta = new Date(y, m, 0);   // último día del mes
+  const diasMes = fechaHasta.getDate();
+  const hoyStr = new Date().toISOString().split('T')[0];
 
   cont.innerHTML = `
-    <div class="metrics-grid">
-      <div class="metric-card accent"><div class="label">Período</div><div class="value" style="font-size:22px;">${asisState.periodo}</div></div>
-      <div class="metric-card"><div class="label">Empleados con datos</div><div class="value">${stats.cargados} / ${lista.length}</div></div>
-      <div class="metric-card warn"><div class="label">Tardanzas totales</div><div class="value">${stats.total_tardanzas}</div></div>
-      <div class="metric-card"><div class="label">Ausencias totales</div><div class="value">${stats.total_ausencias}</div></div>
+    <div class="cal-toolbar">
+      <div class="month-nav">
+        <button onclick="cambiarMes(-1)" title="Mes anterior">‹</button>
+        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <button onclick="cambiarMes(1)" title="Mes siguiente">›</button>
+      </div>
+      ${isAdmin ? `
+      <select id="cal-local" onchange="cambiarLocal(this.value)">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : ''}
+      <button class="btn" onclick="asisState.mes = mesActualString(); document.getElementById('main').innerHTML = '<div class=spinner></div>'; renderAsistenciasAdmin().then(h => document.getElementById('main').innerHTML = h);">Hoy</button>
+      ${(isAdmin || session.rol==='gerente') ? `
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn accent2" onclick="generarMesDesdeDefault()">⚡ Generar mes desde default</button>
+        <button class="btn" onclick="limpiarMes()">🗑️ Limpiar mes</button>
+      </div>` : ''}
     </div>
 
-    ${stats.cargados === 0 ? `
-      <div class="card" style="margin-top:16px;">
-        <div class="placeholder">
-          <div class="icon">🕐</div>
-          <h3>Sin datos cargados</h3>
-          <p>Para cargar el mes, usá la skill <strong>control-asistencias-crosschex</strong> o <strong>fichadas-claudia-adorno</strong> con los reportes XLS de CrossChex.</p>
-          <p style="margin-top:8px;font-size:12px;">El resultado se carga vía script (próxima iteración: upload directo desde la UI).</p>
+    <div id="cal-grid-container"><div class="spinner"></div></div>
+  `;
+
+  await renderCalendarioGrid();
+}
+
+async function renderCalendarioGrid() {
+  const cont = document.getElementById('cal-grid-container');
+  if (!cont) return;
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = new Date(y, m-1, 1);
+  const fechaHasta = new Date(y, m, 0);
+  const diasMes = fechaHasta.getDate();
+  const hoyStr = new Date().toISOString().split('T')[0];
+
+  // Empleados
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, foto_url').eq('estado', 'activo').order('local').order('apellido');
+  if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
+  const { data: empleados } = await qEmp;
+
+  // Turnos del mes
+  const { data: turnos } = await sb.from('rrhh_turnos')
+    .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, template:rrhh_templates_turno(codigo, nombre, color, icono)')
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+
+  // Map (emp_id × fecha) → turno
+  const turnoMap = {};
+  (turnos || []).forEach(t => { turnoMap[`${t.empleado_id}_${t.fecha}`] = t; });
+
+  // Feriados
+  const { data: feriados } = await sb.from('rrhh_feriados')
+    .select('fecha, nombre, cierra_oficina, cierra_shoppings')
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+  const feriadoMap = {};
+  (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
+
+  if (!empleados || empleados.length === 0) {
+    cont.innerHTML = '<div class="emp-empty">Sin empleados para mostrar.</div>';
+    return;
+  }
+
+  const dias = Array.from({length: diasMes}, (_, i) => i + 1);
+  const gridTemplate = `200px repeat(${diasMes}, minmax(56px, 1fr))`;
+
+  const headerCells = dias.map(d => {
+    const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const date = new Date(y, m-1, d);
+    const dow = date.getDay();
+    const esFeriado = !!feriadoMap[fecha];
+    const esHoy = fecha === hoyStr;
+    const cls = ['cal-cell-header'];
+    if (dow === 0 || dow === 6) cls.push('weekend');
+    if (esFeriado) cls.push('feriado');
+    if (esHoy) cls.push('today');
+    const diaSemana = ['D','L','M','M','J','V','S'][dow];
+    return `<div class="${cls.join(' ')}" title="${esFeriado ? feriadoMap[fecha].nombre : ''}">
+      ${diaSemana}<br><span style="font-size:14px;color:inherit;">${d}</span>
+    </div>`;
+  }).join('');
+
+  const rows = empleados.map(e => {
+    const cells = dias.map(d => {
+      const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const turno = turnoMap[`${e.id}_${fecha}`];
+      const date = new Date(y, m-1, d);
+      const dow = date.getDay();
+      const esFeriado = feriadoMap[fecha];
+      const esHoy = fecha === hoyStr;
+      const cierra = esFeriado && (
+        (e.local === 'oficina' && esFeriado.cierra_oficina) ||
+        ((e.local === 'unicenter' || e.local === 'alcorta') && esFeriado.cierra_shoppings)
+      );
+
+      const cls = ['cal-cell-day'];
+      if (dow === 0 || dow === 6) cls.push('weekend');
+      if (esHoy) cls.push('today');
+      if (cierra) cls.push('feriado-cerrado');
+
+      let content = '';
+      let style = '';
+      if (turno) {
+        if (turno.tipo === 'vacaciones')  { cls.push('vacaciones'); content = '🌴'; }
+        else if (turno.tipo === 'licencia') { cls.push('licencia');   content = '📋'; }
+        else if (turno.es_franco)         { cls.push('franco');     content = '—'; }
+        else {
+          cls.push('has-turno');
+          style = `background:${turno.template?.color || '#6366f1'};`;
+          const hi = turno.hora_inicio ? turno.hora_inicio.substring(0,5) : '';
+          const hf = turno.hora_fin    ? turno.hora_fin.substring(0,5) : '';
+          content = `<div class="turno-icon">${turno.template?.icono || '🕐'}</div><div class="turno-time">${hi}</div>`;
+        }
+      } else if (cierra) {
+        content = '🔒';
+      }
+      return `<div class="${cls.join(' ')}" style="${style}" data-emp="${e.id}" data-fecha="${fecha}" data-local="${e.local}">${content}</div>`;
+    }).join('');
+
+    return `
+      <div class="cal-cell-emp">
+        <div class="avatar">${e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : escapeHtml(initials(e.apellido, e.nombre))}</div>
+        <div class="info">
+          <div class="name">${escapeHtml(e.apellido)}</div>
+          <div class="role">${LOCALES[e.local]?.nombre || e.local}</div>
         </div>
       </div>
-    ` : `
-      <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
-        <thead>
-          <tr style="background:#f9fafb;text-align:left;">
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Empleado</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Días trab.</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Ausencias</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Tarde</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Min tarde</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">HS extras</th>
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;"></th>
+      ${cells}
+    `;
+  }).join('');
+
+  cont.innerHTML = `
+    <div class="cal-container">
+      <div class="cal-grid" style="grid-template-columns: ${gridTemplate};">
+        <div class="cal-cell-emp" style="background:#f9fafb;font-weight:600;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">
+          Empleado
+        </div>
+        ${headerCells}
+        ${rows}
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:var(--muted);">
+      💡 Tocá una celda para asignar turno. Las celdas con color son turnos planificados, 🌴 vacaciones, 📋 licencia, — franco, 🔒 local cerrado por feriado.
+    </div>
+  `;
+
+  // Wire clicks
+  cont.querySelectorAll('.cal-cell-day').forEach(cell => {
+    cell.addEventListener('click', (e) => abrirPopoverTurno(e.currentTarget));
+  });
+}
+
+function cambiarMes(delta) {
+  const [y, m] = asisState.mes.split('-').map(Number);
+  let ny = y, nm = m + delta;
+  if (nm < 1)  { nm = 12; ny -= 1; }
+  if (nm > 12) { nm = 1;  ny += 1; }
+  asisState.mes = `${ny}-${String(nm).padStart(2,'0')}`;
+  document.getElementById('main').innerHTML = '<div class="spinner"></div>';
+  renderAsistenciasAdmin().then(h => document.getElementById('main').innerHTML = h);
+}
+
+function cambiarLocal(local) {
+  asisState.local = local;
+  renderCalendarioGrid();
+}
+
+// ─── Popover de asignación de turno ───
+let popoverState = { emp: null, fecha: null, local: null };
+
+async function abrirPopoverTurno(cellEl) {
+  if (session.rol === 'empleado') return; // sin permisos
+  const emp_id = parseInt(cellEl.dataset.emp, 10);
+  const fecha  = cellEl.dataset.fecha;
+  const local  = cellEl.dataset.local;
+  popoverState = { emp: emp_id, fecha, local };
+
+  // Cerrar popover previo
+  document.querySelectorAll('.tpl-popover').forEach(p => p.remove());
+
+  // Cargar templates del local
+  const { data: templates } = await sb.from('rrhh_templates_turno')
+    .select('*').eq('local', local).eq('activo', true).order('orden');
+
+  // Datos del empleado
+  const { data: emp } = await sb.from('rrhh_empleados').select('nombre_completo').eq('id', emp_id).single();
+
+  const pop = document.createElement('div');
+  pop.className = 'tpl-popover show';
+
+  // Posicionar relativo a la celda
+  const rect = cellEl.getBoundingClientRect();
+  pop.style.left = Math.min(window.innerWidth - 280, rect.left) + 'px';
+  pop.style.top  = Math.min(window.innerHeight - 400, rect.bottom + 4) + 'px';
+
+  pop.innerHTML = `
+    <div class="tpl-popover-header">
+      <div class="title">${escapeHtml(emp?.nombre_completo || '')}</div>
+      <div class="meta">${new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+    </div>
+    ${(templates || []).map(t => `
+      <div class="tpl-option" data-tpl="${t.id}" data-codigo="${t.codigo}">
+        <div class="swatch" style="background:${t.color || '#6366f1'};"></div>
+        <span style="font-size:14px;">${t.icono || ''}</span>
+        <div class="label">${escapeHtml(t.nombre)}</div>
+      </div>
+    `).join('')}
+    <hr>
+    <div class="tpl-option" data-custom="1">
+      <span style="font-size:14px;">✏️</span>
+      <div class="label">Horario personalizado…</div>
+    </div>
+    <hr>
+    <div class="tpl-option danger" data-clear="1">
+      <span style="font-size:14px;">🗑️</span>
+      <div class="label">Quitar turno</div>
+    </div>
+  `;
+  document.body.appendChild(pop);
+
+  pop.querySelectorAll('.tpl-option').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      if (opt.dataset.clear) await quitarTurno(emp_id, fecha);
+      else if (opt.dataset.custom) await asignarTurnoCustom(emp_id, fecha);
+      else await asignarTurno(emp_id, fecha, parseInt(opt.dataset.tpl, 10));
+      pop.remove();
+      await renderCalendarioGrid();
+    });
+  });
+
+  // Cerrar al clickear afuera
+  setTimeout(() => {
+    document.addEventListener('click', function cerrar(e) {
+      if (!pop.contains(e.target)) {
+        pop.remove();
+        document.removeEventListener('click', cerrar);
+      }
+    }, { once: false });
+  }, 100);
+}
+
+async function asignarTurno(emp_id, fecha, template_id) {
+  const { data: tpl } = await sb.from('rrhh_templates_turno').select('*').eq('id', template_id).single();
+  if (!tpl) { toast('Template no encontrado', 'error'); return; }
+  const payload = {
+    empleado_id: emp_id, fecha,
+    template_id: template_id,
+    hora_inicio: tpl.hora_inicio, hora_fin: tpl.hora_fin,
+    es_franco: tpl.es_franco,
+    tipo: tpl.es_franco ? 'franco' : 'planificado',
+    planificado_por: session.email,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from('rrhh_turnos').upsert(payload, { onConflict: 'empleado_id,fecha' });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Turno asignado ✓', 'success');
+}
+
+async function asignarTurnoCustom(emp_id, fecha) {
+  const hi = prompt('Hora de inicio (HH:MM)', '10:00');
+  if (!hi) return;
+  const hf = prompt('Hora de fin (HH:MM)', '18:00');
+  if (!hf) return;
+  if (!/^\d{1,2}:\d{2}$/.test(hi) || !/^\d{1,2}:\d{2}$/.test(hf)) {
+    toast('Formato HH:MM inválido', 'error'); return;
+  }
+  const { error } = await sb.from('rrhh_turnos').upsert({
+    empleado_id: emp_id, fecha,
+    hora_inicio: hi, hora_fin: hf,
+    es_franco: false, tipo: 'planificado',
+    planificado_por: session.email,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'empleado_id,fecha' });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Turno asignado ✓', 'success');
+}
+
+async function quitarTurno(emp_id, fecha) {
+  const { error } = await sb.from('rrhh_turnos').delete().eq('empleado_id', emp_id).eq('fecha', fecha);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Turno borrado', 'success');
+}
+
+async function generarMesDesdeDefault() {
+  if (!confirm('Esto va a generar los turnos del mes según el horario default de cada empleado.\n\n¿Sobrescribe los turnos ya cargados? NO — solo agrega días vacíos. Lo ya cargado queda intacto.\n\n¿Continuar?')) return;
+
+  const isAdmin = session.rol === 'admin';
+  const local = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = new Date(y, m-1, 1);
+  const fechaHasta = new Date(y, m, 0);
+  const diasMes = fechaHasta.getDate();
+
+  toast('Generando mes…');
+
+  // Empleados filtrados por local
+  let qEmp = sb.from('rrhh_empleados').select('id, local').eq('estado', 'activo');
+  if (local) qEmp = qEmp.eq('local', local);
+  const { data: empleados } = await qEmp;
+
+  // Defaults
+  const { data: defaults } = await sb.from('rrhh_turnos_default')
+    .select('*, template:rrhh_templates_turno(*)')
+    .in('empleado_id', (empleados||[]).map(e => e.id));
+  // Map (emp_id × dia_semana) → default
+  const defMap = {};
+  (defaults || []).forEach(d => { defMap[`${d.empleado_id}_${d.dia_semana}`] = d; });
+
+  // Turnos ya cargados (para no pisar)
+  const { data: ya } = await sb.from('rrhh_turnos')
+    .select('empleado_id, fecha')
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0])
+    .in('empleado_id', (empleados||[]).map(e => e.id));
+  const yaSet = new Set((ya || []).map(t => `${t.empleado_id}_${t.fecha}`));
+
+  // Generar
+  const inserts = [];
+  for (const e of (empleados || [])) {
+    for (let d = 1; d <= diasMes; d++) {
+      const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      if (yaSet.has(`${e.id}_${fecha}`)) continue;
+      const dow = new Date(y, m-1, d).getDay();
+      const def = defMap[`${e.id}_${dow}`];
+      if (!def) continue;
+      inserts.push({
+        empleado_id: e.id, fecha,
+        template_id: def.template_id,
+        hora_inicio: def.hora_inicio || def.template?.hora_inicio,
+        hora_fin:    def.hora_fin    || def.template?.hora_fin,
+        es_franco: def.es_franco,
+        tipo: def.es_franco ? 'franco' : 'planificado',
+        planificado_por: session.email,
+      });
+    }
+  }
+  if (inserts.length === 0) { toast('Nada que generar (todos los días ya estaban cargados)', ''); return; }
+
+  // Insert en batches de 100
+  for (let i = 0; i < inserts.length; i += 100) {
+    const batch = inserts.slice(i, i+100);
+    const { error } = await sb.from('rrhh_turnos').insert(batch);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+  }
+  toast(`✓ ${inserts.length} turnos generados`, 'success');
+  await renderCalendarioGrid();
+}
+
+async function limpiarMes() {
+  if (!confirm('Esto va a BORRAR todos los turnos del mes seleccionado (sin tocar fichadas).\n\n¿Continuar?')) return;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = new Date(y, m-1, 1);
+  const fechaHasta = new Date(y, m, 0);
+  let q = sb.from('rrhh_turnos').delete()
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+  // RLS se encarga del filtro por rol/local
+  const { error } = await q;
+  if (error) { toast('Error: '+error.message, 'error'); return; }
+  toast('Mes limpiado', 'success');
+  await renderCalendarioGrid();
+}
+
+// ─────────────────────────────────────────────────────────────
+// FICHADAS — listado de fichadas raw de Anviz
+// ─────────────────────────────────────────────────────────────
+async function renderFichadas(cont) {
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const fechaDesde = new Date(y, m-1, 1).toISOString().split('T')[0];
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+  cont.innerHTML = `
+    <div class="cal-toolbar">
+      <div class="month-nav">
+        <button onclick="cambiarMes(-1)">‹</button>
+        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <button onclick="cambiarMes(1)">›</button>
+      </div>
+      ${isAdmin ? `
+      <select id="cal-local" onchange="cambiarLocal(this.value)">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : ''}
+    </div>
+    <div id="fich-container"><div class="spinner"></div></div>
+  `;
+
+  let q = sb.from('rrhh_fichadas_raw')
+    .select('id, fecha, hora, empleado_id, anviz_first_name, anviz_last_name, local, dispositivo_nombre, cuenta_anviz, empleado:rrhh_empleados(nombre_completo)')
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .order('fecha_hora', { ascending: false })
+    .limit(2000);
+  if (localFiltro) q = q.eq('local', localFiltro);
+  const { data, error } = await q;
+  const elc = document.getElementById('fich-container');
+  if (error) { elc.innerHTML = `<div style="color:var(--danger)">${error.message}</div>`; return; }
+  if (!data || data.length === 0) {
+    elc.innerHTML = `<div class="card">
+      <div class="placeholder">
+        <div class="icon">🕐</div>
+        <h3>Sin fichadas cargadas</h3>
+        <p>Las fichadas se descargan automáticamente desde Anviz CrossChex Cloud el día 1 de cada mes.</p>
+        <p style="margin-top:8px;font-size:12px;">Para correr la sincronización a mano: <code>python sync_anviz.py --periodo ${asisState.mes}</code></p>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Stats
+  const empleadosUnicos = new Set(data.map(r => r.empleado_id || `unmatched:${r.anviz_last_name}`));
+  const fechasUnicas = new Set(data.map(r => r.fecha));
+
+  elc.innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric-card accent"><div class="label">Fichadas del mes</div><div class="value">${data.length.toLocaleString('es-AR')}</div></div>
+      <div class="metric-card"><div class="label">Empleados distintos</div><div class="value">${empleadosUnicos.size}</div></div>
+      <div class="metric-card"><div class="label">Días con fichadas</div><div class="value">${fechasUnicas.size}</div></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;">Fecha</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Hora</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Empleado</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Local</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Dispositivo</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${data.slice(0, 500).map(r => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px 14px;font-size:13px;font-family:monospace;">${r.fecha}</td>
+            <td style="padding:8px 14px;font-size:13px;font-family:monospace;font-weight:600;">${r.hora.substring(0,5)}</td>
+            <td style="padding:8px 14px;font-size:13px;">${r.empleado ? escapeHtml(r.empleado.nombre_completo) : `<em style="color:var(--warning);">${escapeHtml(r.anviz_last_name||'')} ${escapeHtml(r.anviz_first_name||'')} (sin match)</em>`}</td>
+            <td style="padding:8px 14px;"><span class="emp-tag local-${r.local}">${LOCALES[r.local]?.nombre || r.local}</span></td>
+            <td style="padding:8px 14px;font-size:12px;color:var(--muted);">${escapeHtml(r.dispositivo_nombre || '—')}</td>
           </tr>
-        </thead>
-        <tbody>
-          ${lista.map(e => {
-            const a = map[e.id];
-            return `
-              <tr style="border-top:1px solid var(--border);">
-                <td style="padding:10px 16px;font-size:14px;">${escapeHtml(e.nombre_completo)}</td>
-                <td style="padding:10px 16px;"><span class="emp-tag local-${e.local}">${LOCALES[e.local]?.nombre||''}</span></td>
-                <td style="padding:10px 16px;text-align:center;font-size:13px;">${a?.dias_trabajados ?? '—'}</td>
-                <td style="padding:10px 16px;text-align:center;font-size:13px;color:${a?.dias_ausente>0?'var(--danger)':'var(--muted)'};">${a?.dias_ausente ?? '—'}</td>
-                <td style="padding:10px 16px;text-align:center;font-size:13px;color:${a?.llegadas_tarde>0?'var(--warning)':'var(--muted)'};">${a?.llegadas_tarde ?? '—'}</td>
-                <td style="padding:10px 16px;text-align:center;font-size:13px;color:var(--muted);">${a?.minutos_tarde_total ?? '—'}</td>
-                <td style="padding:10px 16px;text-align:center;font-size:13px;">${a?.horas_extras ?? '—'}</td>
-                <td style="padding:10px 16px;text-align:right;">
-                  <button class="btn small" onclick="openEmpleadoModal(${e.id})">Legajo</button>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    `}
+        `).join('')}
+      </tbody>
+    </table>
+    ${data.length > 500 ? `<div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center;">Mostrando 500 de ${data.length} fichadas — usá filtros para refinar</div>` : ''}
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────
+// RESUMEN MENSUAL — el dashboard original con totales
+// ─────────────────────────────────────────────────────────────
+async function renderResumenMensual(cont) {
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
+
+  cont.innerHTML = `
+    <div class="cal-toolbar">
+      <div class="month-nav">
+        <button onclick="cambiarMes(-1)">‹</button>
+        <span class="month-label">${new Date(asisState.mes + '-01').toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <button onclick="cambiarMes(1)">›</button>
+      </div>
+      ${isAdmin ? `
+      <select id="cal-local" onchange="cambiarLocal(this.value)">
+        <option value="">Todos los locales</option>
+        <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : ''}
+    </div>
+
+    <div class="card">
+      <div class="placeholder">
+        <div class="icon">📊</div>
+        <h3>Próximamente</h3>
+        <p>Una vez que se hagan las primeras corridas del cruce automático (Fase H), acá vas a ver:</p>
+        <ul style="text-align:left;max-width:480px;margin:12px auto;font-size:13px;line-height:1.6;color:var(--muted);">
+          <li>Días trabajados / ausencias / vacaciones / licencias por empleado</li>
+          <li>Llegadas tarde y minutos acumulados</li>
+          <li>Horas extras realizadas y autorizadas</li>
+          <li>Movimientos del banco de minutos del mes</li>
+        </ul>
+        <div class="phase-tag">Fase H</div>
+      </div>
+    </div>
   `;
 }
 
