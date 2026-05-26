@@ -449,6 +449,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
 'use strict';
@@ -2203,10 +2204,13 @@ async function renderVacContent() {
       ? '<div class="emp-empty">Sin vacaciones programadas próximas.</div>'
       : '<ul class="simple-list">' + lista.map(m => `
           <li>
-            <div>
+            <div style="flex:1;">
               <strong>${escapeHtml(m.empleado?.nombre_completo)}</strong>
               <span class="emp-tag local-${m.empleado?.local||''}" style="margin-left:8px;">${LOCALES[m.empleado?.local]?.nombre||''}</span>
               <div class="meta">${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} · ${m.dias} días</div>
+              <div style="margin-top:6px;">
+                <button class="btn small accent2" onclick="generarNotificacionVacaciones(${m.id})">📄 Notificación</button>
+              </div>
             </div>
             <span class="emp-tag">${m.estado}</span>
           </li>
@@ -2306,7 +2310,14 @@ async function decidirVacacion(movId, accion) {
   const { error } = await sb.from('rrhh_vacaciones_movimientos').update(patch).eq('id', movId);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog(accion === 'aprobar' ? 'aprobar_vacaciones' : 'rechazar_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', nuevoEstado);
-  toast(accion === 'aprobar' ? 'Aprobada ✓' : 'Rechazada', 'success');
+  if (accion === 'aprobar') {
+    toast('Aprobada ✓', 'success');
+    if (confirm('¿Querés descargar la Notificación de Vacaciones ahora?\n\nEs el PDF que la vendedora tiene que firmar.')) {
+      await generarNotificacionVacaciones(movId);
+    }
+  } else {
+    toast('Rechazada', 'success');
+  }
   renderVacContent();
 }
 
@@ -2695,6 +2706,7 @@ async function renderMisVacaciones() {
         ${movs.map(m => {
           const colorEstado = {solicitada:'estado-licencia',aprobada:'',tomada:'',pagada:'',rechazada:'estado-baja',cancelada:''}[m.estado]||'';
           const esPendiente = m.estado === 'solicitada';
+          const aprobadaTomada = m.estado === 'aprobada' || m.estado === 'tomada';
           return `
             <li>
               <div style="flex:1;">
@@ -2704,6 +2716,11 @@ async function renderMisVacaciones() {
                   <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
                     <button class="btn small" onclick="modificarMiVacacion(${m.id})">✏️ Modificar</button>
                     <button class="btn small" style="color:var(--danger);" onclick="anularMiVacacion(${m.id})">🗑 Anular</button>
+                  </div>
+                ` : ''}
+                ${aprobadaTomada ? `
+                  <div style="margin-top:8px;">
+                    <button class="btn small accent2" onclick="generarNotificacionVacaciones(${m.id})">📄 Descargar notificación</button>
                   </div>
                 ` : ''}
               </div>
@@ -6141,6 +6158,119 @@ async function guardarPagoVacaciones() {
   toast(`✓ Pago registrado: ${dias} días`, 'success');
   document.getElementById('pagvac-modal').remove();
   if (typeof renderVacContent === 'function') renderVacContent();
+}
+
+// ════════════════════════════════════════════════════════════
+// PDF DE NOTIFICACIÓN DE VACACIONES
+//   Genera el documento que firma la vendedora cuando se aprueba
+//   un período. Replica el template de OneDrive
+//   (Modelo de Notificacion de Vacaciones.pdf).
+// ════════════════════════════════════════════════════════════
+
+const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio',
+                  'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function _fechaLargaEs(ymd) {
+  if (!ymd) return '';
+  const d = new Date(ymd + 'T12:00:00');
+  return `${d.getDate()} de ${MESES_ES[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
+function _diaSiguiente(ymd) {
+  const d = new Date(ymd + 'T12:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+async function generarNotificacionVacaciones(movId) {
+  // Cargar movimiento + empleado
+  const { data: mov, error } = await sb.from('rrhh_vacaciones_movimientos')
+    .select('*, empleado:rrhh_empleados(nombre_completo, dni, local)')
+    .eq('id', movId).single();
+  if (error || !mov) { toast('No se pudo cargar la vacación', 'error'); return; }
+
+  const emp = mov.empleado;
+  const fechaActual = _fechaLargaEs(new Date().toISOString().split('T')[0]);
+  const desde = _fechaLargaEs(mov.fecha_desde);
+  const hasta = _fechaLargaEs(mov.fecha_hasta);
+  const reintegro = _fechaLargaEs(_diaSiguiente(mov.fecha_hasta));
+  const año = mov.fecha_desde.substring(0, 4);
+  const dias = mov.dias;
+  const nombre = emp?.nombre_completo || '—';
+
+  // Generar PDF con jsPDF
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const margenIzq = 25;
+  const ancho = 160;
+  let y = 25;
+
+  // Título
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text('Notificación de comienzo de vacaciones', 105, y, { align: 'center' });
+  y += 20;
+
+  // Lugar y fecha (derecha)
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.text(`Buenos Aires, ${fechaActual}`, 200 - 25, y, { align: 'right' });
+  y += 5;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.text('Lugar y fecha.', 200 - 25, y, { align: 'right' });
+
+  // Cuerpo
+  y += 20;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  const cuerpo = `Señor/a ${nombre} le comunicamos que, de acuerdo con las disposiciones legales vigentes, gozará de las vacaciones correspondientes al año ${año} por el período de ${dias} día/s. Dichas vacaciones comenzarán a regir desde el día ${desde} hasta el día ${hasta}, inclusive, debiendo reintegrarse a sus tareas el día ${reintegro}.`;
+  const lineas = doc.splitTextToSize(cuerpo, ancho);
+  doc.text(lineas, margenIzq, y);
+  y += lineas.length * 6 + 30;
+
+  // Firma autorizante
+  doc.text('_______________________________', 105, y, { align: 'center' });
+  y += 5;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(10);
+  doc.text('Firma del autorizante', 105, y, { align: 'center' });
+  y += 10;
+  doc.text('_______________________________', 105, y, { align: 'center' });
+  y += 5;
+  doc.text('Aclaración', 105, y, { align: 'center' });
+
+  // Notificación al trabajador
+  y += 18;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(11);
+  doc.text('"Quedo debidamente notificado de la comunicación precedente."', 105, y, { align: 'center' });
+
+  y += 15;
+  doc.setFont('helvetica', 'normal');
+  doc.text('_______________________________', 105, y, { align: 'center' });
+  y += 5;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(10);
+  doc.text('Firma del trabajador', 105, y, { align: 'center' });
+  y += 10;
+  doc.setFont('helvetica', 'normal');
+  doc.text('_______________________________', 105, y, { align: 'center' });
+  y += 5;
+  doc.setFont('helvetica', 'italic');
+  doc.text('Aclaración', 105, y, { align: 'center' });
+
+  // Pie de página chiquito con metadatos
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(150);
+  doc.text(`Generado por RRHH Claudia Adorno · ${new Date().toLocaleString('es-AR')} · ID mov: ${movId}`, 105, 290, { align: 'center' });
+
+  // Nombre del archivo
+  const apellido = (nombre.split(',')[0] || nombre.split(' ')[0] || 'EMPLEADO').toUpperCase().replace(/[^A-Z]/g,'');
+  const fname = `Notificacion Vacaciones - ${apellido} - ${mov.fecha_desde} a ${mov.fecha_hasta}.pdf`;
+  doc.save(fname);
+  toast('✓ PDF generado y descargado', 'success');
 }
 
 // ════════════════════════════════════════════════════════════
