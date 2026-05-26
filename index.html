@@ -3587,14 +3587,14 @@ async function renderResumenContent() {
     //  - falta_fichada (sin entrada Y sin salida) = 2 puntos
     //  - falta_fichada (solo una) = 1 punto
     //  - ausente con turno planificado = 2 puntos (sin entrada ni salida)
-    //  - tarde > 60 min = 1 punto
+    //  - tarde (minTarde > 5 min después del buffer = 10:06+) = 1 punto
     //  - Si está salvado → 0 puntos
     let pts = 0;
     if (d.estado === 'falta_fichada') {
       pts = (!d.entrada && !d.salida) ? 2 : 1;
     } else if (d.estado === 'ausente' && d.turno_id) {
       pts = 2;
-    } else if ((d.minutos_tarde||0) > 60 && ['tarde','puntual'].includes(d.estado)) {
+    } else if (d.estado === 'tarde') {
       pts = 1;
     }
     if (pts > 0 && !d.error_salvado) r.errores += pts;
@@ -3924,7 +3924,10 @@ async function procesarMes(periodo, local = null) {
           minExtra = Math.max(0, es - tf);
 
           // Clasificar
-          if (minTarde > (tol.minutos_tarde || 20) || minTemp > (tol.minutos_temprano || 5)) {
+          // Tolerancia diaria: 5 min después del buffer (= 10:05 si turno+buffer = 10:00)
+          // Si pasa de eso → 'tarde' Y cuenta como error contra el premio
+          const tolDiariaTarde = tol.minutos_tarde || 5;
+          if (minTarde > tolDiariaTarde || minTemp > (tol.minutos_temprano || 5)) {
             estado = 'tarde';
           } else if (minExtra > 5) {
             estado = 'puntual';   // siguió siendo puntual pero hizo extra
@@ -3949,11 +3952,14 @@ async function procesarMes(periodo, local = null) {
       if (estado === 'puntual') stats.puntuales++;
       if (estado === 'tarde') stats.tardanzas++;
       if (estado === 'ausente') stats.ausencias++;
-      // Acumular tardanzas (solo los minutos que pasan tolerancia diaria)
-      // Excluir días que estaban salvados previamente
+      // Acumular tardanzas para la suma mensual:
+      // - Cuentan TODOS los minutos desde el horario real (después del buffer)
+      // - Ej: turno 9:45, buffer 15min → real 10:00. Ficha 10:06 → +6 min a la suma.
+      // - El umbral diario (5 min) determina si cuenta como error de premio, NO si entra a la suma.
+      // - Excluye días salvados.
       const eraSalvado = !!salvadosMap[k];
-      if (minTarde > (tol.minutos_tarde || 20) && !eraSalvado) {
-        tardanzaAcum[emp.id] = (tardanzaAcum[emp.id] || 0) + (minTarde - (tol.minutos_tarde || 20));
+      if (minTarde > 0 && !eraSalvado) {
+        tardanzaAcum[emp.id] = (tardanzaAcum[emp.id] || 0) + minTarde;
       }
 
       // Permisos (restan del banco si están aprobados)
