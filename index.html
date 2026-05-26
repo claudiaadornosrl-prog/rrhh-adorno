@@ -2694,11 +2694,18 @@ async function renderMisVacaciones() {
       <ul class="simple-list">
         ${movs.map(m => {
           const colorEstado = {solicitada:'estado-licencia',aprobada:'',tomada:'',pagada:'',rechazada:'estado-baja',cancelada:''}[m.estado]||'';
+          const esPendiente = m.estado === 'solicitada';
           return `
             <li>
-              <div>
+              <div style="flex:1;">
                 <strong>${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}</strong>
-                <div class="meta">${m.dias} días${m.fecha_aprobacion ? ' · respondido ' + fmtFecha(m.fecha_aprobacion.split('T')[0]) : ''}${m.motivo_rechazo ? ' · "'+escapeHtml(m.motivo_rechazo)+'"' : ''}</div>
+                <div class="meta">${m.dias} días${m.fecha_aprobacion ? ' · respondido ' + fmtFecha(m.fecha_aprobacion.split('T')[0]) : ''}${m.motivo_rechazo ? ' · "'+escapeHtml(m.motivo_rechazo)+'"' : ''}${m.observaciones ? ' · '+escapeHtml(m.observaciones) : ''}</div>
+                ${esPendiente ? `
+                  <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn small" onclick="modificarMiVacacion(${m.id})">✏️ Modificar</button>
+                    <button class="btn small" style="color:var(--danger);" onclick="anularMiVacacion(${m.id})">🗑 Anular</button>
+                  </div>
+                ` : ''}
               </div>
               <span class="emp-tag ${colorEstado}">${m.estado}</span>
             </li>
@@ -2727,6 +2734,8 @@ function wireVacacionesForm() {
   hEl.addEventListener('change', calc);
 }
 
+let _editandoVacacionId = null;
+
 async function solicitarVacaciones() {
   let desde = document.getElementById('vac-desde').value;
   let hasta = document.getElementById('vac-hasta').value;
@@ -2746,9 +2755,31 @@ async function solicitarVacaciones() {
   const año = new Date(desde).getFullYear();
   const { data: saldo } = await sb.from('rrhh_vacaciones').select('id, dias_pendientes').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
   if (!saldo) { toast('No hay saldo cargado para ' + año, 'error'); return; }
-  if (dias > saldo.dias_pendientes) {
-    if (!confirm(`Estás pidiendo ${dias} días pero tenés ${saldo.dias_pendientes} pendientes. ¿Solicitar igual?`)) return;
+
+  // Si estoy editando, sumar los días de mi solicitud actual al saldo "disponible"
+  let pendientesAjustados = saldo.dias_pendientes;
+  if (_editandoVacacionId) {
+    const { data: actual } = await sb.from('rrhh_vacaciones_movimientos').select('dias').eq('id', _editandoVacacionId).maybeSingle();
+    if (actual) pendientesAjustados += actual.dias;
   }
+  if (dias > pendientesAjustados) {
+    if (!confirm(`Estás pidiendo ${dias} días pero tenés ${pendientesAjustados} pendientes. ¿${_editandoVacacionId ? 'Modificar' : 'Solicitar'} igual?`)) return;
+  }
+
+  if (_editandoVacacionId) {
+    // UPDATE — solo permitido si sigue en estado='solicitada' (RLS lo valida)
+    const { error } = await sb.from('rrhh_vacaciones_movimientos').update({
+      fecha_desde: desde, fecha_hasta: hasta, dias,
+      observaciones: obs || null,
+    }).eq('id', _editandoVacacionId);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    await auditLog('modificar_vacaciones', 'rrhh_vacaciones_movimientos', _editandoVacacionId, null, null, `${desde} → ${hasta} (${dias}d)`);
+    toast('Solicitud modificada ✓', 'success');
+    _editandoVacacionId = null;
+    switchTab('mis-vacaciones');
+    return;
+  }
+
   const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert({
     vacaciones_id: saldo.id, empleado_id: session.empleado_id,
     fecha_desde: desde, fecha_hasta: hasta, dias,
@@ -2759,6 +2790,41 @@ async function solicitarVacaciones() {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('solicitar_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d)`);
   toast('Solicitud enviada ✓ Te avisamos cuando la aprueben', 'success');
+  switchTab('mis-vacaciones');
+}
+
+async function modificarMiVacacion(id) {
+  const { data: m, error } = await sb.from('rrhh_vacaciones_movimientos').select('*').eq('id', id).single();
+  if (error || !m) { toast('No se pudo cargar la solicitud', 'error'); return; }
+  if (m.estado !== 'solicitada') { toast('Solo podés modificar solicitudes pendientes', 'error'); return; }
+
+  _editandoVacacionId = id;
+  // Pre-cargar el form con los valores existentes
+  setTimeout(() => {
+    const dEl = document.getElementById('vac-desde');
+    const hEl = document.getElementById('vac-hasta');
+    const oEl = document.getElementById('vac-obs');
+    if (dEl) dEl.value = m.fecha_desde;
+    if (hEl) hEl.value = m.fecha_hasta;
+    if (oEl) oEl.value = m.observaciones || '';
+    // Cambiar el texto del botón Solicitar → Guardar cambios
+    const btn = document.querySelector('button[onclick="solicitarVacaciones()"]');
+    if (btn) btn.textContent = 'Guardar cambios';
+    // Hacer scroll al form
+    document.querySelector('.section-title')?.scrollIntoView({behavior:'smooth'});
+    // Disparar el cálculo de días
+    if (dEl) dEl.dispatchEvent(new Event('change'));
+    toast('Editando solicitud — cambiá lo que necesites y guardá', 'info');
+  }, 50);
+}
+
+async function anularMiVacacion(id) {
+  if (!confirm('¿Anular esta solicitud de vacaciones? Se elimina del sistema.')) return;
+  const { error } = await sb.from('rrhh_vacaciones_movimientos').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('anular_vacaciones', 'rrhh_vacaciones_movimientos', id, null, null, null);
+  toast('Solicitud anulada', 'info');
+  _editandoVacacionId = null;
   switchTab('mis-vacaciones');
 }
 
