@@ -4171,7 +4171,9 @@ async function renderDetalleEmpDia(empId) {
       if (!d.entrada) return '🎖 ERROR · Olvidó fichar entrada';
       if (!d.salida)  return '🎖 ERROR · Olvidó fichar salida';
     }
-    if (d.turno?.hora_inicio && (d.minutos_tarde||0) > 60) return '🎖 ERROR · Entrada fuera de horario';
+    if (d.estado === 'tarde' && (d.minutos_tarde||0) > 0) {
+      return `🎖 ERROR · Tarde ${d.minutos_tarde} min`;
+    }
     return null;
   }
   function puntosErrorPremio(d) {
