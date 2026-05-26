@@ -3652,13 +3652,199 @@ async function renderResumenMensual(cont) {
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : ''}
-      <button class="btn accent2" id="btn-procesar-mes" onclick="procesarMesUI()" style="margin-left:auto;">⚙️ Procesar mes</button>
+      <span id="estado-cierre-mes" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
+      <button class="btn accent2" id="btn-procesar-mes" onclick="procesarMesUI()">⚙️ Procesar mes</button>
+      <button class="btn primary" id="btn-cerrar-mes" onclick="cerrarMesUI()" style="display:none;">🔒 Cerrar mes</button>
+      <button class="btn" id="btn-reabrir-mes" onclick="reabrirMesUI()" style="display:none;">🔓 Reabrir mes</button>
     </div>
 
     <div id="resumen-content"><div class="spinner"></div></div>
   `;
 
   renderResumenContent();
+  actualizarBotonesCierreMes();
+}
+
+async function actualizarBotonesCierreMes() {
+  const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
+  const btnCerrar = document.getElementById('btn-cerrar-mes');
+  const btnReabrir = document.getElementById('btn-reabrir-mes');
+  const estado = document.getElementById('estado-cierre-mes');
+  if (!btnCerrar || !btnReabrir || !estado) return;
+
+  if (!localFiltro) {
+    estado.textContent = 'Seleccioná un local para cerrar/reabrir';
+    btnCerrar.style.display = 'none';
+    btnReabrir.style.display = 'none';
+    return;
+  }
+
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const { data: cerrado } = await sb.from('rrhh_meses_cerrados')
+    .select('cerrado_por, cerrado_at, movimientos_creados')
+    .eq('local', localFiltro).eq('año', y).eq('mes', m).maybeSingle();
+
+  if (cerrado) {
+    estado.innerHTML = `🔒 <strong>Mes cerrado</strong> por ${escapeHtml((cerrado.cerrado_por||'').split('@')[0])} el ${cerrado.cerrado_at?.split('T')[0]} · ${cerrado.movimientos_creados||0} mov.`;
+    estado.style.color = '#0d9488';
+    btnCerrar.style.display = 'none';
+    btnReabrir.style.display = 'inline-block';
+  } else {
+    estado.innerHTML = `🔓 Mes abierto · los movimientos al banco están <em>tentativos</em>`;
+    estado.style.color = 'var(--muted)';
+    btnCerrar.style.display = 'inline-block';
+    btnReabrir.style.display = 'none';
+  }
+}
+
+async function cerrarMesUI() {
+  const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
+  if (!localFiltro) { toast('Seleccioná un local para cerrar', 'error'); return; }
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const periodoStr = `${y}-${String(m).padStart(2,'0')}`;
+
+  const confirm1 = confirm(`¿Cerrar el mes ${periodoStr} para ${LOCALES[localFiltro]?.nombre || localFiltro}?\n\nEsto transfiere todos los movimientos calculados de minutos al banco oficial. Después de cerrar, no se puede re-procesar el mes hasta que lo reabras.`);
+  if (!confirm1) return;
+
+  const btn = document.getElementById('btn-cerrar-mes');
+  if (btn) { btn.disabled = true; btn.textContent = 'Cerrando…'; }
+  try {
+    const resultado = await cerrarMes(periodoStr, localFiltro);
+    toast(`✓ Mes cerrado · ${resultado.movimientos} movimientos al banco (${resultado.minutos_total >= 0 ? '+' : ''}${resultado.minutos_total} min total)`, 'success');
+    renderResumenContent();
+    actualizarBotonesCierreMes();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔒 Cerrar mes'; }
+  }
+}
+
+async function cerrarMes(periodo, local) {
+  const [y, m] = periodo.split('-').map(Number);
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+  // Validar que no esté ya cerrado
+  const { data: existente } = await sb.from('rrhh_meses_cerrados')
+    .select('id').eq('local', local).eq('año', y).eq('mes', m).maybeSingle();
+  if (existente) throw new Error('Este mes ya está cerrado');
+
+  // Cargar empleados del local
+  const { data: empleados } = await sb.from('rrhh_empleados')
+    .select('id').eq('local', local).eq('estado','activo').eq('ficha', true);
+  const empIds = (empleados || []).map(e => e.id);
+  if (empIds.length === 0) throw new Error('Sin empleados para procesar');
+
+  // Cargar detalles del mes con minutos_banco
+  const { data: detalle } = await sb.from('rrhh_asistencias_detalle')
+    .select('id, empleado_id, fecha, estado, minutos_banco, minutos_tarde, minutos_extra, minutos_salida_temp, error_salvado')
+    .in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
+
+  if (!detalle || detalle.length === 0) throw new Error('No hay datos procesados. Procesá el mes primero.');
+
+  // Cargar config umbral mensual tardanzas
+  const { data: tol } = await sb.from('rrhh_config_tolerancias')
+    .select('umbral_mensual_tardanzas').eq('local', local).maybeSingle();
+  const umbralMensual = tol?.umbral_mensual_tardanzas || 60;
+
+  // Calcular movimientos por día (minutos_banco) + acumular tardanzas mensuales
+  const movimientos = [];
+  const tardanzaPorEmp = {};
+
+  for (const d of detalle) {
+    if (d.error_salvado) continue;  // si el día está salvado, no impacta banco
+    if ((d.minutos_banco || 0) !== 0) {
+      // Movimiento del día (ausente, salida temprana, etc.)
+      let tipo = 'ajuste';
+      if (d.estado === 'ausente') tipo = 'falta';
+      else if (d.estado === 'tarde') tipo = 'tarde';
+      movimientos.push({
+        empleado_id: d.empleado_id,
+        fecha: d.fecha,
+        minutos: d.minutos_banco,
+        tipo,
+        referencia_tipo: 'asistencia',
+        referencia_id: d.id,
+        observaciones: `Cierre mes ${periodo} ${local}`,
+        creado_por: session.email,
+      });
+    }
+    // Acumular tardanzas para el umbral mensual (solo días con minutos_tarde y no salvados)
+    if ((d.minutos_tarde || 0) > 0) {
+      tardanzaPorEmp[d.empleado_id] = (tardanzaPorEmp[d.empleado_id] || 0) + d.minutos_tarde;
+    }
+  }
+
+  // Aplicar umbral mensual de tardanzas
+  for (const empIdStr in tardanzaPorEmp) {
+    const empId = parseInt(empIdStr, 10);
+    const acum = tardanzaPorEmp[empId];
+    if (acum > umbralMensual) {
+      movimientos.push({
+        empleado_id: empId,
+        fecha: fechaHasta,  // último día del mes
+        minutos: -acum,     // descuenta TODO el acumulado
+        tipo: 'tarde',
+        referencia_tipo: 'umbral_mensual',
+        observaciones: `Cierre mes ${periodo}: ${acum} min tarde acumulados (> umbral ${umbralMensual})`,
+        creado_por: session.email,
+      });
+    }
+  }
+
+  // Insertar movimientos en lote
+  const BATCH = 200;
+  for (let i = 0; i < movimientos.length; i += BATCH) {
+    const batch = movimientos.slice(i, i+BATCH);
+    const { error } = await sb.from('rrhh_banco_minutos').insert(batch);
+    if (error) throw error;
+  }
+
+  const minutosTotal = movimientos.reduce((s,mov) => s + (mov.minutos||0), 0);
+
+  // Registrar cierre
+  await sb.from('rrhh_meses_cerrados').insert({
+    local, año: y, mes: m,
+    cerrado_por: session.email,
+    movimientos_creados: movimientos.length,
+    minutos_totales: minutosTotal,
+  });
+
+  await auditLog('cerrar_mes', 'rrhh_meses_cerrados', null, null, null, `${local} ${periodo} - ${movimientos.length} mov (${minutosTotal} min)`);
+  return { movimientos: movimientos.length, minutos_total: minutosTotal };
+}
+
+async function reabrirMesUI() {
+  const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
+  if (!localFiltro) return;
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const periodoStr = `${y}-${String(m).padStart(2,'0')}`;
+
+  if (!confirm(`¿Reabrir el mes ${periodoStr} para ${LOCALES[localFiltro]?.nombre || localFiltro}?\n\nSe van a BORRAR todos los movimientos del banco generados al cerrar. Vas a tener que re-procesar y cerrar de nuevo.`)) return;
+
+  const { data: cierre } = await sb.from('rrhh_meses_cerrados')
+    .select('id').eq('local', localFiltro).eq('año', y).eq('mes', m).maybeSingle();
+  if (!cierre) { toast('El mes no estaba cerrado', 'info'); return; }
+
+  // Borrar movimientos creados en el cierre (filtramos por observaciones que contienen "Cierre mes <periodo> <local>")
+  const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+  const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+  const { data: empleados } = await sb.from('rrhh_empleados')
+    .select('id').eq('local', localFiltro).eq('estado','activo').eq('ficha', true);
+  const empIds = (empleados || []).map(e => e.id);
+
+  // Borrar los movimientos del banco asociados a este mes/local
+  await sb.from('rrhh_banco_minutos').delete()
+    .in('empleado_id', empIds)
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .in('tipo', ['falta','tarde','salida_temprana','ajuste']);
+
+  await sb.from('rrhh_meses_cerrados').delete().eq('id', cierre.id);
+  await auditLog('reabrir_mes', 'rrhh_meses_cerrados', cierre.id, null, null, `${localFiltro} ${periodoStr}`);
+  toast(`Mes reabierto ✓ Re-procesá y cerrá cuando esté listo.`, 'info');
+  actualizarBotonesCierreMes();
 }
 
 async function renderResumenContent() {
@@ -3854,6 +4040,23 @@ async function procesarMes(periodo, local = null) {
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
   const diasMes = new Date(y, m, 0).getDate();
+
+  // Bloquear si el mes está cerrado para ese local (hay que reabrir primero)
+  if (local) {
+    const { data: cerrado } = await sb.from('rrhh_meses_cerrados')
+      .select('id, cerrado_por, cerrado_at').eq('local', local).eq('año', y).eq('mes', m).maybeSingle();
+    if (cerrado) {
+      throw new Error(`Este mes ya está cerrado (cerrado por ${cerrado.cerrado_por} el ${cerrado.cerrado_at?.split('T')[0]}). Reabrilo primero si necesitás reprocesarlo.`);
+    }
+  } else {
+    // Sin filtro de local — chequear que NINGÚN local del mes esté cerrado
+    const { data: cerrados } = await sb.from('rrhh_meses_cerrados')
+      .select('local').eq('año', y).eq('mes', m);
+    if (cerrados && cerrados.length > 0) {
+      const locs = cerrados.map(c => c.local).join(', ');
+      throw new Error(`Hay locales con mes cerrado (${locs}). Procesá local por local o reabrilos primero.`);
+    }
+  }
 
   // 1) Empleados activos del local
   let qEmp = sb.from('rrhh_empleados').select('id, local, fecha_ingreso').eq('estado', 'activo').eq('ficha', true);
@@ -4188,19 +4391,11 @@ async function procesarMes(periodo, local = null) {
     const { error } = await sb.from('rrhh_asistencias_detalle').insert(batch);
     if (error) throw error;
   }
-  // Filtrar movimientos de banco anteriores a la fecha de corte del sistema
-  // (clean start 01/06/2026: el banco arranca con saldos iniciales del Excel)
-  const BANCO_DESDE = '2026-06-01';
-  const bancoMovsFiltrados = bancoMovs.filter(m => m.fecha >= BANCO_DESDE);
-  const omitidos = bancoMovs.length - bancoMovsFiltrados.length;
-  if (omitidos > 0) {
-    console.log(`[procesarMes] Omitidos ${omitidos} movimientos de banco con fecha < ${BANCO_DESDE} (clean start)`);
-  }
-  for (let i = 0; i < bancoMovsFiltrados.length; i += BATCH) {
-    const batch = bancoMovsFiltrados.slice(i, i+BATCH);
-    const { error } = await sb.from('rrhh_banco_minutos').insert(batch);
-    if (error) throw error;
-  }
+  // NO escribir al banco — los movimientos se difieren hasta el cierre de mes.
+  // procesarMes solo calcula rrhh_asistencias_detalle (con minutos_banco por día).
+  // Cuando la encargada hace "Cerrar mes", se ejecuta cerrarMes() que toma esos
+  // minutos_banco y los transfiere a rrhh_banco_minutos como movimientos reales.
+  console.log(`[procesarMes] ${bancoMovs.length} movimientos calculados (NO escritos al banco, esperan cierre de mes)`);
 
   // Re-aplicar salvados previos (preservar la decisión de la encargada)
   let restaurados = 0;
