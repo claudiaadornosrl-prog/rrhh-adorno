@@ -96,6 +96,28 @@ CREATE POLICY perm_self_insert ON rrhh_permisos_puntuales FOR INSERT
     );
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- Trigger: bloquear permisos con fecha pasada cuando son solicitudes
+-- (estado='pendiente'). Admin/gerente pueden cargar con estado='aprobado'
+-- para fechas pasadas si fuera necesario un caso especial.
+-- ═══════════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION rrhh_permisos_validar_fecha()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.estado = 'pendiente' AND NEW.fecha < CURRENT_DATE THEN
+    RAISE EXCEPTION 'No se pueden solicitar permisos para fechas pasadas (fecha=%, hoy=%)',
+      NEW.fecha, CURRENT_DATE;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_permisos_validar_fecha ON rrhh_permisos_puntuales;
+CREATE TRIGGER trg_permisos_validar_fecha
+  BEFORE INSERT ON rrhh_permisos_puntuales
+  FOR EACH ROW
+  EXECUTE FUNCTION rrhh_permisos_validar_fecha();
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- Verificación
 -- ═══════════════════════════════════════════════════════════════════════
 -- SELECT COUNT(*) FROM rrhh_permisos_puntuales;

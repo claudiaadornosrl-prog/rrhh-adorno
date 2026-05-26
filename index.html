@@ -4882,15 +4882,16 @@ async function abrirNuevoPermisoEmpleado() {
     .order('fecha', { ascending: false })
     .limit(10);
 
+  const hoy = new Date().toISOString().split('T')[0];
   const html = `
     <div class="modal-bg" id="permiso-emp-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
       <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">
         <h3 style="margin:0 0 4px;">Pedir permiso</h3>
-        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Tu solicitud va a quedar pendiente hasta que la encargada o admin la apruebe.</p>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Tu solicitud va a quedar pendiente hasta que la encargada o admin la apruebe. Los permisos se piden con anticipación — no podés pedir un permiso para una fecha pasada.</p>
         <div class="form-grid" style="display:grid;gap:12px;">
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha *</label>
-            <input type="date" id="perme-fecha" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha * <span style="color:var(--muted);font-size:11px;">(desde hoy en adelante)</span></label>
+            <input type="date" id="perme-fecha" min="${hoy}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo *</label>
@@ -4959,6 +4960,13 @@ async function enviarPermisoEmpleado() {
   if (!fecha) { toast('Falta fecha', 'error'); return; }
   if (!tipo) { toast('Falta tipo', 'error'); return; }
   if (!motivo) { toast('Contá el motivo', 'error'); return; }
+
+  // No permitir fechas pasadas
+  const hoy = new Date().toISOString().split('T')[0];
+  if (fecha < hoy) {
+    toast('No podés pedir un permiso para una fecha pasada. Hablálo con la encargada.', 'error');
+    return;
+  }
 
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id: session.empleado_id,
