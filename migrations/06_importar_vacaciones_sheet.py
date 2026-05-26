@@ -85,10 +85,8 @@ DATOS = {
                                                        ('13/02/2026','13/02/2026'),
                                                        ('17/04/2026','17/04/2026')], 'local':'oficina', 'nota':'4 hábiles'},
 
-    # ─── AMBIGUO — Suarez (Gabriela) ───
-    # El sheet dice 14 corresp / 14 tomados, pero no veo períodos consistentes.
-    # Solo cargamos el saldo. JP carga los períodos a mano si los recuerda.
-    'Suarez':    {'saldo':14, 'tomados':14, 'periodos':[], 'local':'?', 'nota':'⚠ Gabriela Suarez — saldo cargado, períodos no claros en sheet — cargar a mano si hace falta'},
+    # ─── Suarez (Gabriela) ───
+    # JP confirmó que ya no trabaja en la empresa — NO se importa.
 }
 
 
