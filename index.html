@@ -2127,11 +2127,14 @@ async function renderVacacionesAdmin() {
       <div class="subtitle">${isAdmin ? 'Aprobaciones, saldos y calendario' : 'Equipo de ' + (LOCALES[localFiltro]?.nombre || localFiltro)}</div>
     </div>
 
-    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
-      <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
-      <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
-      <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos ${new Date().getFullYear()}</button>
-      <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
+    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;display:flex;justify-content:space-between;align-items:end;">
+      <div>
+        <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
+        <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
+        <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos ${new Date().getFullYear()}</button>
+        <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
+      </div>
+      <button class="btn accent2" onclick="abrirCargaMasivaVac()" style="margin-bottom:6px;">📥 Carga rápida</button>
     </div>
 
     <div id="vac-content" style="margin-top:20px;">
@@ -5348,6 +5351,189 @@ async function anularMiPermiso(id) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Permiso anulado', 'info');
   if (currentTab === 'mis-permisos') switchTab('mis-permisos');
+}
+
+// ════════════════════════════════════════════════════════════
+// CARGA MASIVA DE VACACIONES (admin/gerente)
+//   Permite cargar varias vacaciones de varias empleadas de una vez,
+//   sin pasar por el flujo de aprobación. Quedan en estado='tomada'.
+// ════════════════════════════════════════════════════════════
+
+async function abrirCargaMasivaVac() {
+  const isAdmin = session.rol === 'admin';
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
+  if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
+  const { data: empleados } = await qEmp.order('nombre_completo');
+
+  const html = `
+    <div class="modal-bg" id="cargavac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:820px;width:100%;max-height:92vh;overflow-y:auto;">
+        <h3 style="margin:0 0 4px;">📥 Carga rápida de vacaciones</h3>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Cargá varias vacaciones tomadas de golpe (sin pasar por aprobación). Sirve para registrar histórico y las que están vigentes hoy.</p>
+
+        <div id="cargavac-rows" style="display:grid;gap:10px;"></div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">
+          <button class="btn" onclick="agregarFilaVac()">+ Agregar otra</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="editandoPermisoId=null;document.getElementById('cargavac-modal').remove()">Cancelar</button>
+            <button class="btn primary" onclick="guardarCargaMasivaVac()">Guardar todas</button>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e;">
+          💡 Las vacaciones cargadas acá quedan como <strong>"tomadas"</strong> (no pasan por aprobación) y descuentan del saldo. Para vacaciones futuras que necesiten aprobación, usá el flujo normal.
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+  window._cargaVacEmpleados = empleados || [];
+  agregarFilaVac();
+  agregarFilaVac();
+  agregarFilaVac();  // arranca con 3 filas
+}
+
+function agregarFilaVac() {
+  const cont = document.getElementById('cargavac-rows');
+  if (!cont) return;
+  const i = cont.children.length;
+  const emps = window._cargaVacEmpleados || [];
+  const html = `
+    <div class="cargavac-row" data-i="${i}" style="display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:8px;align-items:end;padding:10px;background:#f9fafb;border-radius:8px;">
+      <div>
+        <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;">Empleado</label>
+        <select data-cv="empleado" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+          <option value="">— Seleccionar —</option>
+          ${emps.map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;">Desde</label>
+        <input type="date" data-cv="desde" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;">Hasta</label>
+        <input type="date" data-cv="hasta" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;">Observaciones (opcional)</label>
+        <input type="text" data-cv="obs" placeholder="Ej: vacaciones de verano" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+      </div>
+      <button class="btn small" onclick="this.parentElement.remove()" style="height:34px;align-self:end;">✕</button>
+    </div>
+  `;
+  cont.insertAdjacentHTML('beforeend', html);
+}
+
+function _diasHabilesUI(desdeStr, hastaStr) {
+  let d = new Date(desdeStr + 'T12:00:00');
+  const f = new Date(hastaStr + 'T12:00:00');
+  let n = 0;
+  while (d <= f) {
+    const dow = d.getDay(); // 0=Dom .. 6=Sáb
+    if (dow !== 0 && dow !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return n;
+}
+
+async function guardarCargaMasivaVac() {
+  const filas = document.querySelectorAll('.cargavac-row');
+  const items = [];   // {empId, desde, hasta, dias, año, obs, esOficina}
+  const errores = [];
+
+  // Necesitamos saber el local del empleado para calcular días hábiles vs corridos
+  // Lo conseguimos de la lista pre-cargada
+  const empMap = {};
+  (window._cargaVacEmpleados || []).forEach(e => { empMap[e.id] = e; });
+
+  filas.forEach((f, idx) => {
+    const empId = parseInt(f.querySelector('[data-cv="empleado"]').value, 10);
+    const desde = f.querySelector('[data-cv="desde"]').value;
+    const hasta = f.querySelector('[data-cv="hasta"]').value;
+    const obs   = f.querySelector('[data-cv="obs"]').value.trim();
+
+    // Saltar filas vacías
+    if (!empId && !desde && !hasta) return;
+
+    if (!empId) { errores.push(`Fila ${idx+1}: falta empleado`); return; }
+    if (!desde) { errores.push(`Fila ${idx+1}: falta fecha desde`); return; }
+    if (!hasta) { errores.push(`Fila ${idx+1}: falta fecha hasta`); return; }
+    if (hasta < desde) { errores.push(`Fila ${idx+1}: la fecha hasta no puede ser anterior a desde`); return; }
+
+    const emp = empMap[empId];
+    const esOficina = emp?.local === 'oficina';
+    const d1 = new Date(desde + 'T12:00:00');
+    const d2 = new Date(hasta + 'T12:00:00');
+    // Oficina: días hábiles. Locales: días corridos.
+    const dias = esOficina
+      ? _diasHabilesUI(desde, hasta)
+      : (Math.round((d2 - d1) / (1000*60*60*24)) + 1);
+
+    items.push({
+      empId, desde, hasta, dias, año: d1.getFullYear(),
+      obs: obs || null, esOficina,
+    });
+  });
+
+  if (errores.length > 0) {
+    toast('Revisá: ' + errores.join(' · '), 'error');
+    return;
+  }
+  if (items.length === 0) {
+    toast('No hay nada para cargar', 'info');
+    return;
+  }
+
+  // Resolver/crear saldo en rrhh_vacaciones para cada (empleado, año) — necesario para la FK
+  const vacIdCache = {};   // key="empId_año" → vacaciones_id
+  const sumaPorEmpAño = {};
+  for (const it of items) {
+    const k = `${it.empId}_${it.año}`;
+    sumaPorEmpAño[k] = (sumaPorEmpAño[k] || 0) + it.dias;
+  }
+  for (const k in sumaPorEmpAño) {
+    const [empId, año] = k.split('_').map(Number);
+    const dias = sumaPorEmpAño[k];
+    const { data: existing } = await sb.from('rrhh_vacaciones')
+      .select('id, dias_tomados').eq('empleado_id', empId).eq('año', año).maybeSingle();
+    if (existing) {
+      vacIdCache[k] = existing.id;
+      await sb.from('rrhh_vacaciones')
+        .update({ dias_tomados: (existing.dias_tomados || 0) + dias })
+        .eq('id', existing.id);
+    } else {
+      const { data: created, error: errCreate } = await sb.from('rrhh_vacaciones')
+        .insert({ empleado_id: empId, año, dias_correspondientes: 0, dias_tomados: dias })
+        .select().single();
+      if (errCreate) { toast('Error creando saldo: '+errCreate.message,'error'); return; }
+      vacIdCache[k] = created.id;
+    }
+  }
+
+  // Armar inserts de movimientos con vacaciones_id y campos correctos del schema
+  const inserts = items.map(it => ({
+    vacaciones_id: vacIdCache[`${it.empId}_${it.año}`],
+    empleado_id: it.empId,
+    fecha_desde: it.desde,
+    fecha_hasta: it.hasta,
+    dias: it.dias,
+    estado: 'tomada',
+    observaciones: it.obs ? (it.obs + (it.esOficina ? ' (días hábiles)' : '')) : (it.esOficina ? 'Carga masiva (días hábiles)' : 'Carga masiva'),
+    solicitado_por: session.email,
+    aprobado_por: session.email,
+    fecha_aprobacion: new Date().toISOString(),
+  }));
+
+  // Insertar en lote
+  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert(inserts).select();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  await auditLog('carga_masiva_vacaciones', 'rrhh_vacaciones_movimientos', null, null, null, `${inserts.length} registros`);
+  toast(`✓ ${inserts.length} vacaciones cargadas`, 'success');
+  document.getElementById('cargavac-modal').remove();
+  if (typeof renderVacContent === 'function') renderVacContent();
 }
 
 // ════════════════════════════════════════════════════════════
