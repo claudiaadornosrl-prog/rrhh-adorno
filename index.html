@@ -2134,8 +2134,9 @@ async function renderVacacionesAdmin() {
         <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos ${new Date().getFullYear()}</button>
         <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:6px;">
+      <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
         <button class="btn primary" onclick="abrirAsignarVacacion()">+ Asignar vacaciones</button>
+        <button class="btn" onclick="abrirPagarVacaciones()">💵 Pagar vacaciones</button>
         <button class="btn accent2" onclick="abrirCargaMasivaVac()">📥 Carga masiva</button>
       </div>
     </div>
@@ -2692,7 +2693,7 @@ async function renderMisVacaciones() {
     ${(movs||[]).length === 0 ? '<div class="emp-empty">Sin solicitudes previas.</div>' : `
       <ul class="simple-list">
         ${movs.map(m => {
-          const colorEstado = {solicitada:'estado-licencia',aprobada:'',tomada:'',rechazada:'estado-baja',cancelada:''}[m.estado]||'';
+          const colorEstado = {solicitada:'estado-licencia',aprobada:'',tomada:'',pagada:'',rechazada:'estado-baja',cancelada:''}[m.estado]||'';
           return `
             <li>
               <div>
@@ -5452,6 +5453,52 @@ async function actualizarCalcAsignVac() {
   }
 }
 
+// FIFO: descuenta `diasTotal` del saldo pendiente del empleado, empezando
+// del año más viejo. Si los días no entran en un solo año, parte en varios.
+// Devuelve lista de tramos: [{vacId, año, dias}, ...]
+// Si el saldo del año más viejo no es suficiente y NO hay años siguientes,
+// crea el año actual con corresp=0.
+async function _consumirSaldoFIFO(empId, diasTotal) {
+  // 1) Cargar todos los saldos del empleado (ordenado por año asc)
+  const { data: saldos } = await sb.from('rrhh_vacaciones')
+    .select('id, año, dias_correspondientes, dias_tomados, dias_pendientes')
+    .eq('empleado_id', empId)
+    .order('año', { ascending: true });
+
+  const conPendientes = (saldos || []).filter(s => (s.dias_pendientes || 0) > 0);
+
+  const tramos = [];
+  let restantes = diasTotal;
+
+  // 2) Repartir entre años con pendientes (más viejo primero)
+  for (const s of conPendientes) {
+    if (restantes <= 0) break;
+    const aTomar = Math.min(s.dias_pendientes, restantes);
+    tramos.push({ vacId: s.id, año: s.año, dias: aTomar });
+    restantes -= aTomar;
+  }
+
+  // 3) Si quedan días sin saldo donde imputar
+  if (restantes > 0) {
+    // Si hay saldos del año actual o futuro, los usamos aunque tengan 0 pendientes (negativo)
+    // O creamos el año actual si no existe
+    const añoActual = new Date().getFullYear();
+    let saldoFallback = (saldos || []).find(s => s.año === añoActual);
+    if (saldoFallback) {
+      tramos.push({ vacId: saldoFallback.id, año: añoActual, dias: restantes });
+    } else {
+      // Crear saldo año actual con corresp=0
+      const { data: created, error: errC } = await sb.from('rrhh_vacaciones')
+        .insert({ empleado_id: empId, año: añoActual, dias_correspondientes: 0, dias_tomados: 0 })
+        .select().single();
+      if (errC) throw new Error('No se pudo crear saldo: '+errC.message);
+      tramos.push({ vacId: created.id, año: añoActual, dias: restantes });
+    }
+  }
+
+  return tramos;
+}
+
 async function guardarAsignarVacacion() {
   const empSel = document.getElementById('asg-emp');
   const empId = parseInt(empSel.value, 10);
@@ -5466,50 +5513,174 @@ async function guardarAsignarVacacion() {
   const opt = empSel.options[empSel.selectedIndex];
   const esOficina = opt?.dataset?.local === 'oficina';
   const dias = esOficina ? _diasHabilesUI(desde, hasta) : (Math.round((new Date(hasta+'T12:00:00') - new Date(desde+'T12:00:00')) / 86400000) + 1);
-  const año = parseInt(desde.substring(0,4),10);
   const hoy = new Date().toISOString().split('T')[0];
-  // Si la fecha de inicio ya pasó → 'tomada'. Si es hoy o futura → 'aprobada'.
   const estado = (desde < hoy) ? 'tomada' : 'aprobada';
 
-  // Saldo (crear si no existe)
-  let { data: saldo } = await sb.from('rrhh_vacaciones')
-    .select('id, dias_tomados, dias_correspondientes, dias_pendientes')
-    .eq('empleado_id', empId).eq('año', año).maybeSingle();
-  let vacId;
-  if (saldo) {
-    vacId = saldo.id;
-    if (dias > saldo.dias_pendientes) {
-      if (!confirm(`Estás asignando ${dias} días, pero la vendedora tiene ${saldo.dias_pendientes} pendientes en ${año}. ¿Asignar igual?`)) return;
-    }
-    await sb.from('rrhh_vacaciones')
-      .update({ dias_tomados: (saldo.dias_tomados || 0) + dias })
-      .eq('id', saldo.id);
-  } else {
-    const { data: created, error: errC } = await sb.from('rrhh_vacaciones')
-      .insert({ empleado_id: empId, año, dias_correspondientes: 0, dias_tomados: dias })
-      .select().single();
-    if (errC) { toast('Error creando saldo: '+errC.message,'error'); return; }
-    vacId = created.id;
+  // FIFO — repartir los días entre años más viejos primero
+  let tramos;
+  try { tramos = await _consumirSaldoFIFO(empId, dias); }
+  catch(e) { toast('Error: '+e.message, 'error'); return; }
+
+  // Mostrar info al usuario si se parte en varios años
+  if (tramos.length > 1) {
+    const detalle = tramos.map(t => `${t.dias}d → ${t.año}`).join(', ');
+    if (!confirm(`Los ${dias} días se reparten así por FIFO:\n${detalle}\n\n¿Confirmás?`)) return;
   }
 
-  const obsFinal = (obs || 'Asignada directamente por encargada/admin') + (esOficina ? ' (días hábiles)' : '');
-  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert({
-    vacaciones_id: vacId,
+  // Calcular sumas de descuento por año para actualizar saldos
+  const sumaPorVac = {};
+  tramos.forEach(t => { sumaPorVac[t.vacId] = (sumaPorVac[t.vacId] || 0) + t.dias; });
+
+  // Update saldos
+  for (const vacIdStr in sumaPorVac) {
+    const vacId = parseInt(vacIdStr, 10);
+    const { data: s } = await sb.from('rrhh_vacaciones').select('dias_tomados').eq('id', vacId).single();
+    await sb.from('rrhh_vacaciones').update({ dias_tomados: (s.dias_tomados||0) + sumaPorVac[vacId] }).eq('id', vacId);
+  }
+
+  // Crear movimientos (uno por tramo, con las mismas fechas)
+  const obsBase = (obs || 'Asignada directamente por encargada/admin') + (esOficina ? ' (días hábiles)' : '');
+  const inserts = tramos.map(t => ({
+    vacaciones_id: t.vacId,
     empleado_id: empId,
     fecha_desde: desde,
     fecha_hasta: hasta,
-    dias,
+    dias: t.dias,
     estado,
     solicitado_por: session.email,
     aprobado_por:   session.email,
     fecha_aprobacion: new Date().toISOString(),
-    observaciones: obsFinal,
-  }).select().single();
+    observaciones: obsBase + (tramos.length > 1 ? ` — Imputado a saldo ${t.año} (FIFO)` : ''),
+  }));
+  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert(inserts).select();
   if (error) { toast('Error: ' + error.message, 'error'); return; }
 
-  await auditLog('asignar_vacacion', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d, ${estado})`);
-  toast(`✓ Vacaciones asignadas (${dias} días, ${estado})`, 'success');
+  await auditLog('asignar_vacacion', 'rrhh_vacaciones_movimientos', data[0]?.id || null, null, null,
+    `${desde} → ${hasta} (${dias}d, ${estado}, ${tramos.length} tramo${tramos.length>1?'s':''})`);
+  toast(`✓ ${dias} días asignados${tramos.length>1 ? ' (FIFO: '+tramos.length+' tramos)' : ''}`, 'success');
   document.getElementById('asignvac-modal').remove();
+  if (typeof renderVacContent === 'function') renderVacContent();
+}
+
+// ════════════════════════════════════════════════════════════
+// PAGAR VACACIONES NO TOMADAS
+//   Registra días que no se tomaron como vacaciones pero se pagaron.
+//   Descuenta del saldo (FIFO) y queda con estado='pagada'.
+//   NO afecta turnos/asistencias (la persona sigue trabajando).
+// ════════════════════════════════════════════════════════════
+
+async function abrirPagarVacaciones() {
+  const isAdmin = session.rol === 'admin';
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
+  if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
+  const { data: empleados } = await qEmp.order('nombre_completo');
+
+  const html = `
+    <div class="modal-bg" id="pagvac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:500px;width:100%;max-height:92vh;overflow-y:auto;">
+        <h3 style="margin:0 0 4px;">💵 Pagar vacaciones</h3>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Registra días que no se tomaron y se pagaron. Descuenta del saldo (FIFO: año más viejo primero) y NO afecta turnos.</p>
+
+        <div style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <select id="pag-emp" onchange="actualizarSaldoPagVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="">— Seleccionar —</option>
+              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+            </select>
+          </div>
+          <div id="pag-saldo-box" style="display:none;font-size:12px;"></div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Días a pagar *</label>
+            <input type="number" id="pag-dias" min="1" value="7" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha de pago / liquidación</label>
+            <input type="date" id="pag-fecha" value="${new Date().toISOString().split('T')[0]}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Observaciones (opcional)</label>
+            <textarea id="pag-obs" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Ej: pagado con sueldo de noviembre…"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('pagvac-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarPagoVacaciones()">Registrar pago</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function actualizarSaldoPagVac() {
+  const empId = parseInt(document.getElementById('pag-emp').value, 10);
+  const box = document.getElementById('pag-saldo-box');
+  if (!empId) { box.style.display = 'none'; return; }
+  const { data: saldos } = await sb.from('rrhh_vacaciones')
+    .select('año, dias_pendientes').eq('empleado_id', empId).order('año', { ascending: true });
+  const conPend = (saldos||[]).filter(s => s.dias_pendientes > 0);
+  if (conPend.length === 0) {
+    box.innerHTML = `<div style="background:#fee2e2;color:#7f1d1d;padding:10px 12px;border-radius:8px;">⚠ Sin saldo pendiente en ningún año</div>`;
+  } else {
+    const detalle = conPend.map(s => `${s.año}: ${s.dias_pendientes}d`).join(' · ');
+    const total = conPend.reduce((s,r) => s + r.dias_pendientes, 0);
+    box.innerHTML = `<div style="background:#f0f9ff;color:#075985;padding:10px 12px;border-radius:8px;border-left:3px solid #0284c7;">🧮 Pendientes: <strong>${detalle}</strong> · Total: <strong>${total}d</strong></div>`;
+  }
+  box.style.display = 'block';
+}
+
+async function guardarPagoVacaciones() {
+  const empId = parseInt(document.getElementById('pag-emp').value, 10);
+  const dias = parseInt(document.getElementById('pag-dias').value, 10);
+  const fecha = document.getElementById('pag-fecha').value;
+  const obs = document.getElementById('pag-obs').value.trim();
+
+  if (!empId) { toast('Falta empleado', 'error'); return; }
+  if (!dias || dias <= 0) { toast('Indicá la cantidad de días', 'error'); return; }
+  if (!fecha) { toast('Falta fecha de pago', 'error'); return; }
+
+  // FIFO
+  let tramos;
+  try { tramos = await _consumirSaldoFIFO(empId, dias); }
+  catch(e) { toast('Error: '+e.message, 'error'); return; }
+
+  if (tramos.length === 0) { toast('Sin saldo donde imputar', 'error'); return; }
+  if (tramos.length > 1) {
+    const detalle = tramos.map(t => `${t.dias}d → ${t.año}`).join(', ');
+    if (!confirm(`Los ${dias} días se reparten así por FIFO:\n${detalle}\n\n¿Confirmás el pago?`)) return;
+  }
+
+  // Update saldos
+  const sumaPorVac = {};
+  tramos.forEach(t => { sumaPorVac[t.vacId] = (sumaPorVac[t.vacId] || 0) + t.dias; });
+  for (const vacIdStr in sumaPorVac) {
+    const vacId = parseInt(vacIdStr, 10);
+    const { data: s } = await sb.from('rrhh_vacaciones').select('dias_tomados').eq('id', vacId).single();
+    await sb.from('rrhh_vacaciones').update({ dias_tomados: (s.dias_tomados||0) + sumaPorVac[vacId] }).eq('id', vacId);
+  }
+
+  // Crear movimientos con estado='pagada' (uno por tramo)
+  // Usamos la misma fecha de pago como desde Y hasta (es un evento puntual de pago, no un período)
+  const inserts = tramos.map(t => ({
+    vacaciones_id: t.vacId,
+    empleado_id: empId,
+    fecha_desde: fecha,
+    fecha_hasta: fecha,
+    dias: t.dias,
+    estado: 'pagada',
+    solicitado_por: session.email,
+    aprobado_por:   session.email,
+    fecha_aprobacion: new Date().toISOString(),
+    observaciones: (obs || 'Pago de vacaciones no tomadas') + ` — Imputado a saldo ${t.año}${tramos.length > 1 ? ' (FIFO)' : ''}`,
+  }));
+  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert(inserts).select();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  await auditLog('pagar_vacaciones', 'rrhh_vacaciones_movimientos', data[0]?.id || null, null, null,
+    `${dias}d pagados ${tramos.length>1?'(FIFO '+tramos.length+' tramos)':''}`);
+  toast(`✓ Pago registrado: ${dias} días`, 'success');
+  document.getElementById('pagvac-modal').remove();
   if (typeof renderVacContent === 'function') renderVacContent();
 }
 
