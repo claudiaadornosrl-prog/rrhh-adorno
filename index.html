@@ -2220,12 +2220,21 @@ async function renderVacContent() {
     if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`; return; }
     const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
     if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">🎉 No hay solicitudes pendientes.</div>`; return; }
-    cont.innerHTML = '<ul class="simple-list">' + lista.map(m => `
+    cont.innerHTML = '<ul class="simple-list">' + lista.map(m => {
+      const esPago = m.tipo_solicitud === 'pago';
+      const tag = esPago
+        ? `<span class="emp-tag" style="background:#ede9fe;color:#5b21b6;margin-left:8px;">💵 Pago</span>`
+        : `<span class="emp-tag" style="background:#dbeafe;color:#1e40af;margin-left:8px;">🌴 Toma</span>`;
+      const detalle = esPago
+        ? `${m.dias} días a pagar · solicitado por ${escapeHtml(m.solicitado_por||'—')}`
+        : `${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} · ${m.dias} días · solicitado por ${escapeHtml(m.solicitado_por||'—')}`;
+      return `
       <li>
         <div>
           <strong>${escapeHtml(m.empleado?.nombre_completo || '—')}</strong>
           <span class="emp-tag local-${m.empleado?.local||''}" style="margin-left:8px;">${LOCALES[m.empleado?.local]?.nombre||''}</span>
-          <div class="meta">${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} · ${m.dias} días · solicitado por ${escapeHtml(m.solicitado_por||'—')}</div>
+          ${tag}
+          <div class="meta">${detalle}</div>
           ${m.observaciones ? `<div class="meta" style="margin-top:4px;font-style:italic;">"${escapeHtml(m.observaciones)}"</div>` : ''}
         </div>
         <div style="display:flex;gap:6px;">
@@ -2233,7 +2242,8 @@ async function renderVacContent() {
           <button class="btn small danger" data-mov="${m.id}" data-action="rechazar">✗ Rechazar</button>
         </div>
       </li>
-    `).join('') + '</ul>';
+    `;
+    }).join('') + '</ul>';
     cont.querySelectorAll('[data-mov]').forEach(btn => {
       btn.addEventListener('click', () => decidirVacacion(parseInt(btn.dataset.mov,10), btn.dataset.action));
     });
@@ -2345,27 +2355,202 @@ async function renderVacContent() {
 }
 
 async function decidirVacacion(movId, accion) {
+  // Cargar el movimiento para saber si es solicitud de toma o de pago
+  const { data: mov } = await sb.from('rrhh_vacaciones_movimientos').select('*').eq('id', movId).maybeSingle();
+  if (!mov) { toast('No se pudo cargar la solicitud', 'error'); return; }
+
+  const esPago = mov.tipo_solicitud === 'pago';
   const motivo = accion === 'rechazar' ? prompt('Motivo del rechazo:') : null;
   if (accion === 'rechazar' && !motivo) return;
-  const nuevoEstado = accion === 'aprobar' ? 'aprobada' : 'rechazada';
-  const patch = {
-    estado: nuevoEstado,
+
+  if (accion === 'rechazar') {
+    const { error } = await sb.from('rrhh_vacaciones_movimientos').update({
+      estado: 'rechazada',
+      aprobado_por: session.email,
+      fecha_aprobacion: new Date().toISOString(),
+      motivo_rechazo: motivo,
+    }).eq('id', movId);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    await auditLog('rechazar_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', 'rechazada');
+    toast('Rechazada', 'info');
+    renderVacContent();
+    return;
+  }
+
+  // Aprobar
+  if (esPago) {
+    // Es solicitud de PAGO — re-validar reglas y ejecutar FIFO
+    const r = await _disponibilidadParaPago(mov.empleado_id);
+    const elegibles = r.saldos.filter(d => d.disponible_pago > 0);
+    const totalDisp = elegibles.reduce((s,d) => s + d.disponible_pago, 0);
+    if (mov.dias > totalDisp) {
+      toast(`Ya no se pueden pagar ${mov.dias} días — solo hay ${totalDisp} disponibles ahora. Rechazá la solicitud y avisale a la vendedora.`, 'error');
+      return;
+    }
+    if (!confirm(`Aprobar PAGO de ${mov.dias} días para esta vendedora?\n\nDisponibles: ${totalDisp} días\n\nSe va a registrar como movimiento "pagada" y descontar del saldo (FIFO).`)) return;
+
+    // Repartir FIFO entre años elegibles
+    const tramos = [];
+    let restantes = mov.dias;
+    for (const e of elegibles) {
+      if (restantes <= 0) break;
+      const tomar = Math.min(e.disponible_pago, restantes);
+      tramos.push({ vacId: e.vacId, año: e.año, dias: tomar });
+      restantes -= tomar;
+    }
+
+    // Update saldos
+    const sumaPorVac = {};
+    tramos.forEach(t => { sumaPorVac[t.vacId] = (sumaPorVac[t.vacId] || 0) + t.dias; });
+    for (const vacIdStr in sumaPorVac) {
+      const vacId = parseInt(vacIdStr, 10);
+      const { data: s } = await sb.from('rrhh_vacaciones').select('dias_tomados').eq('id', vacId).single();
+      await sb.from('rrhh_vacaciones').update({ dias_tomados: (s.dias_tomados||0) + sumaPorVac[vacId] }).eq('id', vacId);
+    }
+
+    // Crear UN movimiento NUEVO por cada tramo con estado='pagada'
+    // Y marcar el ORIGINAL como 'pagada' también (cerrando la solicitud)
+    const fecha = new Date().toISOString().split('T')[0];
+    if (tramos.length === 1) {
+      // Único tramo: update directo sobre la solicitud original
+      await sb.from('rrhh_vacaciones_movimientos').update({
+        estado: 'pagada',
+        vacaciones_id: tramos[0].vacId,
+        aprobado_por: session.email,
+        fecha_aprobacion: new Date().toISOString(),
+        observaciones: (mov.observaciones || '') + ` · Aprobado y pagado FIFO → ${tramos[0].año}`,
+      }).eq('id', movId);
+    } else {
+      // Múltiples tramos: marcamos el original como pagada con el primer año, y creamos extras
+      await sb.from('rrhh_vacaciones_movimientos').update({
+        estado: 'pagada',
+        vacaciones_id: tramos[0].vacId,
+        dias: tramos[0].dias,
+        aprobado_por: session.email,
+        fecha_aprobacion: new Date().toISOString(),
+        observaciones: (mov.observaciones || '') + ` · FIFO tramo 1/${tramos.length} → ${tramos[0].año}`,
+      }).eq('id', movId);
+      const extras = tramos.slice(1).map((t, i) => ({
+        vacaciones_id: t.vacId, empleado_id: mov.empleado_id,
+        fecha_desde: fecha, fecha_hasta: fecha,
+        dias: t.dias, estado: 'pagada', tipo_solicitud: 'pago',
+        solicitado_por: mov.solicitado_por,
+        aprobado_por: session.email,
+        fecha_aprobacion: new Date().toISOString(),
+        observaciones: `Pago FIFO tramo ${i+2}/${tramos.length} → ${t.año} (extiende solicitud #${movId})`,
+      }));
+      await sb.from('rrhh_vacaciones_movimientos').insert(extras);
+    }
+    await auditLog('aprobar_pago_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', 'pagada');
+    toast(`✓ Pago aprobado: ${mov.dias} días (${tramos.length} tramo${tramos.length>1?'s':''})`, 'success');
+    renderVacContent();
+    return;
+  }
+
+  // Aprobar solicitud normal de TOMA
+  const { error } = await sb.from('rrhh_vacaciones_movimientos').update({
+    estado: 'aprobada',
     aprobado_por: session.email,
     fecha_aprobacion: new Date().toISOString(),
-  };
-  if (accion === 'rechazar') patch.motivo_rechazo = motivo;
-  const { error } = await sb.from('rrhh_vacaciones_movimientos').update(patch).eq('id', movId);
+  }).eq('id', movId);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  await auditLog(accion === 'aprobar' ? 'aprobar_vacaciones' : 'rechazar_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', nuevoEstado);
-  if (accion === 'aprobar') {
-    toast('Aprobada ✓', 'success');
-    if (confirm('¿Querés descargar la Notificación de Vacaciones ahora?\n\nEs el PDF que la vendedora tiene que firmar.')) {
-      await generarNotificacionVacaciones(movId);
-    }
-  } else {
-    toast('Rechazada', 'success');
+  await auditLog('aprobar_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', 'aprobada');
+  toast('Aprobada ✓', 'success');
+  if (confirm('¿Querés descargar la Notificación de Vacaciones ahora?\n\nEs el PDF que la vendedora tiene que firmar.')) {
+    await generarNotificacionVacaciones(movId);
   }
   renderVacContent();
+}
+
+// ════════════════════════════════════════════════════════════
+// SOLICITUD DE PAGO DE VACACIONES (vendedora)
+// ════════════════════════════════════════════════════════════
+async function abrirSolicitarPagoVac() {
+  if (!session.empleado_id) {
+    toast('Tu usuario no está vinculado a un empleado', 'error'); return;
+  }
+  const r = await _disponibilidadParaPago(session.empleado_id);
+  const { saldos, esOficina, minCorresp, maxPagAño, tipoTxt } = r;
+  const elegibles = saldos.filter(d => d.disponible_pago > 0);
+  const totalDisp = elegibles.reduce((s,d) => s + d.disponible_pago, 0);
+
+  let html = '';
+  if (totalDisp === 0) {
+    html = `
+      <div style="background:#fee2e2;color:#7f1d1d;padding:14px;border-radius:8px;font-size:13px;">
+        ⚠ <strong>No podés solicitar pago en este momento.</strong><br><br>
+        Reglas: tu año debe tener al menos <strong>${minCorresp} días ${tipoTxt}</strong> de vacaciones (3 semanas) y no haber cobrado más de <strong>${maxPagAño}${tipoTxt[0]}</strong> este año.<br><br>
+        Hablalo con la encargada si pensás que es un error.
+      </div>
+    `;
+  } else {
+    const detalle = elegibles.map(d => `${d.año}: hasta ${d.disponible_pago}${tipoTxt[0]}`).join(' · ');
+    html = `
+      <div style="background:#d1faf1;color:#065f46;padding:12px;border-radius:8px;font-size:13px;margin-bottom:14px;">
+        💵 Podés solicitar hasta <strong>${totalDisp} días ${tipoTxt}</strong> de pago.<br>
+        <span style="font-size:11px;color:#0d9488;">${detalle}</span>
+      </div>
+      <div style="display:grid;gap:12px;">
+        <div>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Días a pagar *</label>
+          <input type="number" id="solpag-dias" min="1" max="${totalDisp}" value="${Math.min(totalDisp, maxPagAño)}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo (opcional)</label>
+          <textarea id="solpag-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Ej: para los gastos de fin de año…"></textarea>
+        </div>
+      </div>
+    `;
+  }
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-bg" id="solpag-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:500px;width:100%;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 4px;">💵 Solicitar pago de vacaciones</h3>
+        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Pedís que se te paguen días en vez de tomarlos. La solicitud queda pendiente para que la encargada la apruebe.</p>
+        ${html}
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('solpag-modal').remove()">Cerrar</button>
+          ${totalDisp > 0 ? `<button class="btn primary" onclick="enviarSolicitudPago()">Enviar solicitud</button>` : ''}
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+async function enviarSolicitudPago() {
+  const dias = parseInt(document.getElementById('solpag-dias').value, 10);
+  const motivo = document.getElementById('solpag-motivo').value.trim();
+  if (!dias || dias <= 0) { toast('Indicá los días', 'error'); return; }
+
+  // Re-validar disponibilidad
+  const r = await _disponibilidadParaPago(session.empleado_id);
+  const elegibles = r.saldos.filter(d => d.disponible_pago > 0);
+  const totalDisp = elegibles.reduce((s,d) => s + d.disponible_pago, 0);
+  if (dias > totalDisp) {
+    toast(`Solo podés pedir hasta ${totalDisp} días (${r.tipoTxt})`, 'error');
+    return;
+  }
+
+  // Crear movimiento estado='solicitada' tipo_solicitud='pago'
+  // Apuntamos al saldo más viejo elegible (al aprobar el sistema repartirá FIFO real)
+  const fecha = new Date().toISOString().split('T')[0];
+  const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert({
+    vacaciones_id: elegibles[0].vacId,
+    empleado_id: session.empleado_id,
+    fecha_desde: fecha,
+    fecha_hasta: fecha,
+    dias,
+    estado: 'solicitada',
+    tipo_solicitud: 'pago',
+    solicitado_por: session.email,
+    observaciones: 'Solicitud de pago' + (motivo ? ` — ${motivo}` : ''),
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('solicitar_pago_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${dias} días`);
+  toast('Solicitud de pago enviada ✓ Te avisamos cuando la aprueben', 'success');
+  document.getElementById('solpag-modal').remove();
+  switchTab('mis-vacaciones');
 }
 
 // ════════════════════════════════════════════════════════════
