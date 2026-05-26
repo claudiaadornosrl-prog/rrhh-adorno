@@ -515,20 +515,13 @@ async function init() {
     showLogin();
   }
   sb.auth.onAuthStateChange((event, authSession) => {
-    if (event === 'SIGNED_IN' && authSession) {
-      onLoggedIn(authSession.user).catch(err => {
-        console.error('Error en onLoggedIn:', err);
-        showLoginError('Error cargando tu sesión: ' + (err.message || err));
-        const btn = document.getElementById('login-submit');
-        if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
-        sb.auth.signOut();
-      });
-    }
-    else if (event === 'SIGNED_OUT') {
+    console.log('[AUTH] event=', event, 'hasSession=', !!authSession);
+    if (event === 'SIGNED_OUT') {
       showLogin();
       const btn = document.getElementById('login-submit');
       if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
     }
+    // SIGNED_IN ya se maneja en el handler del form (llamando onLoggedIn directamente)
   });
 }
 
@@ -877,10 +870,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const btn   = document.getElementById('login-submit');
   btn.disabled = true; btn.textContent = 'Ingresando…';
   try {
-    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    console.log('[LOGIN] signInWithPassword...');
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+    console.log('[LOGIN] signIn result:', { hasUser: !!data?.user, error });
     if (error) throw error;
-    // onAuthStateChange dispara onLoggedIn
+    if (!data?.user) throw new Error('No se obtuvo usuario');
+    // Llamar onLoggedIn directamente (no depender de onAuthStateChange)
+    await onLoggedIn(data.user);
   } catch (err) {
+    console.error('[LOGIN] error:', err);
     showLoginError(err.message || 'Error al iniciar sesión');
     btn.disabled = false; btn.textContent = 'Ingresar';
   }
