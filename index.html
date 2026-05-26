@@ -2728,10 +2728,19 @@ function wireVacacionesForm() {
 }
 
 async function solicitarVacaciones() {
-  const desde = document.getElementById('vac-desde').value;
-  const hasta = document.getElementById('vac-hasta').value;
+  let desde = document.getElementById('vac-desde').value;
+  let hasta = document.getElementById('vac-hasta').value;
   const obs   = document.getElementById('vac-obs').value;
   if (!desde || !hasta) { toast('Faltan fechas', 'error'); return; }
+
+  // Aplicar regla franco asociado (solo locales)
+  const ext = await _extenderPorFranco(session.empleado_id, desde, hasta);
+  if (ext.extendido) {
+    if (!confirm(`Tu período incluye un día de jornada larga (sáb/dom). Para que el finde quede completo, se va a extender automáticamente:\n\n  Original: ${desde} → ${hasta}\n  Ajustado: ${ext.desde} → ${ext.hasta}\n  ${ext.mensaje}\n\n¿Continuar?`)) return;
+    desde = ext.desde;
+    hasta = ext.hasta;
+  }
+
   const dias = Math.round((new Date(hasta) - new Date(desde)) / (1000*60*60*24)) + 1;
   if (dias <= 0) { toast('Fechas inválidas', 'error'); return; }
   const año = new Date(desde).getFullYear();
@@ -5453,6 +5462,68 @@ async function actualizarCalcAsignVac() {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// REGLA DE FRANCO ASOCIADO (solo Unicenter / Alcorta)
+//
+// Si el período de vacaciones incluye un día de fin de semana (sáb/dom)
+// y el día opuesto del mismo finde es franco, se extiende el rango
+// para incluir ese franco. Así un finde queda siempre completo (jornada
+// larga + franco juntos).
+//
+// No aplica a oficina.
+// No aplica si la vendedora trabaja ambos días del finde (sin franco).
+// ════════════════════════════════════════════════════════════
+async function _extenderPorFranco(empId, fechaDesde, fechaHasta) {
+  const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).maybeSingle();
+  if (!emp || emp.local === 'oficina') {
+    return { desde: fechaDesde, hasta: fechaHasta, extendido: false, mensaje: null };
+  }
+
+  const d1 = new Date(fechaDesde + 'T12:00:00');
+  const d2 = new Date(fechaHasta + 'T12:00:00');
+  const dExt1 = new Date(d1); dExt1.setDate(dExt1.getDate() - 3);
+  const dExt2 = new Date(d2); dExt2.setDate(dExt2.getDate() + 3);
+  const desdeExt = dExt1.toISOString().split('T')[0];
+  const hastaExt = dExt2.toISOString().split('T')[0];
+
+  const { data: turnos } = await sb.from('rrhh_turnos')
+    .select('fecha, es_franco, hora_inicio')
+    .eq('empleado_id', empId)
+    .gte('fecha', desdeExt).lte('fecha', hastaExt);
+  const turnoPorFecha = {};
+  (turnos || []).forEach(t => { turnoPorFecha[t.fecha] = t; });
+
+  let nuevoDesde = fechaDesde;
+  let nuevoHasta = fechaHasta;
+  const ajustes = [];
+
+  let d = new Date(d1);
+  while (d <= d2) {
+    const fecha = d.toISOString().split('T')[0];
+    const dow = d.getDay(); // 0=Dom, 6=Sáb
+    if (dow === 0 || dow === 6) {
+      const opuesto = new Date(d);
+      if (dow === 0) opuesto.setDate(opuesto.getDate() - 1); // dom → sábado del mismo finde
+      else opuesto.setDate(opuesto.getDate() + 1);            // sáb → domingo del mismo finde
+      const fechaOp = opuesto.toISOString().split('T')[0];
+      const turnoOp = turnoPorFecha[fechaOp];
+      // Solo extender si la opuesta es franco Y no está en el rango actual
+      if (turnoOp && turnoOp.es_franco && (fechaOp < nuevoDesde || fechaOp > nuevoHasta)) {
+        if (fechaOp < nuevoDesde) nuevoDesde = fechaOp;
+        if (fechaOp > nuevoHasta) nuevoHasta = fechaOp;
+        ajustes.push(`${fechaOp} (franco asociado al ${dow===0?'domingo':'sábado'} ${fecha})`);
+      }
+    }
+    d.setDate(d.getDate() + 1);
+  }
+
+  const extendido = ajustes.length > 0;
+  return {
+    desde: nuevoDesde, hasta: nuevoHasta, extendido,
+    mensaje: extendido ? `Se agregó: ${ajustes.join(', ')}` : null,
+  };
+}
+
 // FIFO: descuenta `diasTotal` del saldo pendiente del empleado, empezando
 // del año más viejo. Si los días no entran en un solo año, parte en varios.
 // Devuelve lista de tramos: [{vacId, año, dias}, ...]
@@ -5502,13 +5573,21 @@ async function _consumirSaldoFIFO(empId, diasTotal) {
 async function guardarAsignarVacacion() {
   const empSel = document.getElementById('asg-emp');
   const empId = parseInt(empSel.value, 10);
-  const desde = document.getElementById('asg-desde').value;
-  const hasta = document.getElementById('asg-hasta').value;
+  let desde = document.getElementById('asg-desde').value;
+  let hasta = document.getElementById('asg-hasta').value;
   const obs = document.getElementById('asg-obs').value.trim();
 
   if (!empId) { toast('Falta empleado', 'error'); return; }
   if (!desde || !hasta) { toast('Faltan fechas', 'error'); return; }
   if (hasta < desde) { toast('La fecha hasta no puede ser anterior a desde', 'error'); return; }
+
+  // Aplicar regla franco asociado (solo locales)
+  const ext = await _extenderPorFranco(empId, desde, hasta);
+  if (ext.extendido) {
+    if (!confirm(`Período incluye día de jornada larga. Se extiende para completar el finde:\n\n  Original: ${desde} → ${hasta}\n  Ajustado: ${ext.desde} → ${ext.hasta}\n  ${ext.mensaje}\n\n¿Continuar?`)) return;
+    desde = ext.desde;
+    hasta = ext.hasta;
+  }
 
   const opt = empSel.options[empSel.selectedIndex];
   const esOficina = opt?.dataset?.local === 'oficina';
@@ -5872,25 +5951,38 @@ async function guardarCargaMasivaVac() {
   const empMap = {};
   (window._cargaVacEmpleados || []).forEach(e => { empMap[e.id] = e; });
 
-  filas.forEach((f, idx) => {
+  const ajustesFranco = [];   // para avisar al final
+
+  for (let idx = 0; idx < filas.length; idx++) {
+    const f = filas[idx];
     const empId = parseInt(f.querySelector('[data-cv="empleado"]').value, 10);
-    const desde = f.querySelector('[data-cv="desde"]').value;
-    const hasta = f.querySelector('[data-cv="hasta"]').value;
+    let desde = f.querySelector('[data-cv="desde"]').value;
+    let hasta = f.querySelector('[data-cv="hasta"]').value;
     const obs   = f.querySelector('[data-cv="obs"]').value.trim();
 
     // Saltar filas vacías
-    if (!empId && !desde && !hasta) return;
+    if (!empId && !desde && !hasta) continue;
 
-    if (!empId) { errores.push(`Fila ${idx+1}: falta empleado`); return; }
-    if (!desde) { errores.push(`Fila ${idx+1}: falta fecha desde`); return; }
-    if (!hasta) { errores.push(`Fila ${idx+1}: falta fecha hasta`); return; }
-    if (hasta < desde) { errores.push(`Fila ${idx+1}: la fecha hasta no puede ser anterior a desde`); return; }
+    if (!empId) { errores.push(`Fila ${idx+1}: falta empleado`); continue; }
+    if (!desde) { errores.push(`Fila ${idx+1}: falta fecha desde`); continue; }
+    if (!hasta) { errores.push(`Fila ${idx+1}: falta fecha hasta`); continue; }
+    if (hasta < desde) { errores.push(`Fila ${idx+1}: la fecha hasta no puede ser anterior a desde`); continue; }
 
     const emp = empMap[empId];
     const esOficina = emp?.local === 'oficina';
+
+    // Aplicar regla franco asociado (solo locales)
+    if (!esOficina) {
+      const ext = await _extenderPorFranco(empId, desde, hasta);
+      if (ext.extendido) {
+        ajustesFranco.push(`Fila ${idx+1} (${emp?.nombre_completo}): ${desde}→${hasta}  →  ${ext.desde}→${ext.hasta} (${ext.mensaje})`);
+        desde = ext.desde;
+        hasta = ext.hasta;
+      }
+    }
+
     const d1 = new Date(desde + 'T12:00:00');
     const d2 = new Date(hasta + 'T12:00:00');
-    // Oficina: días hábiles. Locales: días corridos.
     const dias = esOficina
       ? _diasHabilesUI(desde, hasta)
       : (Math.round((d2 - d1) / (1000*60*60*24)) + 1);
@@ -5899,7 +5991,11 @@ async function guardarCargaMasivaVac() {
       empId, desde, hasta, dias, año: d1.getFullYear(),
       obs: obs || null, esOficina,
     });
-  });
+  }
+
+  if (ajustesFranco.length > 0) {
+    if (!confirm(`Las siguientes filas se extendieron por la regla "franco asociado":\n\n${ajustesFranco.join('\n')}\n\n¿Continuar?`)) return;
+  }
 
   if (errores.length > 0) {
     toast('Revisá: ' + errores.join(' · '), 'error');
