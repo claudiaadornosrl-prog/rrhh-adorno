@@ -880,6 +880,16 @@ async function renderDashboard() {
   if (!isAdmin && local) qVacEstaSem = qVacEstaSem.eq('empleado.local', local);
   const { data: vacEstaSem } = await qVacEstaSem;
 
+  // Lactancia próxima a vencer (≤30 días) o ya vencida sin actualizar
+  let qLact = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, lactancia_hasta').not('lactancia_hasta', 'is', null).eq('estado', 'activo');
+  if (!isAdmin && local) qLact = qLact.eq('local', local);
+  const { data: lactData } = await qLact;
+  const lactanciaProx = (lactData || []).map(e => {
+    const f = new Date(e.lactancia_hasta + 'T12:00:00');
+    const dias = Math.ceil((f - hoy) / (1000*60*60*24));
+    return { ...e, _diasFalta: dias };
+  }).filter(e => e._diasFalta <= 30).sort((a,b) => a._diasFalta - b._diasFalta);
+
   // 8. Empleadas con +30 días pendientes acumulados (años anteriores)
   const añoActual = hoy.getFullYear();
   let qVacAtraso = sb.from('rrhh_vacaciones')
@@ -937,7 +947,8 @@ async function renderDashboard() {
 
     ${(() => {
       const totalCriticas = (vacPendientes||0) + (permPendientes||0) + (pagoPendientes||0)
-                          + mesAnteriorSinCerrar.length + (docPendientes||0) + proximasPerderPremio.length + tardanzasAltas.length;
+                          + mesAnteriorSinCerrar.length + (docPendientes||0) + proximasPerderPremio.length + tardanzasAltas.length
+                          + lactanciaProx.length;
       const totalInfo = cumpleProx7d.length + anivProx7d.length + (vacEstaSem?.length||0) + empConAtraso30.length;
       if (totalCriticas === 0 && totalInfo === 0) return '';
 
@@ -968,6 +979,7 @@ async function renderDashboard() {
               ${cardCritica('#f59e0b', '📄', 'Documentos sin firmar', docPendientes||0, (docPendientes===1?'1 vacación':docPendientes+' vacaciones')+' aprobadas hace +7d sin doc', `vacState.tab='aprobadas';switchTab('vacaciones')`)}
               ${cardCritica('#ea580c', '🎖', 'Pueden perder premio', proximasPerderPremio.length, proximasPerderPremio.slice(0,2).map(e => e.nombre.split(' ')[0]+' ('+e.errores+'/'+e.max+')').join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#d97706', '⚠', 'Tardanzas >60min mes', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
+              ${cardCritica('#db2777', '🤱', 'Lactancia próxima a vencer', lactanciaProx.length, lactanciaProx.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+(e._diasFalta < 0 ? ' (venció hace '+Math.abs(e._diasFalta)+'d)' : e._diasFalta===0 ? ' (HOY)' : ' (+'+e._diasFalta+'d)')).join(', '), `switchTab('empleados')`)}
             </div>
           </div>`;
       }
@@ -1235,6 +1247,7 @@ async function renderEmpleadosList() {
   let q = sb.from('rrhh_empleados').select(`
     id, dni, cuil, apellido, nombre, nombre_completo, local, estado,
     fecha_ingreso, foto_url, telefono, email,
+    lactancia_desde, lactancia_hasta,
     categoria:rrhh_categorias_cct(nombre)
   `).order('apellido', { ascending: true });
 
@@ -1278,6 +1291,7 @@ async function renderEmpleadosList() {
         <div class="tags">
           <span class="emp-tag local-${e.local}">${LOCALES[e.local]?.icon || ''} ${LOCALES[e.local]?.nombre || e.local}</span>
           ${e.estado !== 'activo' ? `<span class="emp-tag estado-${e.estado}">${e.estado}</span>` : ''}
+          ${e.lactancia_hasta && new Date(e.lactancia_hasta + 'T12:00:00') >= new Date() ? `<span class="emp-tag" style="background:#fce7f3;color:#9d174d;" title="En período de lactancia hasta ${e.lactancia_hasta}">🤱 Lactancia</span>` : ''}
         </div>
       </div>
     </div>
