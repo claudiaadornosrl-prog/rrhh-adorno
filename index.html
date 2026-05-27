@@ -308,6 +308,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 .cal-cell-day.has-turno { color: white; font-weight: 600; }
 .cal-cell-day .turno-time { font-size: 10px; line-height: 1.2; }
 .cal-cell-day .turno-icon { font-size: 14px; }
+.cal-cell-day .cal-fichadas { font-size: 8px; line-height: 1.15; margin-top: 2px; padding: 1px 2px; border-radius: 3px; background: rgba(255,255,255,0.85); color: #065f46; font-weight: 600; white-space: nowrap; }
 .cal-cell-day.franco { background: #f3f4f6; color: var(--muted); }
 .cal-cell-day.vacaciones { background: #d1faf1; color: #0d9488; }
 .cal-cell-day.licencia   { background: #fef3c7; color: #92400e; }
@@ -3026,6 +3027,20 @@ async function renderMiCalendario() {
     .eq('empleado_id', session.empleado_id)
     .order('creado_at', { ascending: false }).limit(10);
 
+  // Fichadas reales (crudas Anviz) del mes — entrada = primera, salida = última
+  const { data: misFichs } = await sb.from('rrhh_fichadas_raw')
+    .select('fecha, hora, fecha_hora')
+    .eq('empleado_id', session.empleado_id)
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0])
+    .order('fecha_hora', { ascending: true });
+  const miFichMap = {};
+  (misFichs || []).forEach(f => {
+    if (!f.hora) return;
+    if (!miFichMap[f.fecha]) miFichMap[f.fecha] = [];
+    miFichMap[f.fecha].push(f.hora.substring(0,5));
+  });
+
   // Feriados del mes
   const { data: feriados } = await sb.from('rrhh_feriados')
     .select('fecha, nombre, cierra_oficina, cierra_shoppings')
@@ -3158,6 +3173,14 @@ async function renderMiCalendario() {
               <div style="font-size:12px;font-weight:600;opacity:0.7;text-align:left;">${d}</div>
               ${icon ? `<div style="font-size:22px;margin:4px 0;">${icon}</div>` : ''}
               <div style="font-size:11px;font-weight:600;line-height:1.2;">${label}</div>
+              ${(() => {
+                const fich = miFichMap[fecha];
+                if (!fich || !fich.length) return '';
+                const ent = fich[0];
+                const sal = fich.length > 1 ? fich[fich.length-1] : '';
+                const fichBg = (bg === 'white' || bg.startsWith('#fe') || bg.startsWith('#fef') || bg === '#f3f4f6') ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.22)';
+                return `<div title="Fichadas reales Anviz" style="font-size:9px;margin-top:4px;background:${fichBg};border-radius:4px;padding:2px 3px;line-height:1.3;">✓ ${ent}${sal ? '<br>↳ ' + sal : ''}</div>`;
+              })()}
               ${permiso ? `<div style="font-size:9px;margin-top:auto;background:#fef3c7;color:#92400e;border-radius:4px;padding:2px;">⏱ Permiso</div>` : ''}
               ${esHoy ? '<div style="position:absolute;top:4px;right:4px;background:var(--accent2);color:white;border-radius:50%;width:8px;height:8px;"></div>' : ''}
             </div>
@@ -4111,6 +4134,22 @@ async function renderCalendarioGrid() {
     });
   }
 
+  // Fichadas reales (crudas Anviz): entrada = primera, salida = última de cada día
+  const fichMap = {};
+  if (empIds.length) {
+    const { data: fichs } = await sb.from('rrhh_fichadas_raw')
+      .select('empleado_id, fecha, hora, fecha_hora')
+      .in('empleado_id', empIds)
+      .gte('fecha', fechaDesde.toISOString().split('T')[0])
+      .lte('fecha', fechaHasta.toISOString().split('T')[0])
+      .order('fecha_hora', { ascending: true });
+    (fichs || []).forEach(f => {
+      const k = `${f.empleado_id}_${f.fecha}`;
+      if (!fichMap[k]) fichMap[k] = [];
+      if (f.hora) fichMap[k].push(f.hora.substring(0,5));
+    });
+  }
+
   if (!empleados || empleados.length === 0) {
     cont.innerHTML = '<div class="emp-empty">Sin empleados para mostrar.</div>';
     return;
@@ -4174,6 +4213,12 @@ async function renderCalendarioGrid() {
           const hi = turno.hora_inicio ? turno.hora_inicio.substring(0,5) : '';
           const hf = turno.hora_fin    ? turno.hora_fin.substring(0,5) : '';
           content = `<div class="turno-icon">${turno.template?.icono || '🕐'}</div><div class="turno-time">${hi}</div>`;
+          const fich = fichMap[`${e.id}_${fecha}`];
+          if (fich && fich.length) {
+            const ent = fich[0];
+            const sal = fich.length > 1 ? fich[fich.length-1] : '';
+            content += `<div class="cal-fichadas" title="Fichadas reales Anviz">✓ ${ent}${sal ? ' · ' + sal : ''}</div>`;
+          }
           if (sospechosos.has(`${e.id}_${fecha}`)) content += `<div style="position:absolute;top:1px;right:2px;font-size:9px;" title="Las fichadas no coinciden con el turno cargado — revisar">⚠️</div>`;
         }
       } else if (cierra) {
