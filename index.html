@@ -5013,6 +5013,125 @@ async function salvarError(detalleId, empId) {
   await renderResumenContent();
 }
 
+// Cambiar el turno planificado de un día y recalcular asistencias del mes.
+// Usado cuando la encargada cargó mal el turno (ej: mañana en vez de tarde) y las
+// fichadas reales matchean a otro template del catálogo.
+async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCustom, horaFinCustom) {
+  if (!['admin','gerente'].includes(session.rol)) {
+    toast('Solo encargada/admin pueden cambiar el turno', 'error');
+    return;
+  }
+
+  // Traer empleado (local) y template (si templateId)
+  const { data: emp } = await sb.from('rrhh_empleados').select('id, local, nombre_completo').eq('id', empId).single();
+  if (!emp) { toast('Empleado no encontrado', 'error'); return; }
+
+  let nuevoTpl = null;
+  let horaInicio, horaFin, tipo;
+  if (templateId) {
+    const { data: tpl } = await sb.from('rrhh_templates_turno').select('*').eq('id', templateId).single();
+    if (!tpl) { toast('Template no encontrado', 'error'); return; }
+    nuevoTpl = tpl;
+    horaInicio = tpl.hora_inicio;
+    horaFin = tpl.hora_fin;
+    tipo = tpl.codigo;
+  } else if (horaInicioCustom && horaFinCustom) {
+    horaInicio = horaInicioCustom;
+    horaFin = horaFinCustom;
+    tipo = 'custom';
+  } else {
+    toast('Falta template u horario', 'error'); return;
+  }
+
+  // Mensaje de confirmación
+  const turnoNuevoTxt = nuevoTpl ? `${nuevoTpl.nombre} (${horaInicio.substring(0,5)}-${horaFin.substring(0,5)})`
+                                 : `Horario personalizado ${horaInicio.substring(0,5)}-${horaFin.substring(0,5)}`;
+  if (!confirm(`¿Cambiar el turno planificado del ${fecha} a "${turnoNuevoTxt}"?\n\nSe recalcula el mes y se actualiza el banco/premio si corresponde.`)) return;
+
+  // Traer turno previo para audit
+  const { data: turnoPrevio } = await sb.from('rrhh_turnos').select('*').eq('empleado_id', empId).eq('fecha', fecha).maybeSingle();
+
+  // UPSERT en rrhh_turnos
+  const updateData = {
+    empleado_id: empId, fecha,
+    template_id: nuevoTpl?.id || null,
+    hora_inicio: horaInicio,
+    hora_fin: horaFin,
+    es_franco: false,
+    tipo,
+    planificado_por: session.email || session.rol,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from('rrhh_turnos')
+    .upsert(updateData, { onConflict: 'empleado_id,fecha' });
+  if (error) { toast('Error al guardar: ' + error.message, 'error'); return; }
+
+  // Audit log
+  const valViejo = turnoPrevio ? `${turnoPrevio.hora_inicio?.substring(0,5)||'?'}-${turnoPrevio.hora_fin?.substring(0,5)||'?'} (${turnoPrevio.tipo||''})` : '(sin turno)';
+  const valNuevo = `${horaInicio.substring(0,5)}-${horaFin.substring(0,5)} (${tipo})`;
+  await auditLog('cambiar_turno_dia', 'rrhh_turnos', turnoPrevio?.id || null, `${fecha}`, valViejo, valNuevo);
+
+  // Recalcular el mes para que tarde/extras/banco/premio se ajusten al nuevo turno
+  toast('Turno actualizado. Recalculando mes...', 'info');
+  try {
+    const periodo = fecha.substring(0,7); // YYYY-MM
+    await procesarMes(periodo, emp.local);
+    toast('Mes recalculado ✓', 'success');
+  } catch (e) {
+    toast('Turno cambiado pero falló el recálculo: ' + e.message, 'warning');
+  }
+
+  // Re-render
+  await renderDetalleEmpDia(empId);
+  await renderResumenContent();
+}
+
+// Modal para que la encargada elija manualmente un template (o personalizado)
+async function abrirMenuCambiarTurno(detalleId, empId, fecha) {
+  if (!['admin','gerente'].includes(session.rol)) {
+    toast('Solo encargada/admin', 'error'); return;
+  }
+  const { data: emp } = await sb.from('rrhh_empleados').select('local, nombre_completo').eq('id', empId).single();
+  if (!emp) { toast('Empleado no encontrado', 'error'); return; }
+  const { data: tpls } = await sb.from('rrhh_templates_turno')
+    .select('id, codigo, nombre, hora_inicio, hora_fin, es_franco, icono')
+    .eq('local', emp.local).order('orden', { ascending: true });
+
+  // Construir modal
+  const existing = document.getElementById('cambiar-turno-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'cambiar-turno-modal';
+  modal.className = 'modal-overlay';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:24px;max-width:480px;width:90%;max-height:80vh;overflow:auto;">
+      <h3 style="margin:0 0 4px 0;">Cambiar turno planificado</h3>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">${escapeHtml(emp.nombre_completo)} · ${fecha}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+        ${(tpls || []).map(t => {
+          const horas = t.es_franco ? '— Franco' : `${t.hora_inicio?.substring(0,5)} → ${t.hora_fin?.substring(0,5)}`;
+          return `<button class="btn" style="text-align:left;padding:10px 12px;" onclick="document.getElementById('cambiar-turno-modal').remove();cambiarTurnoDia(${detalleId}, ${empId}, '${fecha}', ${t.id})">${t.icono||''} <strong>${escapeHtml(t.nombre)}</strong> <span style="color:var(--muted);font-size:12px;margin-left:8px;">${horas}</span></button>`;
+        }).join('')}
+        <button class="btn" style="text-align:left;padding:10px 12px;border-top:1px dashed var(--border);margin-top:6px;" onclick="document.getElementById('cambiar-turno-modal').remove();cambiarTurnoPersonalizado(${detalleId}, ${empId}, '${fecha}')">✏️ <strong>Horario personalizado...</strong> <span style="color:var(--muted);font-size:12px;margin-left:8px;">elegir hora_inicio y hora_fin</span></button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn" onclick="document.getElementById('cambiar-turno-modal').remove()">Cancelar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
+
+async function cambiarTurnoPersonalizado(detalleId, empId, fecha) {
+  const ini = prompt('Hora de inicio (HH:MM, ej. 09:45):');
+  if (!ini || !/^\d{1,2}:\d{2}$/.test(ini.trim())) { toast('Hora inválida', 'error'); return; }
+  const fin = prompt('Hora de fin (HH:MM, ej. 16:00):');
+  if (!fin || !/^\d{1,2}:\d{2}$/.test(fin.trim())) { toast('Hora inválida', 'error'); return; }
+  await cambiarTurnoDia(detalleId, empId, fecha, null, ini.trim(), fin.trim());
+}
+
 async function quitarSalvado(detalleId, empId) {
   if (!confirm('¿Quitar el salvado? El día va a volver a contar como error.')) return;
   const { error } = await sb.from('rrhh_asistencias_detalle').update({
@@ -5098,11 +5217,47 @@ async function renderDetalleEmpDia(empId) {
 
   // Cargar max errores del local del empleado
   let maxErr = 4;
+  let empLocal = null;
+  let templatesLocal = [];
   try {
     const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
-    const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio').eq('local', emp.local).single();
+    empLocal = emp?.local;
+    const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio').eq('local', empLocal).single();
     if (tol) maxErr = tol.max_errores_premio || 4;
+    // Cargar templates del local para auto-sugerir turno correcto cuando hay error de carga
+    if (empLocal) {
+      const { data: tpls } = await sb.from('rrhh_templates_turno')
+        .select('id, codigo, nombre, hora_inicio, hora_fin, es_franco, color, icono')
+        .eq('local', empLocal).order('orden', { ascending: true });
+      templatesLocal = (tpls || []).filter(t => !t.es_franco && t.hora_inicio && t.hora_fin);
+    }
   } catch(e) {}
+
+  // Detector de turno sugerido: si las fichadas matchean otro template del local
+  // (entrada y salida dentro de ±15 min), devolver ese template como sugerencia.
+  const TOL_MATCH_MIN = 15;
+  function _hhmmToMin(s) { if (!s) return null; const [h,m] = s.split(':').map(Number); return h*60+m; }
+  function detectarTurnoSugerido(d) {
+    if (!d.entrada || !d.salida) return null;
+    const entMin = _hhmmToMin(d.entrada);
+    const salMin = _hhmmToMin(d.salida);
+    const turnoActualInicio = _hhmmToMin(d.turno?.hora_inicio);
+    const turnoActualFin    = _hhmmToMin(d.turno?.hora_fin);
+    let mejor = null, mejorScore = Infinity;
+    for (const t of templatesLocal) {
+      const ti = _hhmmToMin(t.hora_inicio);
+      const tf = _hhmmToMin(t.hora_fin);
+      // Mismo turno que el actual: descartar (no tiene sentido sugerir cambiar a lo mismo)
+      if (turnoActualInicio === ti && turnoActualFin === tf) continue;
+      const dEnt = Math.abs(entMin - ti);
+      const dSal = Math.abs(salMin - tf);
+      if (dEnt <= TOL_MATCH_MIN && dSal <= TOL_MATCH_MIN) {
+        const score = dEnt + dSal;
+        if (score < mejorScore) { mejor = t; mejorScore = score; }
+      }
+    }
+    return mejor;
+  }
 
   cont.innerHTML = `
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Detalle día por día</div>
@@ -5151,8 +5306,18 @@ async function renderDetalleEmpDia(empId) {
                     return `<span style="text-decoration:line-through;color:#0d9488;">${anomalia}</span><br><span style="color:#0d9488;font-size:10px;">✓ Salvado: ${escapeHtml(d.salvado_motivo||'')} <em style="color:var(--muted);">— ${escapeHtml(d.salvado_por||'')}</em></span>`;
                   }
                   let html = `<span style="color:#92400e;">${anomalia}</span>`;
-                  if (esErrorPremio(d) && puedeSalvar) {
-                    html += ` <button class="btn small accent2" style="padding:1px 6px;font-size:10px;margin-left:6px;" onclick="event.stopPropagation();salvarError(${d.id}, ${empId})">Salvar</button>`;
+                  if (puedeSalvar) {
+                    // Sugerencia automática: si las fichadas matchean otro template, ofrecer cambio rápido
+                    const sug = detectarTurnoSugerido(d);
+                    if (sug) {
+                      const tpName = `${sug.hora_inicio.substring(0,5)}-${sug.hora_fin.substring(0,5)}`;
+                      html += ` <button class="btn small accent" style="padding:1px 6px;font-size:10px;margin-left:6px;background:#0d9488;color:white;border:none;" title="Las fichadas coinciden con este turno. Probablemente la encargada cargó mal el día." onclick="event.stopPropagation();cambiarTurnoDia(${d.id}, ${empId}, '${d.fecha}', ${sug.id})">🔄 Cambiar a ${escapeHtml(sug.nombre)} (${tpName})</button>`;
+                    }
+                    // Menú dropdown para cambio manual (siempre disponible para encargada/admin)
+                    html += ` <button class="btn small" style="padding:1px 6px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();abrirMenuCambiarTurno(${d.id}, ${empId}, '${d.fecha}')" title="Cambiar manualmente el turno planificado">⋮ Otro turno</button>`;
+                    if (esErrorPremio(d)) {
+                      html += ` <button class="btn small accent2" style="padding:1px 6px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();salvarError(${d.id}, ${empId})">Salvar</button>`;
+                    }
                   }
                   return html;
                 })()}
