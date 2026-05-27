@@ -1404,6 +1404,7 @@ const EMP_MODAL_TABS = [
   { id: 'documentos', label: 'Documentos',        icon: '📄' },
   { id: 'sueldos',    label: 'Sueldos',           icon: '💰' },
   { id: 'asistencias',label: 'Asistencias',       icon: '🕐' },
+  { id: 'turnos',     label: 'Turnos habituales', icon: '📅' },
   { id: 'vacaciones', label: 'Vacaciones',        icon: '🌴' },
   { id: 'licencias',  label: 'Licencias / Permisos', icon: '📋' },
   { id: 'certificados',label:'Certif. médicos',   icon: '🏥' },
@@ -1490,6 +1491,7 @@ async function renderModalBody() {
     case 'documentos':  await renderTabDocumentos();  break;
     case 'sueldos':     await renderTabSueldos();     break;
     case 'asistencias': await renderTabAsistencias(); break;
+    case 'turnos':      await renderTabTurnos();      break;
     case 'vacaciones':  await renderTabVacaciones();  break;
     case 'licencias':   await renderTabLicencias();   break;
     case 'certificados':await renderTabCertificados();break;
@@ -1497,6 +1499,89 @@ async function renderModalBody() {
     case 'premios':     await renderTabPremios();     break;
     case 'notas':       await renderTabNotas();       break;
   }
+}
+
+// ─── Tab: Turnos habituales (default por día de semana) ───
+async function renderTabTurnos() {
+  const body = document.getElementById('emp-modal-body');
+  const emp = empModalState.empleadoData;
+  if (!emp) { body.innerHTML = '<div class="placeholder">Sin datos</div>'; return; }
+  const { data: tpls } = await sb.from('rrhh_templates_turno')
+    .select('id, codigo, nombre, hora_inicio, hora_fin, es_franco')
+    .eq('local', emp.local).order('orden', { ascending: true });
+  const templates = tpls || [];
+  const { data: defs } = await sb.from('rrhh_turnos_default')
+    .select('dia_semana, template_id, hora_inicio, hora_fin, es_franco')
+    .eq('empleado_id', emp.id);
+  const defByDia = {};
+  (defs || []).forEach(d => { defByDia[d.dia_semana] = d; });
+  const DIAS = [
+    { n: 1, label: 'Lunes' }, { n: 2, label: 'Martes' }, { n: 3, label: 'Miércoles' },
+    { n: 4, label: 'Jueves' }, { n: 5, label: 'Viernes' }, { n: 6, label: 'Sábado' }, { n: 0, label: 'Domingo' },
+  ];
+  const puedeEditar = ['admin','gerente'].includes(session.rol);
+  const opciones = (sel) => {
+    let html = `<option value="none">— Sin asignar —</option>`;
+    html += `<option value="franco" ${sel && sel.es_franco ? 'selected' : ''}>❌ Franco</option>`;
+    templates.filter(t => !t.es_franco).forEach(t => {
+      const isSel = sel && !sel.es_franco && sel.template_id === t.id;
+      html += `<option value="${t.id}" ${isSel ? 'selected' : ''}>${t.nombre} (${(t.hora_inicio||'').substring(0,5)}-${(t.hora_fin||'').substring(0,5)})</option>`;
+    });
+    return html;
+  };
+  body.innerHTML = `
+    <div style="padding:4px 0 12px;color:var(--muted);font-size:13px;">
+      Turno habitual de <strong>${emp.nombre_completo}</strong> por día. Es la base para generar los meses automáticamente — cambialo cuando la vendedora pase a otro turno.
+    </div>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden;border:1px solid var(--border);">
+      ${DIAS.map(d => `
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:9px 12px;font-weight:600;width:120px;">${d.label}</td>
+          <td style="padding:9px 12px;">
+            <select id="turno-dia-${d.n}" ${puedeEditar ? '' : 'disabled'} style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
+              ${opciones(defByDia[d.n])}
+            </select>
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+    ${puedeEditar ? `
+      <div id="turnos-feedback" style="margin-top:10px;font-size:13px;"></div>
+      <button class="btn accent" style="margin-top:12px;" onclick="guardarTurnosDefault()">Guardar turnos habituales</button>
+    ` : '<div style="margin-top:10px;color:var(--muted);font-size:12px;">Solo lectura</div>'}
+  `;
+}
+
+async function guardarTurnosDefault() {
+  if (!['admin','gerente'].includes(session.rol)) { toast('Sin permiso', 'error'); return; }
+  const emp = empModalState.empleadoData;
+  const fb = document.getElementById('turnos-feedback');
+  const { data: tpls } = await sb.from('rrhh_templates_turno').select('id, hora_inicio, hora_fin').eq('local', emp.local);
+  const tplById = {}; (tpls || []).forEach(t => tplById[t.id] = t);
+  const DIAS = [1,2,3,4,5,6,0];
+  const rows = [];
+  for (const n of DIAS) {
+    const el = document.getElementById('turno-dia-' + n);
+    if (!el) continue;
+    const val = el.value;
+    if (val === 'none') continue;
+    if (val === 'franco') {
+      rows.push({ empleado_id: emp.id, dia_semana: n, es_franco: true, template_id: null, hora_inicio: null, hora_fin: null, updated_by: session.email });
+    } else {
+      const t = tplById[Number(val)];
+      if (!t) continue;
+      rows.push({ empleado_id: emp.id, dia_semana: n, es_franco: false, template_id: t.id, hora_inicio: t.hora_inicio, hora_fin: t.hora_fin, updated_by: session.email });
+    }
+  }
+  const { error: e1 } = await sb.from('rrhh_turnos_default').delete().eq('empleado_id', emp.id);
+  if (e1) { fb.innerHTML = '<span style="color:var(--danger)">Error al borrar previos: ' + e1.message + '</span>'; return; }
+  if (rows.length) {
+    const { error: e2 } = await sb.from('rrhh_turnos_default').insert(rows);
+    if (e2) { fb.innerHTML = '<span style="color:var(--danger)">Error al guardar: ' + e2.message + '</span>'; return; }
+  }
+  try { await auditLog('editar_turnos_default', 'rrhh_turnos_default', emp.id, null, null, `${rows.length} días`); } catch(_) {}
+  fb.innerHTML = '<span style="color:var(--success)">✓ Turnos habituales guardados. Se usarán al generar los próximos meses.</span>';
+  toast('Turnos habituales actualizados', 'success');
 }
 
 // ─── Tab: Datos personales ───
