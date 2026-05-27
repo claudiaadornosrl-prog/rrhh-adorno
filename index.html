@@ -6692,6 +6692,37 @@ function _diaSiguiente(ymd) {
   return d.toISOString().split('T')[0];
 }
 
+// Cache para la fuente del logo (se carga una sola vez)
+let _logoFontLoaded = false;
+let _logoFontName = 'ArchitectsDaughter';
+
+async function _loadLogoFont(doc) {
+  // Si ya está cargada en este doc, no hacemos nada
+  try {
+    // Intentar usar la fuente — si ya está, no tira error
+    if (doc.getFontList && doc.getFontList()[_logoFontName]) return true;
+  } catch(_) {}
+
+  try {
+    // Intentar bajar el TTF desde jsdelivr (CDN allowlisted)
+    const url = 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/architectsdaughter/ArchitectsDaughter-Regular.ttf';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('fetch failed');
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    const b64 = btoa(bin);
+    doc.addFileToVFS('ArchitectsDaughter-Regular.ttf', b64);
+    doc.addFont('ArchitectsDaughter-Regular.ttf', _logoFontName, 'normal');
+    _logoFontLoaded = true;
+    return true;
+  } catch (e) {
+    console.warn('[PDF] No se pudo cargar Architects Daughter, fallback a helvetica:', e);
+    return false;
+  }
+}
+
 // Helper para escribir texto con letter-spacing (tracking) — emula Avant Garde
 function _textTracked(doc, text, x, y, options = {}) {
   const { align = 'left', tracking = 0, fontSize = 11 } = options;
@@ -6745,11 +6776,20 @@ async function generarNotificacionVacaciones(movId) {
   const margen = 22;
   const ancho = W - margen * 2;
 
+  // Cargar fuente Architects Daughter para el logo (de Google Fonts vía jsdelivr)
+  const logoFontOk = await _loadLogoFont(doc);
+
   // ═══ HEADER ═══
-  // Logo tipográfico "claudia adorno" en helvetica con tracking (estilo Avant Garde)
-  doc.setFont('helvetica', 'bold');
+  // Logo "Claudia Adorno" en Architects Daughter (si cargó OK) o helvetica (fallback)
   doc.setTextColor(...COLOR_TEXT);
-  _textTracked(doc, 'claudia adorno', margen, 25, { tracking: 1.2, fontSize: 26 });
+  if (logoFontOk) {
+    doc.setFont(_logoFontName, 'normal');
+    doc.setFontSize(32);
+    doc.text('Claudia Adorno', margen, 28);
+  } else {
+    doc.setFont('helvetica', 'bold');
+    _textTracked(doc, 'Claudia Adorno', margen, 25, { tracking: 1.2, fontSize: 26 });
+  }
 
   // Datos de empresa (derecha)
   doc.setFont('helvetica', 'normal');
