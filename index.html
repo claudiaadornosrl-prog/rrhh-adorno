@@ -773,6 +773,128 @@ async function renderDashboard() {
     pagoPendientes = count || 0;
   } catch(_) {}
 
+  // ━━━ NOTIFICACIONES CRÍTICAS ━━━
+  const hoyStr = hoy.toISOString().split('T')[0];
+
+  // 1. Mes anterior sin cerrar (si ya pasaron >7 días del mes actual)
+  let mesAnteriorSinCerrar = [];
+  if (hoy.getDate() > 7) {
+    const mesAnt = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const añoMA = mesAnt.getFullYear();
+    const mesMA = mesAnt.getMonth() + 1;
+    const localesAChequear = isAdmin ? ['unicenter','alcorta','oficina'] : [local];
+    for (const loc of localesAChequear) {
+      if (!loc) continue;
+      const { data: cer } = await sb.from('rrhh_meses_cerrados')
+        .select('id').eq('local', loc).eq('año', añoMA).eq('mes', mesMA).maybeSingle();
+      if (!cer) mesAnteriorSinCerrar.push({ local: loc, año: añoMA, mes: mesMA });
+    }
+  }
+
+  // 2. Vacaciones aprobadas hace +7 días sin documento firmado
+  const hace7d = new Date(hoy); hace7d.setDate(hace7d.getDate() - 7);
+  const hace7dStr = hace7d.toISOString().split('T')[0];
+  let qDocPend = sb.from('rrhh_vacaciones_movimientos')
+    .select('id, empleado:rrhh_empleados!inner(nombre_completo, local)', { count: 'exact' })
+    .eq('estado', 'aprobada')
+    .eq('tipo_solicitud', 'toma')
+    .is('documento_firmado_at', null)
+    .lte('fecha_aprobacion', hace7dStr);
+  if (!isAdmin && local) qDocPend = qDocPend.eq('empleado.local', local);
+  const { data: docPendData, count: docPendientes } = await qDocPend;
+
+  // 3 y 4. Errores del mes y tardanzas — desde asistencias_detalle del mes corriente
+  const mesActualStr = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const mesIni = `${mesActualStr}-01`;
+  const mesFin = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).toISOString().split('T')[0];
+  const empIdsLocal = (empAll || [])
+    .filter(e => isAdmin || e.local === local)
+    .map(e => e.id);
+  const { data: detalleMes } = empIdsLocal.length ? await sb.from('rrhh_asistencias_detalle')
+    .select('empleado_id, estado, minutos_tarde, error_salvado, entrada, salida, turno_id')
+    .in('empleado_id', empIdsLocal)
+    .gte('fecha', mesIni).lte('fecha', mesFin) : { data: [] };
+
+  // Cargar tolerancias por local
+  const { data: tolsCfg } = await sb.from('rrhh_config_tolerancias').select('local, max_errores_premio, umbral_mensual_tardanzas');
+  const tolsBy = {};
+  (tolsCfg||[]).forEach(t => { tolsBy[t.local] = t; });
+
+  // 3. Empleadas próximas a perder premio (errores >= max - 1)
+  // 4. Tardanzas > umbral mensual (60 min)
+  const acumPorEmp = {};
+  (detalleMes || []).forEach(d => {
+    if (!acumPorEmp[d.empleado_id]) acumPorEmp[d.empleado_id] = { errores: 0, min_tarde: 0 };
+    if (!d.error_salvado) {
+      let pts = 0;
+      if (d.estado === 'falta_fichada') pts = (!d.entrada && !d.salida) ? 2 : 1;
+      else if (d.estado === 'ausente' && d.turno_id) pts = 2;
+      else if (d.estado === 'tarde') pts = 1;
+      acumPorEmp[d.empleado_id].errores += pts;
+      acumPorEmp[d.empleado_id].min_tarde += (d.minutos_tarde || 0);
+    }
+  });
+
+  const proximasPerderPremio = [];
+  const tardanzasAltas = [];
+  (empAll || []).forEach(e => {
+    if (!isAdmin && e.local !== local) return;
+    const acum = acumPorEmp[e.id];
+    if (!acum) return;
+    const tol = tolsBy[e.local];
+    const maxErr = tol?.max_errores_premio || 4;
+    const umbralTarde = tol?.umbral_mensual_tardanzas || 60;
+    if (acum.errores >= maxErr - 1 && acum.errores <= maxErr) {
+      proximasPerderPremio.push({ ...e, errores: acum.errores, max: maxErr });
+    }
+    if (acum.min_tarde > umbralTarde) {
+      tardanzasAltas.push({ ...e, min_tarde: acum.min_tarde });
+    }
+  });
+
+  // ━━━ NOTIFICACIONES INFORMATIVAS ━━━
+  // 5. Cumpleaños próximos 7 días (incluye hoy)
+  const cumpleProx7d = (empAll || [])
+    .filter(e => e.fecha_nacimiento && (isAdmin || e.local === local))
+    .map(e => {
+      const d = new Date(e.fecha_nacimiento + 'T12:00:00');
+      const proxCumple = new Date(hoy.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
+      if (proxCumple < hoy) proxCumple.setFullYear(hoy.getFullYear() + 1);
+      const diasFalta = Math.ceil((proxCumple - hoy) / (1000*60*60*24));
+      return { ...e, _diasFalta: diasFalta, _proxCumple: proxCumple };
+    })
+    .filter(e => e._diasFalta <= 7)
+    .sort((a, b) => a._diasFalta - b._diasFalta);
+
+  // 6. Aniversarios próximos (7 días)
+  const anivProx7d = aniversariosProximos.filter(a => a._diasFalta <= 7);
+
+  // 7. Vacaciones que arrancan esta semana (próximos 7 días)
+  const en7d = new Date(hoy); en7d.setDate(en7d.getDate() + 7);
+  const en7dStr = en7d.toISOString().split('T')[0];
+  let qVacEstaSem = sb.from('rrhh_vacaciones_movimientos')
+    .select('id, fecha_desde, fecha_hasta, dias, empleado:rrhh_empleados!inner(nombre_completo, local)')
+    .in('estado', ['aprobada','tomada'])
+    .gte('fecha_desde', hoyStr).lte('fecha_desde', en7dStr)
+    .order('fecha_desde');
+  if (!isAdmin && local) qVacEstaSem = qVacEstaSem.eq('empleado.local', local);
+  const { data: vacEstaSem } = await qVacEstaSem;
+
+  // 8. Empleadas con +30 días pendientes acumulados (años anteriores)
+  const añoActual = hoy.getFullYear();
+  let qVacAtraso = sb.from('rrhh_vacaciones')
+    .select('empleado_id, dias_pendientes, empleado:rrhh_empleados!inner(nombre_completo, local)')
+    .lt('año', añoActual)
+    .gt('dias_pendientes', 0);
+  if (!isAdmin && local) qVacAtraso = qVacAtraso.eq('empleado.local', local);
+  const { data: vacAtraso } = await qVacAtraso;
+  const atrasoPorEmp = {};
+  (vacAtraso || []).forEach(v => {
+    if (!atrasoPorEmp[v.empleado_id]) atrasoPorEmp[v.empleado_id] = { nombre: v.empleado?.nombre_completo, local: v.empleado?.local, dias: 0 };
+    atrasoPorEmp[v.empleado_id].dias += v.dias_pendientes;
+  });
+  const empConAtraso30 = Object.values(atrasoPorEmp).filter(e => e.dias >= 30);
+
   const { data: prox } = await sb
     .from('rrhh_feriados')
     .select('fecha, nombre')
@@ -813,42 +935,69 @@ async function renderDashboard() {
       </div>
     </div>
 
-    ${(vacPendientes > 0 || permPendientes > 0 || pagoPendientes > 0) ? `
-      <div class="card" style="margin-top:8px;background:linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);border:1px solid #fcd34d;">
-        <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;color:#92400e;display:flex;align-items:center;gap:8px;">
-          🔔 Tenés peticiones pendientes para aprobar
-        </h3>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
-          ${vacPendientes > 0 ? `
-            <div onclick="switchTab('vacaciones')" style="cursor:pointer;background:white;padding:14px 16px;border-radius:10px;border-left:4px solid #d97706;display:flex;align-items:center;justify-content:space-between;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-              <div>
-                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">🌴 Vacaciones</div>
-                <div style="font-size:13px;color:#92400e;font-weight:600;margin-top:2px;">${vacPendientes} ${vacPendientes===1?'solicitud sin aprobar':'solicitudes sin aprobar'}</div>
-              </div>
-              <div style="font-size:32px;font-weight:800;color:#d97706;">${vacPendientes}</div>
-            </div>
-          ` : ''}
-          ${permPendientes > 0 ? `
-            <div onclick="asisState.tab='permisos';switchTab('asistencias')" style="cursor:pointer;background:white;padding:14px 16px;border-radius:10px;border-left:4px solid #dc2626;display:flex;align-items:center;justify-content:space-between;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-              <div>
-                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">🙋 Permisos puntuales</div>
-                <div style="font-size:13px;color:#7f1d1d;font-weight:600;margin-top:2px;">${permPendientes} ${permPendientes===1?'permiso sin revisar':'permisos sin revisar'}</div>
-              </div>
-              <div style="font-size:32px;font-weight:800;color:#dc2626;">${permPendientes}</div>
-            </div>
-          ` : ''}
-          ${pagoPendientes > 0 ? `
-            <div onclick="vacState.tab='pendientes';switchTab('vacaciones')" style="cursor:pointer;background:white;padding:14px 16px;border-radius:10px;border-left:4px solid #7c3aed;display:flex;align-items:center;justify-content:space-between;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-              <div>
-                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">💵 Pago de vacaciones</div>
-                <div style="font-size:13px;color:#5b21b6;font-weight:600;margin-top:2px;">${pagoPendientes} ${pagoPendientes===1?'pago a evaluar':'pagos a evaluar'}</div>
-              </div>
-              <div style="font-size:32px;font-weight:800;color:#7c3aed;">${pagoPendientes}</div>
-            </div>
-          ` : ''}
+    ${(() => {
+      const totalCriticas = (vacPendientes||0) + (permPendientes||0) + (pagoPendientes||0)
+                          + mesAnteriorSinCerrar.length + (docPendientes||0) + proximasPerderPremio.length + tardanzasAltas.length;
+      const totalInfo = cumpleProx7d.length + anivProx7d.length + (vacEstaSem?.length||0) + empConAtraso30.length;
+      if (totalCriticas === 0 && totalInfo === 0) return '';
+
+      const cardCritica = (color, icon, titulo, count, descr, onclick) => count > 0 ? `
+        <div onclick="${onclick}" style="cursor:pointer;background:white;padding:12px 14px;border-radius:10px;border-left:4px solid ${color};display:flex;align-items:center;justify-content:space-between;gap:10px;transition:transform 0.1s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">${icon} ${titulo}</div>
+            <div style="font-size:12px;color:${color};font-weight:600;margin-top:2px;line-height:1.3;">${descr}</div>
+          </div>
+          <div style="font-size:26px;font-weight:800;color:${color};flex-shrink:0;">${count}</div>
         </div>
-      </div>
-    ` : ''}
+      ` : '';
+
+      let html = '';
+
+      // ━━ CRÍTICAS ━━
+      if (totalCriticas > 0) {
+        html += `
+          <div class="card" style="margin-top:8px;background:linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);border:1px solid #fca5a5;">
+            <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:#7f1d1d;display:flex;align-items:center;gap:8px;">
+              🚨 Para hacer
+            </h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+              ${cardCritica('#d97706', '🌴', 'Vacaciones pendientes', vacPendientes||0, (vacPendientes===1?'1 solicitud':vacPendientes+' solicitudes')+' por aprobar', `vacState.tab='pendientes';switchTab('vacaciones')`)}
+              ${cardCritica('#dc2626', '🙋', 'Permisos pendientes', permPendientes||0, (permPendientes===1?'1 permiso':permPendientes+' permisos')+' sin revisar', `asisState.tab='permisos';switchTab('asistencias')`)}
+              ${cardCritica('#7c3aed', '💵', 'Pago vacaciones', pagoPendientes||0, (pagoPendientes===1?'1 pago':pagoPendientes+' pagos')+' por evaluar', `vacState.tab='pendientes';switchTab('vacaciones')`)}
+              ${cardCritica('#b91c1c', '📅', 'Mes sin cerrar', mesAnteriorSinCerrar.length, mesAnteriorSinCerrar.map(m => ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][m.mes-1]+' '+m.año+(isAdmin ? ' ('+m.local+')':'')).join(' · ') || 'todo al día', `asisState.tab='resumen';switchTab('asistencias')`)}
+              ${cardCritica('#f59e0b', '📄', 'Documentos sin firmar', docPendientes||0, (docPendientes===1?'1 vacación':docPendientes+' vacaciones')+' aprobadas hace +7d sin doc', `vacState.tab='aprobadas';switchTab('vacaciones')`)}
+              ${cardCritica('#ea580c', '🎖', 'Pueden perder premio', proximasPerderPremio.length, proximasPerderPremio.slice(0,2).map(e => e.nombre.split(' ')[0]+' ('+e.errores+'/'+e.max+')').join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
+              ${cardCritica('#d97706', '⚠', 'Tardanzas >60min mes', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
+            </div>
+          </div>`;
+      }
+
+      // ━━ INFORMATIVAS ━━
+      if (totalInfo > 0) {
+        const cardInfo = (color, icon, titulo, count, descr, onclick) => count > 0 ? `
+          <div ${onclick ? `onclick="${onclick}" style="cursor:pointer;` : `style="`}background:white;padding:12px 14px;border-radius:10px;border-left:4px solid ${color};display:flex;align-items:center;justify-content:space-between;gap:10px;transition:transform 0.1s;" ${onclick?`onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'"`:''}>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">${icon} ${titulo}</div>
+              <div style="font-size:12px;color:${color};font-weight:600;margin-top:2px;line-height:1.3;">${descr}</div>
+            </div>
+            <div style="font-size:26px;font-weight:800;color:${color};flex-shrink:0;">${count}</div>
+          </div>
+        ` : '';
+        html += `
+          <div class="card" style="margin-top:8px;background:linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);border:1px solid #fcd34d;">
+            <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:#92400e;display:flex;align-items:center;gap:8px;">
+              ℹ️ Para saber
+            </h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+              ${cardInfo('#ec4899', '🎂', 'Cumpleaños en 7d', cumpleProx7d.length, cumpleProx7d.slice(0,3).map(c => c.nombre.split(' ')[0]+(c._diasFalta===0?' (¡HOY!)':c._diasFalta===1?' (mañana)':' (+'+c._diasFalta+'d)')).join(', ')||'—', null)}
+              ${cardInfo('#0d9488', '🏆', 'Aniversario en 7d', anivProx7d.length, anivProx7d.slice(0,2).map(a => a.nombre.split(' ')[0]+' ('+a._años+'a · '+a._diasFalta+'d)').join(', ')||'—', null)}
+              ${cardInfo('#3b82f6', '🌴', 'Vacaciones esta sem', vacEstaSem?.length||0, (vacEstaSem||[]).slice(0,2).map(v => v.empleado.nombre_completo.split(' ')[0]+' '+v.fecha_desde.split('-').slice(1).reverse().join('/')).join(', ')||'—', `vacState.tab='aprobadas';switchTab('vacaciones')`)}
+              ${cardInfo('#8b5cf6', '📦', '+30 días sin tomar', empConAtraso30.length, empConAtraso30.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+' ('+e.dias+'d)').join(', ')||'—', `vacState.tab='saldos';switchTab('vacaciones')`)}
+            </div>
+          </div>`;
+      }
+      return html;
+    })()}
 
     ${(cumpleEsteMes.length > 0 || aniversariosProximos.length > 0) ? `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;">
