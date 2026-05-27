@@ -1173,6 +1173,15 @@ async function auditLog(accion, tabla, registroId, campo = null, valorAnterior =
 
 // Cache de categorías CCT (no cambian seguido)
 let CACHE_CATEGORIAS = null;
+function limpiarLactancia() {
+  if (!confirm('¿Limpiar el período de lactancia?\nLas fechas y reducciones se borran y el sistema deja de aplicar ajustes a su turno.')) return;
+  empModalState.formData.lactancia_desde = null;
+  empModalState.formData.lactancia_hasta = null;
+  empModalState.formData.lactancia_reduccion_diaria_min = 0;
+  empModalState.formData.lactancia_reduccion_finde_min = 0;
+  renderModalBody();
+}
+
 async function getCategorias() {
   if (CACHE_CATEGORIAS) return CACHE_CATEGORIAS;
   const { data } = await sb.from('rrhh_categorias_cct').select('id, codigo, nombre, sueldo_basico, activa').order('nombre');
@@ -1522,6 +1531,35 @@ async function renderTabDatos() {
       ` : ''}
     </div>
 
+    <div class="section-title">🤱 Período de lactancia
+      ${editing ? `<button type="button" class="btn small" style="margin-left:12px;font-size:11px;" onclick="limpiarLactancia()">Limpiar (terminó)</button>` : ''}
+    </div>
+    <div class="form-grid" style="background:${(d.lactancia_hasta && d.lactancia_hasta >= new Date().toISOString().split('T')[0])?'#fce7f3':'#f9fafb'};padding:14px;border-radius:10px;">
+      <div class="form-row full" style="margin-bottom:4px;">
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+          Cuando una empleada está en período de lactancia, el sistema ajusta su turno automáticamente para no marcarla como "salida temprana" o "entrada tarde". La ley argentina permite 1 hora diaria reducida hasta 1 año desde el nacimiento (prorrogable a 6 meses más).
+        </div>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Fecha desde</label>
+        <input type="date" data-field="lactancia_desde" value="${d.lactancia_desde||''}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Fecha hasta</label>
+        <input type="date" data-field="lactancia_hasta" value="${d.lactancia_hasta||''}" ${!editing?'disabled':''}>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Reducción L-V (min al fin del turno)</label>
+        <input type="number" data-field="lactancia_reduccion_diaria_min" value="${d.lactancia_reduccion_diaria_min||0}" min="0" max="180" ${!editing?'disabled':''} placeholder="45">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Ej: 45 = sale 45 min antes de lo planificado</div>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Reducción finde (min al inicio en jornada larga)</label>
+        <input type="number" data-field="lactancia_reduccion_finde_min" value="${d.lactancia_reduccion_finde_min||0}" min="0" max="180" ${!editing?'disabled':''} placeholder="90">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Ej: 90 = entra 90 min más tarde en jornada ≥ 8hs</div>
+      </div>
+    </div>
+
     <div class="section-title">Contacto</div>
     <div class="form-grid">
       <div class="form-row ${!editing?'readonly':''}">
@@ -1585,6 +1623,15 @@ async function renderTabDatos() {
       let val = e.target.value;
       if (e.target.dataset.field === 'apellido' || e.target.dataset.field === 'nombre') val = val.toUpperCase();
       if (e.target.dataset.field === 'categoria_cct_id') val = val ? parseInt(val, 10) : null;
+      // Campos numéricos de lactancia
+      if (e.target.dataset.field === 'lactancia_reduccion_diaria_min' ||
+          e.target.dataset.field === 'lactancia_reduccion_finde_min') {
+        val = val === '' ? 0 : parseInt(val, 10) || 0;
+      }
+      // Fechas de lactancia vacías → null
+      if ((e.target.dataset.field === 'lactancia_desde' || e.target.dataset.field === 'lactancia_hasta') && val === '') {
+        val = null;
+      }
       empModalState.formData[e.target.dataset.field] = val;
       // Re-render si cambió el estado a baja (para mostrar campos)
       if (e.target.dataset.field === 'estado') renderModalBody();
