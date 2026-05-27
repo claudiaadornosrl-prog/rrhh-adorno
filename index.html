@@ -5215,23 +5215,30 @@ async function renderDetalleEmpDia(empId) {
   const totalSalvados = detalle.reduce((s,d) => s + (d.error_salvado ? puntosErrorPremio(d) : 0), 0);
   const puedeSalvar = ['admin','gerente'].includes(session.rol);
 
-  // Cargar max errores del local del empleado
+  // Cargar local del empleado, tolerancias y templates en bloques independientes
+  // (si uno falla, los otros siguen)
   let maxErr = 4;
   let empLocal = null;
   let templatesLocal = [];
   try {
     const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
     empLocal = emp?.local;
-    const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio').eq('local', empLocal).single();
-    if (tol) maxErr = tol.max_errores_premio || 4;
-    // Cargar templates del local para auto-sugerir turno correcto cuando hay error de carga
+  } catch(e) { console.warn('[detalle] no se pudo leer local del empleado', e); }
+  try {
+    if (empLocal) {
+      const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio').eq('local', empLocal).maybeSingle();
+      if (tol) maxErr = tol.max_errores_premio || 4;
+    }
+  } catch(e) { console.warn('[detalle] no se pudo leer tolerancias', e); }
+  try {
     if (empLocal) {
       const { data: tpls } = await sb.from('rrhh_templates_turno')
         .select('id, codigo, nombre, hora_inicio, hora_fin, es_franco, color, icono')
         .eq('local', empLocal).order('orden', { ascending: true });
       templatesLocal = (tpls || []).filter(t => !t.es_franco && t.hora_inicio && t.hora_fin);
+      console.log(`[detalle] ${templatesLocal.length} templates de ${empLocal} cargados:`, templatesLocal.map(t => `${t.nombre} (${t.hora_inicio}-${t.hora_fin})`));
     }
-  } catch(e) {}
+  } catch(e) { console.warn('[detalle] no se pudo leer templates', e); }
 
   // Detector de turno sugerido: si las fichadas matchean otro template del local
   // (entrada y salida dentro de ±15 min), devolver ese template como sugerencia.
@@ -5290,7 +5297,7 @@ async function renderDetalleEmpDia(empId) {
           const sinSalida = !d.salida && ['tarde','puntual','falta_fichada'].includes(d.estado);
           return `
             <tr style="border-top:1px solid var(--border);${anomalia ? 'background:#fffbeb;' : ''}">
-              <td style="padding:5px 10px;font-family:monospace;font-size:11px;color:var(--muted);">${d.fecha}</td>
+              <td style="padding:5px 10px;font-family:monospace;font-size:11px;color:var(--muted);">${d.fecha.split('-').reverse().join('/')}</td>
               <td style="padding:5px 10px;font-weight:600;">${dow} ${String(dia_num).padStart(2,'0')}</td>
               <td style="padding:5px 10px;font-size:11px;color:var(--muted);">${turnoTxt}</td>
               <td style="padding:5px 10px;text-align:center;font-family:monospace;font-weight:${d.entrada?'600':'400'};color:${sinEntrada?'var(--danger)':'var(--text)'};">${sinEntrada?'⚠ falta':fmtHora(d.entrada)}</td>
