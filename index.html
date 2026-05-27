@@ -5308,21 +5308,32 @@ async function renderDetalleEmpDia(empId) {
               <td style="padding:5px 10px;text-align:right;font-weight:600;color:${banco>=0?'var(--success)':'var(--danger)'};">${fmtMin(banco)}</td>
               <td style="padding:5px 10px;font-size:11px;">
                 ${(() => {
-                  if (!anomalia) return '';
-                  if (d.error_salvado) {
+                  if (d.error_salvado && anomalia) {
                     return `<span style="text-decoration:line-through;color:#0d9488;">${anomalia}</span><br><span style="color:#0d9488;font-size:10px;">✓ Salvado: ${escapeHtml(d.salvado_motivo||'')} <em style="color:var(--muted);">— ${escapeHtml(d.salvado_por||'')}</em></span>`;
                   }
-                  let html = `<span style="color:#92400e;">${anomalia}</span>`;
-                  if (puedeSalvar) {
-                    // Sugerencia automática: si las fichadas matchean otro template, ofrecer cambio rápido
-                    const sug = detectarTurnoSugerido(d);
+                  // Día especial sin opciones (vacaciones/franco/feriado/licencia): nada que mostrar
+                  const esDiaEspecial = ['vacaciones','licencia','feriado','franco'].includes(d.estado);
+                  if (esDiaEspecial) return anomalia ? `<span style="color:#92400e;">${anomalia}</span>` : '';
+
+                  // Detectar sugerencia y otras señales para decidir si mostrar acciones
+                  const sug = puedeSalvar ? detectarTurnoSugerido(d) : null;
+                  const tieneFichadas = !!(d.entrada || d.salida);
+                  const bancoRaro = Math.abs(d.minutos_banco||0) >= 60; // -1h o más
+                  const mostrarOpciones = puedeSalvar && (anomalia || sug || (tieneFichadas && bancoRaro));
+
+                  let html = anomalia ? `<span style="color:#92400e;">${anomalia}</span>` : '';
+                  if (!anomalia && sug) {
+                    // Caso "carga sospechosa": no hay anomalía formal pero las fichadas matchean otro turno
+                    html += `<span style="color:#92400e;font-size:11px;">⚠ Fichadas no coinciden con turno cargado</span>`;
+                  }
+
+                  if (mostrarOpciones) {
                     if (sug) {
                       const tpName = `${sug.hora_inicio.substring(0,5)}-${sug.hora_fin.substring(0,5)}`;
                       html += ` <button class="btn small accent" style="padding:1px 6px;font-size:10px;margin-left:6px;background:#0d9488;color:white;border:none;" title="Las fichadas coinciden con este turno. Probablemente la encargada cargó mal el día." onclick="event.stopPropagation();cambiarTurnoDia(${d.id}, ${empId}, '${d.fecha}', ${sug.id})">🔄 Cambiar a ${escapeHtml(sug.nombre)} (${tpName})</button>`;
                     }
-                    // Menú dropdown para cambio manual (siempre disponible para encargada/admin)
                     html += ` <button class="btn small" style="padding:1px 6px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();abrirMenuCambiarTurno(${d.id}, ${empId}, '${d.fecha}')" title="Cambiar manualmente el turno planificado">⋮ Otro turno</button>`;
-                    if (esErrorPremio(d)) {
+                    if (esErrorPremio(d) && !d.error_salvado) {
                       html += ` <button class="btn small accent2" style="padding:1px 6px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();salvarError(${d.id}, ${empId})">Salvar</button>`;
                     }
                   }
