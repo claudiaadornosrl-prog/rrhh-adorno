@@ -3020,6 +3020,12 @@ async function renderMiCalendario() {
     .gte('fecha', fechaDesde.toISOString().split('T')[0])
     .lte('fecha', fechaHasta.toISOString().split('T')[0]);
 
+  // Mis reportes de turno (para ver el estado: aceptado / rechazado / pendiente)
+  const { data: misReportes } = await sb.from('rrhh_reportes_turno')
+    .select('fecha, turno_actual, turno_propuesto, estado, respuesta, creado_at')
+    .eq('empleado_id', session.empleado_id)
+    .order('creado_at', { ascending: false }).limit(10);
+
   // Feriados del mes
   const { data: feriados } = await sb.from('rrhh_feriados')
     .select('fecha, nombre, cierra_oficina, cierra_shoppings')
@@ -3173,6 +3179,26 @@ async function renderMiCalendario() {
               <span class="emp-tag" style="background:#d1faf1;color:#0d9488;">aprobado</span>
             </li>
           `).join('')}
+        </ul>
+      </div>
+    ` : ''}
+
+    ${(misReportes && misReportes.length) ? `
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;">🚩 Mis reportes de turno</h3>
+        <ul class="simple-list">
+          ${misReportes.map(r => {
+            const badge = r.estado === 'aceptado' ? '<span class="emp-tag" style="background:#d1faf1;color:#0d9488;">✓ Corregido</span>'
+                        : r.estado === 'rechazado' ? '<span class="emp-tag" style="background:#fee2e2;color:#b91c1c;">✗ Rechazado</span>'
+                        : '<span class="emp-tag" style="background:#fef3c7;color:#92400e;">⏳ Pendiente</span>';
+            return `<li>
+              <div>
+                <strong>${fmtFecha(r.fecha)}</strong> · turno cargado: ${escapeHtml(r.turno_actual||'—')}
+                ${r.respuesta ? `<div class="meta">Respuesta de la encargada: ${escapeHtml(r.respuesta)}</div>` : ''}
+              </div>
+              ${badge}
+            </li>`;
+          }).join('')}
         </ul>
       </div>
     ` : ''}
