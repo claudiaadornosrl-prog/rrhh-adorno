@@ -8015,7 +8015,7 @@ async function renderBancoAdmin(cont) {
               <tr style="border-top:1px solid var(--border);cursor:pointer;" onclick="abrirDetalleBanco(${s.empleado_id})">
                 <td style="padding:11px 14px;font-weight:600;">${escapeHtml(s.nombre_completo)}</td>
                 <td style="padding:11px 14px;"><span class="local-tag ${s.local}">${LOCALES[s.local]?.nombre || ''}</span></td>
-                <td style="padding:11px 14px;text-align:right;font-weight:700;font-family:monospace;color:${color};">${s.saldo_horas || '00:00'}${equiv}</td>
+                <td style="padding:11px 14px;text-align:right;font-weight:700;font-family:monospace;color:${color};">${(s.saldo_minutos||0)} min</td>
                 <td style="padding:11px 14px;text-align:right;"><button class="btn small" onclick="event.stopPropagation();abrirDetalleBanco(${s.empleado_id})">Ver movimientos</button></td>
               </tr>
             `;
@@ -8032,9 +8032,8 @@ async function abrirDetalleBanco(empleadoId) {
   const { data: saldo } = await sb.from('rrhh_banco_saldo').select('saldo_minutos, saldo_horas').eq('empleado_id', empleadoId).single();
 
   const fmtMin = (mm) => {
-    if (!mm) return '0';
-    const h = Math.floor(Math.abs(mm)/60), min = Math.abs(mm)%60;
-    return (mm<0?'-':'+') + (h>0?`${h}h `:'') + `${min}min`;
+    if (!mm) return '0 min';
+    return (mm<0?'-':'+') + Math.abs(mm) + ' min';
   };
 
   const html = `
@@ -8049,7 +8048,7 @@ async function abrirDetalleBanco(empleadoId) {
         </div>
         <div style="background:${(saldo?.saldo_minutos||0)>=0?'#d1faf1':'#fee2e2'};padding:16px;border-radius:10px;margin-bottom:16px;text-align:center;">
           <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Saldo actual</div>
-          <div style="font-size:32px;font-weight:700;font-family:monospace;color:${(saldo?.saldo_minutos||0)>=0?'#0d9488':'#b91c1c'};">${saldo?.saldo_horas || '00:00'}</div>
+          <div style="font-size:32px;font-weight:700;font-family:monospace;color:${(saldo?.saldo_minutos||0)>=0?'#0d9488':'#b91c1c'};">${(saldo?.saldo_minutos||0)} min</div>
         </div>
         <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Últimos 200 movimientos</div>
         ${(!movs||movs.length===0)?`<div style="text-align:center;color:var(--muted);padding:20px;">Sin movimientos.</div>`:`
@@ -8174,9 +8173,8 @@ async function renderMiBanco() {
   const negativos = (movs||[]).filter(m => (m.minutos||0) < 0).reduce((s,m) => s + m.minutos, 0);
 
   const fmtMin = (mm) => {
-    if (!mm) return '0';
-    const h = Math.floor(Math.abs(mm)/60), min = Math.abs(mm)%60;
-    return (mm<0?'-':'+') + (h>0?`${h}h `:'') + `${min}min`;
+    if (!mm) return '0 min';
+    return (mm<0?'-':'+') + Math.abs(mm) + ' min';
   };
 
   return `
@@ -8187,7 +8185,7 @@ async function renderMiBanco() {
 
     <div class="card" style="background:${saldoMin>=0?'linear-gradient(135deg, #d1faf1, #a7f3d0)':'linear-gradient(135deg, #fee2e2, #fecaca)'};padding:30px;text-align:center;">
       <div style="font-size:12px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Tu saldo actual</div>
-      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${saldo?.saldo_horas || '00:00'}</div>
+      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${(saldo?.saldo_minutos||0)} min</div>
       <div style="font-size:13px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;font-style:italic;">
         ${saldoMin >= 480 ? `≈ ${Math.floor(saldoMin/480)} día${Math.floor(saldoMin/480)!==1?'s':''} a favor` : (saldoMin <= -480 ? `≈ ${Math.floor(Math.abs(saldoMin)/480)} día${Math.floor(Math.abs(saldoMin)/480)!==1?'s':''} en contra` : '')}
       </div>
