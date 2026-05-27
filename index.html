@@ -3700,6 +3700,41 @@ async function renderCalendarioGrid() {
   const feriadoMap = {};
   (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
 
+  // Vacaciones aprobadas/tomadas del mes (cruzar con cada empleado/día)
+  const empIds = (empleados || []).map(e => e.id);
+  const vacSet = new Set();
+  if (empIds.length) {
+    const { data: vacs } = await sb.from('rrhh_vacaciones_movimientos')
+      .select('empleado_id, fecha_desde, fecha_hasta, estado')
+      .in('empleado_id', empIds)
+      .in('estado', ['aprobada', 'tomada'])
+      .or(`fecha_desde.lte.${fechaHasta.toISOString().split('T')[0]},fecha_hasta.gte.${fechaDesde.toISOString().split('T')[0]}`);
+    (vacs || []).forEach(v => {
+      let d = new Date(v.fecha_desde + 'T12:00:00');
+      const f = new Date(v.fecha_hasta + 'T12:00:00');
+      while (d <= f) {
+        vacSet.add(`${v.empleado_id}_${d.toISOString().split('T')[0]}`);
+        d.setDate(d.getDate() + 1);
+      }
+    });
+  }
+
+  // Licencias activas del mes
+  const licSet = new Set();
+  if (empIds.length) {
+    const { data: lics } = await sb.from('rrhh_licencias')
+      .select('empleado_id, fecha_desde, fecha_hasta')
+      .in('empleado_id', empIds);
+    (lics || []).forEach(l => {
+      let d = new Date(l.fecha_desde + 'T12:00:00');
+      const f = new Date(l.fecha_hasta + 'T12:00:00');
+      while (d <= f) {
+        licSet.add(`${l.empleado_id}_${d.toISOString().split('T')[0]}`);
+        d.setDate(d.getDate() + 1);
+      }
+    });
+  }
+
   if (!empleados || empleados.length === 0) {
     cont.innerHTML = '<div class="emp-empty">Sin empleados para mostrar.</div>';
     return;
@@ -3744,7 +3779,16 @@ async function renderCalendarioGrid() {
 
       let content = '';
       let style = '';
-      if (turno) {
+      const enVacaciones = vacSet.has(`${e.id}_${fecha}`);
+      const enLicencia = licSet.has(`${e.id}_${fecha}`);
+
+      if (enVacaciones) {
+        cls.push('vacaciones');
+        content = '🌴';
+      } else if (enLicencia) {
+        cls.push('licencia');
+        content = '📋';
+      } else if (turno) {
         if (turno.tipo === 'vacaciones')  { cls.push('vacaciones'); content = '🌴'; }
         else if (turno.tipo === 'licencia') { cls.push('licencia');   content = '📋'; }
         else if (turno.es_franco)         { cls.push('franco');     content = '—'; }
