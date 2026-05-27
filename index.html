@@ -6692,6 +6692,28 @@ function _diaSiguiente(ymd) {
   return d.toISOString().split('T')[0];
 }
 
+// Helper para escribir texto con letter-spacing (tracking) — emula Avant Garde
+function _textTracked(doc, text, x, y, options = {}) {
+  const { align = 'left', tracking = 0, fontSize = 11 } = options;
+  if (tracking === 0) {
+    doc.text(text, x, y, { align });
+    return;
+  }
+  // Para emular tracking: separar letras y posicionarlas
+  doc.setFontSize(fontSize);
+  const chars = text.split('');
+  const widths = chars.map(c => doc.getStringUnitWidth(c) * fontSize / doc.internal.scaleFactor);
+  const totalWidth = widths.reduce((s,w) => s + w, 0) + (tracking * (chars.length - 1));
+  let startX = x;
+  if (align === 'center') startX = x - totalWidth / 2;
+  else if (align === 'right') startX = x - totalWidth;
+  let cursor = startX;
+  chars.forEach((c, i) => {
+    doc.text(c, cursor, y);
+    cursor += widths[i] + tracking;
+  });
+}
+
 async function generarNotificacionVacaciones(movId) {
   // Cargar movimiento + empleado
   const { data: mov, error } = await sb.from('rrhh_vacaciones_movimientos')
@@ -6707,87 +6729,157 @@ async function generarNotificacionVacaciones(movId) {
   const año = mov.fecha_desde.substring(0, 4);
   const dias = mov.dias;
   const nombre = emp?.nombre_completo || '—';
+  const dni = emp?.dni || '';
+  const codigo = `VAC-${String(movId).padStart(5,'0')}`;
 
-  // Generar PDF con jsPDF
+  // Colores de marca
+  const COLOR_PRIMARY = [13, 148, 136];   // #0d9488 turquesa
+  const COLOR_TEXT    = [30, 41, 59];     // #1e293b
+  const COLOR_MUTED   = [148, 163, 184];  // #94a3b8
+  const COLOR_BORDER  = [226, 232, 240];  // #e2e8f0
+
+  // ─── Generar PDF ───
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const margenIzq = 25;
-  const ancho = 160;
-  let y = 25;
+  const W = 210;
+  const margen = 22;
+  const ancho = W - margen * 2;
 
-  // Título
+  // ═══ HEADER ═══
+  // Logo tipográfico "claudia adorno" en helvetica con tracking (estilo Avant Garde)
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text('Notificación de comienzo de vacaciones', 105, y, { align: 'center' });
-  y += 20;
+  doc.setTextColor(...COLOR_TEXT);
+  _textTracked(doc, 'claudia adorno', margen, 25, { tracking: 1.2, fontSize: 26 });
 
-  // Lugar y fecha (derecha)
+  // Datos de empresa (derecha)
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text('CLAUDIA ADORNO SRL', W - margen, 17, { align: 'right' });
+  doc.text('CUIT 30-70967311-0', W - margen, 22, { align: 'right' });
+  doc.text('Buenos Aires, Argentina', W - margen, 27, { align: 'right' });
+
+  // Línea divisoria turquesa
+  doc.setDrawColor(...COLOR_PRIMARY);
+  doc.setLineWidth(0.6);
+  doc.line(margen, 32, W - margen, 32);
+  // Pequeño detalle decorativo
+  doc.setLineWidth(1.5);
+  doc.line(margen, 32, margen + 30, 32);
+
+  // ═══ TÍTULO ═══
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(...COLOR_TEXT);
+  _textTracked(doc, 'NOTIFICACIÓN DE COMIENZO DE VACACIONES', W/2, 50, {
+    align: 'center', tracking: 0.5, fontSize: 13,
+  });
+
+  // Lugar y fecha
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text(`Buenos Aires, ${fechaActual}`, W - margen, 62, { align: 'right' });
+
+  // ═══ BOX DATOS DEL EMPLEADO ═══
+  let y = 75;
+  doc.setDrawColor(...COLOR_BORDER);
+  doc.setFillColor(248, 250, 252); // gris muy clarito
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margen, y, ancho, 18, 2, 2, 'FD');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text('EMPLEADO/A', margen + 5, y + 6);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(...COLOR_TEXT);
+  doc.text(nombre, margen + 5, y + 13);
+  if (dni) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text(`DNI ${dni}`, W - margen - 5, y + 13, { align: 'right' });
+  }
+
+  // ═══ CUERPO ═══
+  y = 105;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
-  doc.text(`Buenos Aires, ${fechaActual}`, 200 - 25, y, { align: 'right' });
-  y += 5;
+  doc.setTextColor(...COLOR_TEXT);
+  const cuerpo = `Le comunicamos que, de acuerdo con las disposiciones legales vigentes, gozará de las vacaciones correspondientes al año ${año} por el período de ${dias} día/s. Dichas vacaciones comenzarán a regir desde el día ${desde} hasta el día ${hasta}, inclusive, debiendo reintegrarse a sus tareas el día ${reintegro}.`;
+  const lineas = doc.splitTextToSize(cuerpo, ancho);
+  doc.text(lineas, margen, y, { lineHeightFactor: 1.7 });
+  y += lineas.length * 7 + 8;
+
+  // ═══ FIRMAS — AUTORIZANTE ═══
+  y = 165;
+  doc.setDrawColor(...COLOR_BORDER);
+  doc.setLineWidth(0.4);
+  // Bloque autorizante (izq)
+  doc.line(margen, y + 14, margen + 75, y + 14);
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(9);
-  doc.text('Lugar y fecha.', 200 - 25, y, { align: 'right' });
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text('Firma del autorizante', margen + 37.5, y + 19, { align: 'center' });
 
-  // Cuerpo
-  y += 20;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  const cuerpo = `Señor/a ${nombre} le comunicamos que, de acuerdo con las disposiciones legales vigentes, gozará de las vacaciones correspondientes al año ${año} por el período de ${dias} día/s. Dichas vacaciones comenzarán a regir desde el día ${desde} hasta el día ${hasta}, inclusive, debiendo reintegrarse a sus tareas el día ${reintegro}.`;
-  const lineas = doc.splitTextToSize(cuerpo, ancho);
-  doc.text(lineas, margenIzq, y);
-  y += lineas.length * 6 + 30;
+  // Línea de aclaración autorizante
+  doc.line(margen, y + 32, margen + 75, y + 32);
+  doc.text('Aclaración', margen + 37.5, y + 37, { align: 'center' });
 
-  // Firma autorizante
-  doc.text('_______________________________', 105, y, { align: 'center' });
-  y += 5;
+  // ═══ DECLARACIÓN DEL TRABAJADOR ═══
+  y = 215;
   doc.setFont('helvetica', 'italic');
-  doc.setFontSize(10);
-  doc.text('Firma del autorizante', 105, y, { align: 'center' });
-  y += 10;
-  doc.text('_______________________________', 105, y, { align: 'center' });
-  y += 5;
-  doc.text('Aclaración', 105, y, { align: 'center' });
+  doc.setFontSize(10.5);
+  doc.setTextColor(...COLOR_TEXT);
+  doc.text('"Quedo debidamente notificado de la comunicación precedente."', W/2, y, { align: 'center' });
 
-  // Notificación al trabajador
-  y += 18;
+  // ═══ FIRMAS — TRABAJADOR ═══
+  y = 230;
+  doc.setLineWidth(0.4);
+  doc.setDrawColor(...COLOR_BORDER);
+  // Bloque trabajador (izq)
+  doc.line(margen, y + 14, margen + 75, y + 14);
   doc.setFont('helvetica', 'italic');
-  doc.setFontSize(11);
-  doc.text('"Quedo debidamente notificado de la comunicación precedente."', 105, y, { align: 'center' });
+  doc.setFontSize(9);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text('Firma del trabajador/a', margen + 37.5, y + 19, { align: 'center' });
 
-  y += 15;
-  doc.setFont('helvetica', 'normal');
-  doc.text('_______________________________', 105, y, { align: 'center' });
-  y += 5;
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(10);
-  doc.text('Firma del trabajador', 105, y, { align: 'center' });
-  y += 10;
-  doc.setFont('helvetica', 'normal');
-  doc.text('_______________________________', 105, y, { align: 'center' });
-  y += 5;
-  doc.setFont('helvetica', 'italic');
-  doc.text('Aclaración', 105, y, { align: 'center' });
+  doc.line(margen, y + 32, margen + 75, y + 32);
+  doc.text('Aclaración', margen + 37.5, y + 37, { align: 'center' });
 
-  // Código identificador (para auto-match al escanear y subir)
-  const codigo = `VAC-${String(movId).padStart(5,'0')}`;
-  y += 15;
+  // ═══ CÓDIGO IDENTIFICADOR (esquina derecha del bloque de firmas) ═══
+  doc.setDrawColor(...COLOR_PRIMARY);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(W - margen - 60, 235, 60, 22, 2, 2, 'S');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(80);
-  doc.text(`Código: ${codigo}`, 105, y, { align: 'center' });
-  y += 5;
-  doc.setFont('helvetica', 'italic');
   doc.setFontSize(8);
-  doc.setTextColor(120);
-  doc.text(`Al escanear, mandar a claudiaadornosrl@gmail.com con asunto "VACACIONES ${codigo}"`, 105, y, { align: 'center' });
-
-  // Pie de página chiquito con metadatos
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text('CÓDIGO DE SEGUIMIENTO', W - margen - 30, 241, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(...COLOR_PRIMARY);
+  doc.text(codigo, W - margen - 30, 250, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
-  doc.setTextColor(150);
-  doc.text(`Generado por RRHH Claudia Adorno · ${new Date().toLocaleString('es-AR')} · ${codigo}`, 105, 290, { align: 'center' });
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text(`Asunto del mail: "VACACIONES ${codigo}"`, W - margen - 30, 255, { align: 'center' });
+
+  // ═══ FOOTER ═══
+  doc.setDrawColor(...COLOR_BORDER);
+  doc.setLineWidth(0.3);
+  doc.line(margen, 283, W - margen, 283);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...COLOR_MUTED);
+  doc.text('Una vez firmada, escaneá esta hoja y enviála a', W/2, 288, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLOR_PRIMARY);
+  doc.text('claudiaadornosrl@gmail.com', W/2, 291.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLOR_MUTED);
+  doc.setFontSize(6.5);
+  doc.text(`Generado automáticamente · ${new Date().toLocaleString('es-AR')} · ${codigo}`, W/2, 296, { align: 'center' });
 
   // Nombre del archivo
   const apellido = (nombre.split(',')[0] || nombre.split(' ')[0] || 'EMPLEADO').toUpperCase().replace(/[^A-Z]/g,'');
