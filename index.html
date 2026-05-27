@@ -484,6 +484,7 @@ const NAV = {
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
     { id: 'documentos',  label: 'Documentos',    icon: '📄', section: 'Personal' },
     { id: 'reportes',    label: 'Reportes',      icon: '📈', section: 'Análisis' },
+    { id: 'buzon-admin', label: 'Buzón anónimo', icon: '✉️', section: 'Admin' },
     { id: 'config',      label: 'Configuración', icon: '⚙️', section: 'Admin' },
   ],
   gerente: [
@@ -501,6 +502,7 @@ const NAV = {
     { id: 'mi-banco',      label: 'Mi banco',      icon: '🏦', section: null },
     { id: 'mis-fichadas',  label: 'Mis fichadas',  icon: '🕐', section: null },
     { id: 'mis-certif',    label: 'Mis certif. médicos', icon: '🏥', section: null },
+    { id: 'buzon',         label: 'Buzón anónimo', icon: '✉️', section: null },
   ]
 };
 
@@ -650,6 +652,8 @@ async function renderPage(tabId) {
     'documentos':      renderDocumentosAdmin,
     'reportes':        () => placeholder('Reportes', '📈', 'Exports Excel y PDF', 1),
     'config':          renderConfigAdmin,
+    'buzon':           renderBuzonEnviar,
+    'buzon-admin':     renderBuzonAdmin,
     'mi-calendario':   renderMiCalendario,
     'mi-legajo':       renderMiLegajo,
     'mis-recibos':     renderMisRecibos,
@@ -688,6 +692,75 @@ function placeholder(titulo, icon, descripcion, fase) {
     </div>
   `;
 }
+
+// ════════════════════════════════════════════════════════════
+// BUZÓN ANÓNIMO (vendedora → admin)
+// ════════════════════════════════════════════════════════════
+async function renderBuzonEnviar() {
+  return `
+    <div class="page-header">
+      <h2>✉️ Buzón anónimo</h2>
+      <div class="subtitle">Mandá una queja, recomendación o consulta directo a la dirección. Es 100% anónimo: no se guarda quién lo envía.</div>
+    </div>
+    <div class="card" style="max-width:560px;">
+      <label style="font-weight:600;display:block;margin-bottom:6px;">Tipo de mensaje</label>
+      <select id="buzon-categoria" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
+        <option value="recomendacion">💡 Recomendación</option>
+        <option value="queja">😕 Queja</option>
+        <option value="consulta">❓ Consulta</option>
+      </select>
+      <label style="font-weight:600;display:block;margin:14px 0 6px;">Tu mensaje</label>
+      <textarea id="buzon-mensaje" rows="6" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;" placeholder="Escribí lo que quieras contarle a la dirección..."></textarea>
+      <div id="buzon-feedback" style="margin-top:10px;font-size:13px;"></div>
+      <button class="btn accent" style="margin-top:12px;" onclick="enviarBuzonMensaje()">Enviar anónimamente</button>
+      <div style="margin-top:14px;font-size:12px;color:var(--muted);">🔒 No registramos tu nombre, tu local ni nada que te identifique. Solo llega el tipo y el texto.</div>
+    </div>
+  `;
+}
+
+async function enviarBuzonMensaje() {
+  const cat = document.getElementById('buzon-categoria').value;
+  const msg = document.getElementById('buzon-mensaje').value.trim();
+  const fb = document.getElementById('buzon-feedback');
+  if (!msg) { fb.innerHTML = '<span style="color:var(--danger)">Escribí un mensaje antes de enviar.</span>'; return; }
+  const { error } = await sb.from('rrhh_inbox_anonimo').insert({ categoria: cat, mensaje: msg });
+  if (error) { fb.innerHTML = '<span style="color:var(--danger)">Error: ' + error.message + '</span>'; return; }
+  document.getElementById('buzon-mensaje').value = '';
+  fb.innerHTML = '<span style="color:var(--success)">✓ Enviado. ¡Gracias por tu mensaje!</span>';
+}
+
+async function renderBuzonAdmin() {
+  const { data, error } = await sb.from('rrhh_inbox_anonimo').select('*').order('creado_at', { ascending: false }).limit(200);
+  if (error) return `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`;
+  const msgs = data || [];
+  const noLeidos = msgs.filter(m => !m.leido).length;
+  const catInfo = { queja:{label:'Queja',icon:'😕',color:'#dc2626'}, recomendacion:{label:'Recomendación',icon:'💡',color:'#0d9488'}, consulta:{label:'Consulta',icon:'❓',color:'#7c3aed'} };
+  return `
+    <div class="page-header">
+      <h2>✉️ Buzón anónimo</h2>
+      <div class="subtitle">${noLeidos} sin leer de ${msgs.length} · mensajes anónimos de las vendedoras</div>
+    </div>
+    ${msgs.length === 0 ? '<div class="card"><div class="placeholder"><div class="icon">📭</div><h3>Sin mensajes</h3></div></div>' :
+      msgs.map(m => {
+        const c = catInfo[m.categoria] || {label:m.categoria,icon:'•',color:'#6b7280'};
+        const fecha = new Date(m.creado_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+        return `<div class="card" style="margin-bottom:10px;${m.leido?'opacity:0.6;':'border-left:3px solid '+c.color+';'}">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+            <span style="font-weight:600;color:${c.color};">${c.icon} ${c.label}</span>
+            <span style="font-size:12px;color:var(--muted);">${fecha}${m.leido?'':' · <strong>NUEVO</strong>'}</span>
+          </div>
+          <div style="margin-top:8px;white-space:pre-wrap;">${escapeHtml(m.mensaje)}</div>
+          <div style="margin-top:10px;display:flex;gap:6px;">
+            ${m.leido?'':`<button class="btn small" onclick="marcarBuzonLeido(${m.id})">Marcar leído</button>`}
+            <button class="btn small danger" onclick="borrarBuzonMensaje(${m.id})">Borrar</button>
+          </div>
+        </div>`;
+      }).join('')}
+  `;
+}
+
+async function marcarBuzonLeido(id) { await sb.from('rrhh_inbox_anonimo').update({ leido: true }).eq('id', id); renderPage('buzon-admin'); }
+async function borrarBuzonMensaje(id) { if (!confirm('¿Borrar este mensaje? No se puede deshacer.')) return; await sb.from('rrhh_inbox_anonimo').delete().eq('id', id); renderPage('buzon-admin'); }
 
 // ════════════════════════════════════════════════════════════
 // DASHBOARD (Fase 0 — métricas básicas para verificar conexión)
