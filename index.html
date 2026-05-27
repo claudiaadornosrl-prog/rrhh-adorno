@@ -1170,7 +1170,10 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 });
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
-  await sb.auth.signOut();
+  try { await sb.auth.signOut(); } catch(e) { console.warn('signOut:', e); }
+  session = null;
+  // Forzar el logout sin depender del evento onAuthStateChange
+  location.reload();
 });
 
 document.getElementById('forgot-link').addEventListener('click', async () => {
