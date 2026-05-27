@@ -10,7 +10,11 @@
 
 ALTER TABLE rrhh_empleados
     ADD COLUMN IF NOT EXISTS lactancia_desde date,
-    ADD COLUMN IF NOT EXISTS lactancia_hasta date;
+    ADD COLUMN IF NOT EXISTS lactancia_hasta date,
+    -- Minutos que se reducen del turno por lactancia (al fin en jornada normal,
+    -- al inicio en jornada larga ≥ 8hs)
+    ADD COLUMN IF NOT EXISTS lactancia_reduccion_diaria_min  int DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS lactancia_reduccion_finde_min   int DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_emp_lactancia
     ON rrhh_empleados(lactancia_hasta)

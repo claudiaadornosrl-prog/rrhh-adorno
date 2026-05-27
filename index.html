@@ -4474,7 +4474,7 @@ async function procesarMes(periodo, local = null) {
   }
 
   // 1) Empleados activos del local
-  let qEmp = sb.from('rrhh_empleados').select('id, local, fecha_ingreso').eq('estado', 'activo').eq('ficha', true);
+  let qEmp = sb.from('rrhh_empleados').select('id, local, fecha_ingreso, lactancia_desde, lactancia_hasta, lactancia_reduccion_diaria_min, lactancia_reduccion_finde_min').eq('estado', 'activo').eq('ficha', true);
   if (local) qEmp = qEmp.eq('local', local);
   const { data: empleados } = await qEmp;
   if (!empleados || empleados.length === 0) throw new Error('Sin empleados para procesar');
@@ -4659,8 +4659,25 @@ async function procesarMes(periodo, local = null) {
         } else estado = 'franco';
       } else {
         // Turno normal planificado
-        const ti = horaToMin(turno.hora_inicio);
-        const tf = horaToMin(turno.hora_fin);
+        let ti = horaToMin(turno.hora_inicio);
+        let tf = horaToMin(turno.hora_fin);
+
+        // AJUSTE POR LACTANCIA: si la empleada está en período activo,
+        // reducir el turno automáticamente.
+        //  - Jornada normal (< 8hs): -X min al fin (sale antes)
+        //  - Jornada larga (>= 8hs): +X min al inicio (entra más tarde)
+        if (emp.lactancia_hasta && fecha <= emp.lactancia_hasta
+            && (!emp.lactancia_desde || fecha >= emp.lactancia_desde)) {
+          const duracionHs = (tf - ti) / 60;
+          if (duracionHs >= 8) {
+            const adj = emp.lactancia_reduccion_finde_min || 0;
+            ti = ti + adj;
+          } else {
+            const adj = emp.lactancia_reduccion_diaria_min || 0;
+            tf = tf - adj;
+          }
+        }
+
         if (!hayFichada) {
           estado = 'ausente';
           // -minutos del turno completo al banco (salvo que esté salvado)
