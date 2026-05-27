@@ -3922,6 +3922,23 @@ async function renderCalendarioGrid() {
     });
   }
 
+  // Días con carga sospechosa: fichadas reales muy lejos del turno cargado
+  // (tarde >120min o banco <-120min, sin salvar) → probable error de carga de la encargada
+  const sospechosos = new Set();
+  if (empIds.length) {
+    const { data: detSosp } = await sb.from('rrhh_asistencias_detalle')
+      .select('empleado_id, fecha, estado, minutos_tarde, minutos_banco, error_salvado')
+      .in('empleado_id', empIds)
+      .gte('fecha', fechaDesde.toISOString().split('T')[0])
+      .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+    (detSosp || []).forEach(d => {
+      if (d.error_salvado) return;
+      const tardeAlta = d.estado === 'tarde' && (d.minutos_tarde||0) > 120;
+      const bancoRaro = (d.minutos_banco||0) < -120;
+      if (tardeAlta || bancoRaro) sospechosos.add(`${d.empleado_id}_${d.fecha}`);
+    });
+  }
+
   if (!empleados || empleados.length === 0) {
     cont.innerHTML = '<div class="emp-empty">Sin empleados para mostrar.</div>';
     return;
@@ -3985,6 +4002,7 @@ async function renderCalendarioGrid() {
           const hi = turno.hora_inicio ? turno.hora_inicio.substring(0,5) : '';
           const hf = turno.hora_fin    ? turno.hora_fin.substring(0,5) : '';
           content = `<div class="turno-icon">${turno.template?.icono || '🕐'}</div><div class="turno-time">${hi}</div>`;
+          if (sospechosos.has(`${e.id}_${fecha}`)) content += `<div style="position:absolute;top:1px;right:2px;font-size:9px;" title="Las fichadas no coinciden con el turno cargado — revisar">⚠️</div>`;
         }
       } else if (cierra) {
         content = '🔒';
