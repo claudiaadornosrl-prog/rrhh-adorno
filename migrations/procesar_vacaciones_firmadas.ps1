@@ -49,16 +49,29 @@ if (-not $python_exe) {
 }
 Add-Content -Path $log_file -Value "Python encontrado: $python_exe"
 
-# Ejecutar y capturar TODO el output (stdout + stderr) sin abortar por warnings
-$output = & $python_exe .\10_procesar_vacaciones_firmadas.py --aplicar --marcar-leido 2>&1 | Out-String
-$exit_code = $LASTEXITCODE
-# Escribir log en UTF-8
-Add-Content -Path $log_file -Value $output -Encoding UTF8
-Add-Content -Path $log_file -Value "Exit code: $exit_code" -Encoding UTF8
+# --- Paso 1: Procesar mails con notificaciones firmadas ---
+Add-Content -Path $log_file -Value "`n--- Paso 1: Procesando mails ---" -Encoding UTF8
+$output1 = & $python_exe .\10_procesar_vacaciones_firmadas.py --aplicar --marcar-leido 2>&1 | Out-String
+$exit1 = $LASTEXITCODE
+Add-Content -Path $log_file -Value $output1 -Encoding UTF8
+Add-Content -Path $log_file -Value "Paso 1 exit code: $exit1" -Encoding UTF8
 
-if ($exit_code -ne 0) {
-    Write-Error "El script Python terminó con exit code $exit_code. Ver log: $log_file"
-    exit $exit_code
+# --- Paso 2: Sincronizar Google Calendar (solo si paso 1 fue OK) ---
+if ($exit1 -eq 0) {
+    Add-Content -Path $log_file -Value "`n--- Paso 2: Sync Google Calendar ---" -Encoding UTF8
+    if (Test-Path ".\11_sync_google_calendar.py") {
+        $output2 = & $python_exe .\11_sync_google_calendar.py --aplicar 2>&1 | Out-String
+        $exit2 = $LASTEXITCODE
+        Add-Content -Path $log_file -Value $output2 -Encoding UTF8
+        Add-Content -Path $log_file -Value "Paso 2 exit code: $exit2" -Encoding UTF8
+    } else {
+        Add-Content -Path $log_file -Value "(Script 11_sync_google_calendar.py no existe, salto)" -Encoding UTF8
+    }
+}
+
+if ($exit1 -ne 0) {
+    Write-Error "Paso 1 falló con exit code $exit1. Ver log: $log_file"
+    exit $exit1
 } else {
     Write-Host "OK - log en $log_file"
 }
