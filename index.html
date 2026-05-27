@@ -2930,6 +2930,64 @@ async function enviarSolicitudPago() {
 // ════════════════════════════════════════════════════════════
 let miCalState = { mes: null };
 
+// ─── Reporte de turno mal cargado (vendedora → encargada) ───
+async function abrirReporteTurno() {
+  const emp = session.empleadoData;
+  if (!emp) { toast('Sin datos de empleado', 'error'); return; }
+  const { data: tpls } = await sb.from('rrhh_templates_turno')
+    .select('id, nombre, hora_inicio, hora_fin, es_franco').eq('local', emp.local).order('orden', { ascending: true });
+  const opcionesTpl = (tpls || []).map(t => {
+    const h = t.es_franco ? 'Franco' : `${(t.hora_inicio||'').substring(0,5)}-${(t.hora_fin||'').substring(0,5)}`;
+    const txt = t.es_franco ? 'Franco' : `${t.nombre} (${h})`;
+    return `<option value="${escapeHtml(txt)}">${escapeHtml(txt)}</option>`;
+  }).join('');
+  const ex = document.getElementById('reporte-turno-modal'); if (ex) ex.remove();
+  const modal = document.createElement('div');
+  modal.id = 'reporte-turno-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:24px;max-width:480px;width:90%;max-height:85vh;overflow:auto;">
+      <h3 style="margin:0 0 4px;">🚩 Reportar turno mal cargado</h3>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Avisale a tu encargada que un turno (pasado o futuro) está mal. Ella lo revisa y corrige.</div>
+      <label style="font-weight:600;display:block;margin-bottom:4px;">Día</label>
+      <input type="date" id="rep-fecha" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;box-sizing:border-box;">
+      <label style="font-weight:600;display:block;margin:12px 0 4px;">¿Cuál debería ser el turno? (opcional)</label>
+      <select id="rep-propuesto" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
+        <option value="">— No sé / que lo vea la encargada —</option>
+        ${opcionesTpl}
+      </select>
+      <label style="font-weight:600;display:block;margin:12px 0 4px;">Comentario</label>
+      <textarea id="rep-comentario" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;box-sizing:border-box;" placeholder="Ej: ese día trabajé de tarde, no de mañana"></textarea>
+      <div id="rep-feedback" style="margin-top:10px;font-size:13px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="btn" onclick="document.getElementById('reporte-turno-modal').remove()">Cancelar</button>
+        <button class="btn accent" onclick="enviarReporteTurno()">Enviar reporte</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+async function enviarReporteTurno() {
+  const emp = session.empleadoData;
+  const fecha = document.getElementById('rep-fecha').value;
+  const propuesto = document.getElementById('rep-propuesto').value;
+  const comentario = document.getElementById('rep-comentario').value.trim();
+  const fb = document.getElementById('rep-feedback');
+  if (!fecha) { fb.innerHTML = '<span style="color:var(--danger)">Elegí el día.</span>'; return; }
+  if (!comentario && !propuesto) { fb.innerHTML = '<span style="color:var(--danger)">Escribí un comentario o elegí el turno correcto.</span>'; return; }
+  const { data: t } = await sb.from('rrhh_turnos').select('hora_inicio, hora_fin, es_franco').eq('empleado_id', emp.id).eq('fecha', fecha).maybeSingle();
+  const turnoActual = t ? (t.es_franco ? 'Franco' : `${(t.hora_inicio||'').substring(0,5)} → ${(t.hora_fin||'').substring(0,5)}`) : 'Sin turno cargado';
+  const { error } = await sb.from('rrhh_reportes_turno').insert({
+    empleado_id: emp.id, local: emp.local, fecha,
+    turno_actual: turnoActual, turno_propuesto: propuesto || null, comentario: comentario || null,
+  });
+  if (error) { fb.innerHTML = '<span style="color:var(--danger)">Error: ' + error.message + '</span>'; return; }
+  fb.innerHTML = '<span style="color:var(--success)">✓ Reporte enviado. Tu encargada lo va a revisar.</span>';
+  toast('Reporte enviado', 'success');
+  setTimeout(() => { const md = document.getElementById('reporte-turno-modal'); if (md) md.remove(); }, 1500);
+}
+
 async function renderMiCalendario() {
   if (!miCalState.mes) miCalState.mes = mesActualString();
   const [y, m] = miCalState.mes.split('-').map(Number);
@@ -3021,6 +3079,7 @@ async function renderMiCalendario() {
       </div>
       <button class="btn" onclick="miCalState.mes = mesActualString(); switchTab('mi-calendario');">Hoy</button>
       <button class="btn accent2" onclick="abrirNuevoPermisoEmpleado()" style="margin-left:auto;">🙋 Pedir permiso</button>
+      <button class="btn" onclick="abrirReporteTurno()">🚩 Reportar turno</button>
     </div>
 
     <div class="metrics-grid">
@@ -3764,6 +3823,7 @@ async function renderAsistenciasAdmin() {
       <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas (Anviz)</button>
       <button class="modal-tab ${asisState.tab==='resumen'?'active':''}"    data-asistab="resumen"    style="border-bottom:2px solid transparent;padding:12px 14px;">📊 Resumen mensual</button>
       <button class="modal-tab ${asisState.tab==='permisos'?'active':''}"   data-asistab="permisos"   style="border-bottom:2px solid transparent;padding:12px 14px;">🙋 Permisos <span id="badge-permisos-pend" style="display:none;background:var(--danger);color:white;border-radius:99px;padding:1px 7px;font-size:10px;margin-left:4px;"></span></button>
+      <button class="modal-tab ${asisState.tab==='reportes'?'active':''}" data-asistab="reportes" style="border-bottom:2px solid transparent;padding:12px 14px;">🚩 Reportes</button>
       <button class="modal-tab ${asisState.tab==='extras'?'active':''}"     data-asistab="extras"     style="border-bottom:2px solid transparent;padding:12px 14px;">⏰ Horas extras</button>
       <button class="modal-tab ${asisState.tab==='banco'?'active':''}"      data-asistab="banco"      style="border-bottom:2px solid transparent;padding:12px 14px;">🏦 Banco</button>
     </div>
@@ -3782,6 +3842,91 @@ async function renderAsistenciasAdmin() {
   return html;
 }
 
+// ─── Reportes de turno: vista de la encargada (resolver) ───
+async function renderReportesTurno(cont) {
+  const isAdmin = session.rol === 'admin';
+  const localF = isAdmin ? (asisState.local || null) : session.local_gerencia;
+  const { data: reps } = await sb.from('rrhh_reportes_turno')
+    .select('*, empleado:rrhh_empleados(nombre_completo, local)')
+    .order('creado_at', { ascending: false }).limit(100);
+  let lista = reps || [];
+  if (localF) lista = lista.filter(r => r.local === localF);
+  const { data: tpls } = await sb.from('rrhh_templates_turno')
+    .select('id, local, nombre, hora_inicio, hora_fin, es_franco').order('orden', { ascending: true });
+  const tplByLocal = {};
+  (tpls || []).forEach(t => { (tplByLocal[t.local] = tplByLocal[t.local] || []).push(t); });
+  const pendientes = lista.filter(r => r.estado === 'pendiente');
+  const resueltos  = lista.filter(r => r.estado !== 'pendiente');
+
+  const cardReporte = (r) => {
+    const emp = r.empleado;
+    const fecha = new Date(r.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
+    const opts = (tplByLocal[r.local] || []).filter(t => !t.es_franco).map(t => {
+      const h = `${(t.hora_inicio||'').substring(0,5)}-${(t.hora_fin||'').substring(0,5)}`;
+      const sel = r.turno_propuesto && r.turno_propuesto.includes(t.nombre) ? 'selected' : '';
+      return `<option value="${t.id}" ${sel}>${escapeHtml(t.nombre)} (${h})</option>`;
+    }).join('');
+    return `
+      <div class="card" style="margin-bottom:10px;border-left:3px solid #d97706;">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+          <strong>${escapeHtml(emp?.nombre_completo || '?')}</strong>
+          <span style="font-size:12px;color:var(--muted);text-transform:capitalize;">${fecha}</span>
+        </div>
+        <div style="font-size:13px;margin-top:6px;">Turno cargado hoy: <strong>${escapeHtml(r.turno_actual || '—')}</strong></div>
+        ${r.turno_propuesto ? `<div style="font-size:13px;">La vendedora propone: <strong>${escapeHtml(r.turno_propuesto)}</strong></div>` : ''}
+        ${r.comentario ? `<div style="font-size:13px;margin-top:4px;font-style:italic;color:var(--muted);">"${escapeHtml(r.comentario)}"</div>` : ''}
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--muted);">Corregir a:</span>
+          <select id="repfix-${r.id}" style="padding:6px;border:1px solid var(--border);border-radius:8px;font-size:12px;">
+            ${opts}
+            <option value="franco">❌ Franco</option>
+          </select>
+          <button class="btn small accent" onclick="aceptarReporteTurno(${r.id}, ${r.empleado_id}, '${r.fecha}')">✓ Aceptar y corregir</button>
+          <button class="btn small danger" onclick="rechazarReporteTurno(${r.id})">✗ Rechazar</button>
+        </div>
+      </div>`;
+  };
+
+  cont.innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Turnos mal cargados que reportaron las vendedoras. Aceptá (corrige el turno automáticamente) o rechazá con un motivo.</div>
+    <h3 style="font-size:14px;margin:0 0 8px;">Pendientes (${pendientes.length})</h3>
+    ${pendientes.length ? pendientes.map(cardReporte).join('') : '<div class="emp-empty">Sin reportes pendientes. 🎉</div>'}
+    ${resueltos.length ? `<h3 style="font-size:14px;margin:20px 0 8px;">Resueltos recientes</h3>` + resueltos.slice(0,10).map(r => {
+      const f = new Date(r.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' });
+      const badge = r.estado === 'aceptado' ? '<span style="color:var(--success)">✓ Aceptado</span>' : '<span style="color:var(--danger)">✗ Rechazado</span>';
+      return `<div class="card" style="margin-bottom:6px;opacity:0.75;font-size:12px;"><strong>${escapeHtml(r.empleado?.nombre_completo || '?')}</strong> · ${f} · ${badge}${r.respuesta ? ' · ' + escapeHtml(r.respuesta) : ''}</div>`;
+    }).join('') : ''}
+  `;
+}
+
+async function aceptarReporteTurno(id, empId, fecha) {
+  const sel = document.getElementById('repfix-' + id);
+  const val = sel ? sel.value : null;
+  let updateData;
+  if (val === 'franco') {
+    updateData = { empleado_id: empId, fecha, es_franco: true, template_id: null, hora_inicio: null, hora_fin: null, tipo: 'planificado', planificado_por: session.email };
+  } else {
+    const { data: t } = await sb.from('rrhh_templates_turno').select('id, hora_inicio, hora_fin').eq('id', Number(val)).maybeSingle();
+    if (!t) { toast('Elegí un turno válido', 'error'); return; }
+    updateData = { empleado_id: empId, fecha, es_franco: false, template_id: t.id, hora_inicio: t.hora_inicio, hora_fin: t.hora_fin, tipo: 'planificado', planificado_por: session.email };
+  }
+  const { error: e1 } = await sb.from('rrhh_turnos').upsert(updateData, { onConflict: 'empleado_id,fecha' });
+  if (e1) { toast('Error al corregir turno: ' + e1.message, 'error'); return; }
+  await sb.from('rrhh_reportes_turno').update({ estado: 'aceptado', resuelto_at: new Date().toISOString(), resuelto_por: session.email, respuesta: 'Turno corregido' }).eq('id', id);
+  try { await auditLog('aceptar_reporte_turno', 'rrhh_reportes_turno', id, fecha, null, null); } catch(_) {}
+  toast('Turno corregido. Reprocesá el mes para actualizar el resumen.', 'success');
+  renderReportesTurno(document.getElementById('asis-content'));
+}
+
+async function rechazarReporteTurno(id) {
+  const motivo = prompt('Motivo del rechazo (lo verá la vendedora):');
+  if (motivo === null) return;
+  await sb.from('rrhh_reportes_turno').update({ estado: 'rechazado', respuesta: motivo.trim() || 'Sin cambios', resuelto_at: new Date().toISOString(), resuelto_por: session.email }).eq('id', id);
+  try { await auditLog('rechazar_reporte_turno', 'rrhh_reportes_turno', id, null, null, motivo); } catch(_) {}
+  toast('Reporte rechazado', 'info');
+  renderReportesTurno(document.getElementById('asis-content'));
+}
+
 async function renderAsisTab() {
   const cont = document.getElementById('asis-content');
   if (!cont) return;
@@ -3789,6 +3934,7 @@ async function renderAsisTab() {
   else if (asisState.tab === 'fichadas')   await renderFichadas(cont);
   else if (asisState.tab === 'resumen')    await renderResumenMensual(cont);
   else if (asisState.tab === 'permisos')   await renderPermisosAdmin(cont);
+  else if (asisState.tab === 'reportes')   await renderReportesTurno(cont);
   else if (asisState.tab === 'extras')     await renderExtrasAdmin(cont);
   else if (asisState.tab === 'banco')      await renderBancoAdmin(cont);
   // Actualizar badge de pendientes
