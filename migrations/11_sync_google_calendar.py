@@ -53,7 +53,7 @@ import os, json, argparse, re
 from pathlib import Path
 from urllib import request as urlrequest
 from urllib.parse import quote
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 try:
     from dotenv import load_dotenv
@@ -186,7 +186,7 @@ def procesar_borrados(service, aplicar):
             service.events().delete(calendarId=c['calendar_id'], eventId=c['event_id']).execute()
             print(f"        ✓ Borrado del Calendar")
             fetch_patch(f"rrhh_calendar_delete_queue?id=eq.{c['id']}", {
-                'processed_at': datetime.utcnow().isoformat() + 'Z',
+                'processed_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                 'error_msg': None,
             })
             ok += 1
@@ -196,7 +196,7 @@ def procesar_borrados(service, aplicar):
             if '410' in msg or '404' in msg or 'deleted' in msg.lower() or 'not found' in msg.lower():
                 print(f"        ✓ Evento ya no existía (lo damos por OK)")
                 fetch_patch(f"rrhh_calendar_delete_queue?id=eq.{c['id']}", {
-                    'processed_at': datetime.utcnow().isoformat() + 'Z',
+                    'processed_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                     'error_msg': 'already_gone',
                 })
                 ok += 1
@@ -319,4 +319,9 @@ def main():
 
 
 if __name__ == '__main__':
+    main()
+__).name} --aplicar")
+
+
+if __name__ == "__main__":
     main()
