@@ -8370,16 +8370,26 @@ async function renderLiquidaciones() {
   const local = isGerente ? session.empleadoData.local : liqState.local;
   const periodo = liqState.periodo;
 
-  // Cargar ventas del local del mes
-  const { data: ventasRow } = await sb.from('rrhh_ventas_local_mes')
-    .select('monto_ventas').eq('local', local).eq('periodo', periodo + '-01').limit(1);
-  const ventasMes = ventasRow?.[0]?.monto_ventas || 0;
+  // Cargar ventas del mes (un local o los 3)
+  let ventasMes = 0;
+  let ventas3 = {};
+  if (local === 'todos') {
+    const { data: vRows } = await sb.from('rrhh_ventas_local_mes')
+      .select('local, monto_ventas').eq('periodo', periodo + '-01');
+    (vRows || []).forEach(r => { ventas3[r.local] = Number(r.monto_ventas || 0); });
+  } else {
+    const { data: ventasRow } = await sb.from('rrhh_ventas_local_mes')
+      .select('monto_ventas').eq('local', local).eq('periodo', periodo + '-01').limit(1);
+    ventasMes = ventasRow?.[0]?.monto_ventas || 0;
+  }
 
-  // Cargar liquidaciones existentes del mes/local
-  const { data: liqs } = await sb.from('rrhh_liquidacion')
+  // Cargar liquidaciones del mes (un local o todos)
+  let qLiq = sb.from('rrhh_liquidacion')
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, categoria:rrhh_categorias_cct(nombre))')
-    .eq('local', local).eq('periodo', periodo + '-01')
-    .order('empleado(apellido)');
+    .eq('periodo', periodo + '-01')
+    .order('local').order('empleado(apellido)');
+  if (local !== 'todos') qLiq = qLiq.eq('local', local);
+  const { data: liqs } = await qLiq;
 
   const periodos = [];
   for (let i = 0; i < 12; i++) {
@@ -8408,16 +8418,27 @@ async function renderLiquidaciones() {
         ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
       </select>
       ${isAdmin ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');">
+        <option value="todos"     ${local==='todos'    ?'selected':''}>Todos los locales</option>
         <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
         <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : `<span class="emp-tag" style="background:#eef2ff;color:#4338ca;">${LOCALES[local]?.nombre || local}</span>`}
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-        <label style="font-size:13px;color:var(--muted);">Ventas del mes:</label>
-        <input type="number" id="liq-ventas" value="${ventasMes}" style="width:160px;text-align:right;font-family:monospace;" ${isAdmin?'':'disabled'}>
-        ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        ${local === 'todos' ? `
+          <div style="display:flex;gap:6px;font-size:12px;">
+            ${['alcorta','unicenter','oficina'].map(loc => `
+              <div style="background:#f3f4f6;border-radius:6px;padding:4px 8px;">
+                <span style="color:var(--muted);">${LOCALES[loc]?.nombre || loc}:</span>
+                <strong style="font-family:monospace;">$${Number(ventas3[loc]||0).toLocaleString('es-AR')}</strong>
+              </div>`).join('')}
+          </div>
+        ` : `
+          <label style="font-size:13px;color:var(--muted);">Ventas del mes:</label>
+          <input type="number" id="liq-ventas" value="${ventasMes}" style="width:160px;text-align:right;font-family:monospace;" ${isAdmin?'':'disabled'}>
+          ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
+        `}
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
-        ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 Generar / Recalcular mes</button>` : ''}
+        ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
       </div>
     </div>
 
@@ -8439,6 +8460,7 @@ async function renderLiquidaciones() {
           <thead>
             <tr style="background:#f9fafb;text-align:right;">
               <th style="padding:8px;text-align:left;">Empleada</th>
+              ${local === 'todos' ? '<th style="padding:8px;text-align:left;">Local</th>' : ''}
               <th style="padding:8px;">Cat.</th>
               <th style="padding:8px;">Días</th>
               <th style="padding:8px;">Pts</th>
@@ -8463,6 +8485,7 @@ async function renderLiquidaciones() {
               const premioOk = l.premio_cobra;
               return `<tr style="border-top:1px solid var(--border);text-align:right;">
                 <td style="padding:8px;text-align:left;font-weight:600;">${escapeHtml(e?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e?.nombre || '').split(' ')[0])}</span></td>
+                ${local === 'todos' ? `<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` : ''}
                 <td style="padding:8px;text-align:left;font-size:11px;color:var(--muted);">${escapeHtml(cat)}</td>
                 <td style="padding:8px;">${l.dias_trabajados}</td>
                 <td style="padding:8px;${(l.puntos_mes||0) > 4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>
@@ -8507,16 +8530,23 @@ async function liqGuardarVentas(local, periodo) {
 }
 
 async function liqGenerarMes(local, periodo) {
-  if (!confirm(`Generar/recalcular liquidaciones de ${local} para ${periodo}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
+  const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+  if (!confirm(`Generar/recalcular liquidaciones de ${locales.join(', ')} para ${periodo}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
   toast('Calculando…', '');
   try {
-    const r = await salaryWorkflow.liquidarMes(local, periodo);
-    let msg = `✓ ${r.ok.length} liquidaciones generadas`;
-    if (r.errores.length) msg += ` · ⚠ ${r.errores.length} errores`;
-    toast(msg, r.errores.length ? 'error' : 'success');
-    if (r.errores.length) {
-      console.error('Errores liquidación:', r.errores);
-      alert('Errores en algunas liquidaciones:\n\n' + r.errores.map(e => `${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+    let totalOk = 0;
+    const todosErrores = [];
+    for (const loc of locales) {
+      const r = await salaryWorkflow.liquidarMes(loc, periodo);
+      totalOk += r.ok.length;
+      r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
+    }
+    let msg = `✓ ${totalOk} liquidaciones generadas`;
+    if (todosErrores.length) msg += ` · ⚠ ${todosErrores.length} errores`;
+    toast(msg, todosErrores.length ? 'error' : 'success');
+    if (todosErrores.length) {
+      console.error('Errores liquidación:', todosErrores);
+      alert('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
     }
     switchTab('liquidaciones');
   } catch (e) {
