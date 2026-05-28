@@ -5,8 +5,10 @@ sync_anviz/.env
 **/*secret*
 **/google_credentials.json
 **/google_token.json
+**/google_token_*.json
 sync_anviz/google_credentials.json
 sync_anviz/google_token.json
+sync_anviz/google_token_forms.json
 
 # Migraciones — datos sensibles
 migrations/*.csv
