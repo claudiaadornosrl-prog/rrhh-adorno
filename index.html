@@ -9018,8 +9018,8 @@ let aumState = { local: null };
 
 async function renderAumentos() {
   const cont = document.getElementById('main');
-  const isAdmin = session.role === 'admin';
-  const isGerente = session.role === 'gerente';
+  const isAdmin = session.rol === 'admin';
+  const isGerente = session.rol === 'gerente';
   if (!isAdmin && !isGerente) {
     cont.innerHTML = '<div class="card"><div class="card-body">No tenés acceso a esta sección.</div></div>';
     return;
@@ -9115,7 +9115,7 @@ async function renderAumentos() {
 }
 
 async function aumAbrirPedido() {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const local = document.getElementById('aum-local').value;
   const fecha_vigencia = document.getElementById('aum-vigencia').value;
   const pct_min = Number(document.getElementById('aum-pmin').value);
@@ -9154,7 +9154,7 @@ async function aumAbrirPedido() {
 }
 
 async function aumCancelar(pedidoId) {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   if (!confirm('¿Cancelar y eliminar este pedido? Se pierden los % cargados.')) return;
   const { error } = await sb.from('rrhh_aumento_pedido').delete().eq('id', pedidoId);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
@@ -9170,8 +9170,8 @@ async function aumAbrirDetalle(pedidoId) {
     .eq('pedido_id', pedidoId)
     .order('empleado(apellido)');
 
-  const isAdmin = session.role === 'admin';
-  const isGerente = session.role === 'gerente';
+  const isAdmin = session.rol === 'admin';
+  const isGerente = session.rol === 'gerente';
   const editable = (ped.estado === 'abierto' && (isGerente || isAdmin)) || (ped.estado === 'propuesto' && isAdmin);
   const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -9296,7 +9296,7 @@ async function aumMarcarPropuesto(pedidoId) {
 }
 
 async function aumAprobar(pedidoId) {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   if (!confirm('¿Aprobar este pedido? Después podrás aplicarlo para que los nuevos fijos entren en vigor.')) return;
   const { error } = await sb.from('rrhh_aumento_pedido').update({
     estado: 'aprobado', aprobado_at: new Date().toISOString(),
@@ -9309,7 +9309,7 @@ async function aumAprobar(pedidoId) {
 }
 
 async function aumRechazar(pedidoId) {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   if (!confirm('¿Rechazar este pedido? La encargada tendrá que rehacerlo.')) return;
   const { error } = await sb.from('rrhh_aumento_pedido').update({
     estado: 'rechazado', aprobado_at: new Date().toISOString(),
@@ -9322,7 +9322,7 @@ async function aumRechazar(pedidoId) {
 }
 
 async function aumAplicar(pedidoId) {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   if (!confirm('¿Aplicar el aumento? Se van a crear filas nuevas en sueldo_empleada_config con vigencia a la fecha del pedido.')) return;
   const { data: ped } = await sb.from('rrhh_aumento_pedido').select('*').eq('id', pedidoId).single();
   if (!ped) { toast('Pedido no encontrado', 'error'); return; }
@@ -9423,7 +9423,7 @@ let prestamoState = { filtro: 'activos' };
 
 async function renderPrestamos() {
   const cont = document.getElementById('main');
-  if (session.role !== 'admin') {
+  if (session.rol !== 'admin') {
     cont.innerHTML = '<div class="card"><div class="card-body">Solo el admin puede gestionar préstamos.</div></div>';
     return;
   }
@@ -9638,7 +9638,7 @@ function prestamoCalcularPreview() {
 }
 
 async function prestamoCrear() {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const empId   = parseInt(document.getElementById('pr-emp').value);
   const fecha   = document.getElementById('pr-fecha').value;
   const capital = Number(document.getElementById('pr-capital').value);
@@ -9771,7 +9771,7 @@ async function prestamoAbrirDetalle(prestamoId) {
 }
 
 async function prestamoCancelar(prestamoId) {
-  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const motivo = prompt('¿Por qué cancelás el préstamo anticipadamente? (renuncia, perdón de saldo, etc.)');
   if (motivo == null) return;
   if (!motivo.trim()) { toast('El motivo es obligatorio', 'error'); return; }
