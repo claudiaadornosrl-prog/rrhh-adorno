@@ -482,6 +482,7 @@ const NAV = {
     { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
     { id: 'sueldos',     label: 'Sueldos',       icon: '💰', section: 'Personal' },
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
+    { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
     { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
     { id: 'documentos',  label: 'Documentos',    icon: '📄', section: 'Personal' },
@@ -494,6 +495,7 @@ const NAV = {
     { id: 'empleados',   label: 'Mi equipo',    icon: '👥', section: null },
     { id: 'asistencias', label: 'Asistencias',  icon: '🕐', section: null },
     { id: 'vacaciones',  label: 'Vacaciones',   icon: '🌴', section: null },
+    { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: null },
     { id: 'liquidaciones', label: 'Liquidación', icon: '🧮', section: null },
   ],
   empleado: [
@@ -653,6 +655,7 @@ async function renderPage(tabId) {
     'empleados':       renderEmpleados,
     'sueldos':         renderSueldosAdmin,
     'liquidaciones':   renderLiquidaciones,
+    'retiros':         renderRetirosMercaderia,
     'asistencias':     renderAsistenciasAdmin,
     'vacaciones':      renderVacacionesAdmin,
     'documentos':      renderDocumentosAdmin,
@@ -8413,6 +8416,7 @@ async function renderLiquidaciones() {
         <label style="font-size:13px;color:var(--muted);">Ventas del mes:</label>
         <input type="number" id="liq-ventas" value="${ventasMes}" style="width:160px;text-align:right;font-family:monospace;" ${isAdmin?'':'disabled'}>
         ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
+        ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 Generar / Recalcular mes</button>` : ''}
       </div>
     </div>
@@ -8678,6 +8682,110 @@ async function liqEditarGuardar(liqId) {
   toast('Liquidación actualizada ✓', 'success');
   document.getElementById('global-modal').remove();
   switchTab('liquidaciones');
+}
+
+async function renderRetirosMercaderia() {
+  const isAdmin   = session.rol === 'admin';
+  const localFiltro = isAdmin ? null : session.empleadoData?.local;
+  const hoy = new Date();
+  const periodo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const [y, m] = periodo.split('-').map(Number);
+  const desde = `${periodo}-01`;
+  const ultimoDia = new Date(y, m, 0).getDate();
+  const hasta = `${y}-${String(m).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
+
+  // Empleadas del local
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, apellido, nombre, local').eq('estado','activo');
+  if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
+  const { data: empleadas } = await qEmp.order('apellido');
+
+  // Retiros del mes
+  let qRet = sb.from('rrhh_retiro_mercaderia')
+    .select('*, empleado:rrhh_empleados(apellido, nombre, local)')
+    .gte('fecha', desde).lte('fecha', hasta)
+    .order('fecha', { ascending: false });
+  if (localFiltro) qRet = qRet.eq('local', localFiltro);
+  const { data: retiros } = await qRet;
+
+  const totalMes = (retiros||[]).reduce((a, r) => a + Number(r.monto||0), 0);
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  const opcionesEmp = (empleadas||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
+
+  return `
+    <div class="page-header">
+      <h2>Retiros de mercadería</h2>
+      <div class="subtitle">Registrá acá cuando una empleada se lleva mercadería. Se descuentan automáticamente al cerrar el mes en su liquidación.</div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <h3 style="margin:0 0 12px;">➕ Nuevo retiro</h3>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
+        <div class="form-row"><label>Empleada</label>
+          <select id="ret-emp"><option value="">— Elegir —</option>${opcionesEmp}</select>
+        </div>
+        <div class="form-row"><label>Fecha</label><input type="date" id="ret-fecha" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="form-row"><label>Monto</label><input type="number" id="ret-monto" placeholder="0" min="0" step="any"></div>
+        <div class="form-row"><label>Descripción (opcional)</label><input type="text" id="ret-desc" placeholder="Ej: SET MANTELES + 2 VELAS"></div>
+        <button class="btn primary" onclick="retCargar()">💾 Cargar</button>
+      </div>
+    </div>
+
+    <div class="metrics-grid" style="margin:14px 0;">
+      <div class="metric-card"><div class="label">Retiros del mes</div><div class="value">${(retiros||[]).length}</div></div>
+      <div class="metric-card accent2"><div class="label">Total $ del mes</div><div class="value">${fmt(totalMes)}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Retiros de ${new Date(y,m-1,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'})}</div>
+      ${(retiros||[]).length === 0 ? `<div style="color:var(--muted);padding:12px;">Sin retiros cargados este mes.</div>` : `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:8px;">Fecha</th><th style="padding:8px;">Empleada</th>
+          ${isAdmin ? '<th style="padding:8px;">Local</th>' : ''}
+          <th style="padding:8px;text-align:right;">Monto</th><th style="padding:8px;">Descripción</th><th style="padding:8px;"></th>
+        </tr></thead>
+        <tbody>
+          ${retiros.map(r => `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px;font-family:monospace;">${fmtFecha(r.fecha)}</td>
+            <td style="padding:8px;">${escapeHtml(r.empleado?.apellido||'')}, ${escapeHtml(r.empleado?.nombre||'')}</td>
+            ${isAdmin ? `<td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(r.local)}</td>` : ''}
+            <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(r.monto)}</td>
+            <td style="padding:8px;color:var(--muted);">${escapeHtml(r.descripcion||'')}</td>
+            <td style="padding:8px;"><button class="btn small" onclick="retBorrar(${r.id})" title="Eliminar">🗑</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+}
+
+async function retCargar() {
+  const empId = parseInt(document.getElementById('ret-emp').value);
+  const fecha = document.getElementById('ret-fecha').value;
+  const monto = Number(document.getElementById('ret-monto').value);
+  const desc  = document.getElementById('ret-desc').value.trim() || null;
+  if (!empId || !fecha || !monto || monto <= 0) {
+    toast('Faltan datos (empleada, fecha, monto)', 'error'); return;
+  }
+  // Resolver el local del empleado
+  const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
+  if (!emp) { toast('Empleada no encontrada', 'error'); return; }
+  const { error } = await sb.from('rrhh_retiro_mercaderia').insert({
+    empleado_id: empId, local: emp.local, fecha, monto, descripcion: desc,
+    cargado_por: session.user?.email || session.empleadoData?.nombre_completo || null,
+  });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Retiro cargado ✓', 'success');
+  switchTab('retiros');
+}
+
+async function retBorrar(id) {
+  if (!confirm('¿Eliminar este retiro?')) return;
+  const { error } = await sb.from('rrhh_retiro_mercaderia').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Eliminado', 'success');
+  switchTab('retiros');
 }
 
 function openModal(html) {
@@ -9047,7 +9155,18 @@ const salaryWorkflow = (() => {
     const diasMes = diasDelMes(periodo);
     const diasTrabajadosInferidos = Math.max(0, 30 - diasNoTrab);
     const dias_trabajados = inputs.dias_trabajados ?? diasTrabajadosInferidos;
-    const mercaderia = inputs.mercaderia ?? 0;
+    // Mercadería: si no se pasa input explícito, sumar los retiros cargados por la encargada
+    let mercaderia_auto = 0;
+    if (inputs.mercaderia == null) {
+      const [y, m] = periodo.split('-').map(Number);
+      const desde = `${periodo}-01`;
+      const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+      const { data: rets } = await sb.from('rrhh_retiro_mercaderia')
+        .select('monto').eq('empleado_id', empleadoId)
+        .gte('fecha', desde).lte('fecha', hasta);
+      mercaderia_auto = (rets || []).reduce((a, r) => a + Number(r.monto || 0), 0);
+    }
+    const mercaderia = inputs.mercaderia ?? mercaderia_auto;
     const ajuste = inputs.ajuste ?? 0;
     const extras = inputs.extras ?? 0;
     const otros_rem = inputs.otros_remunerativos ?? 0;
