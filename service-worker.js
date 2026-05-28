@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v2-fase-h';
+const CACHE_VERSION = 'rrhh-v3-fase-j-sueldos';
 const ASSETS = [
   './',
   './index.html',
