@@ -482,6 +482,7 @@ const NAV = {
     { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
     { id: 'sueldos',     label: 'Sueldos',       icon: '💰', section: 'Personal' },
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
+    { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
     { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
@@ -496,6 +497,7 @@ const NAV = {
     { id: 'asistencias', label: 'Asistencias',  icon: '🕐', section: null },
     { id: 'vacaciones',  label: 'Vacaciones',   icon: '🌴', section: null },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: null },
+    { id: 'aumentos',    label: 'Aumentos',     icon: '📈', section: null },
     { id: 'liquidaciones', label: 'Liquidación', icon: '🧮', section: null },
   ],
   empleado: [
@@ -656,6 +658,7 @@ async function renderPage(tabId) {
     'sueldos':         renderSueldosAdmin,
     'liquidaciones':   renderLiquidaciones,
     'retiros':         renderRetirosMercaderia,
+    'aumentos':        renderAumentos,
     'asistencias':     renderAsistenciasAdmin,
     'vacaciones':      renderVacacionesAdmin,
     'documentos':      renderDocumentosAdmin,
@@ -8822,6 +8825,361 @@ async function retBorrar(id) {
   switchTab('retiros');
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  AUMENTOS PEDIDOS — flujo encargada ↔ admin
+//  Admin abre un pedido para un local con rango % → la encargada
+//  propone un % por empleada → admin aprueba → admin aplica
+//  (crea nuevas filas en rrhh_sueldo_empleada_config con fijo nuevo).
+// ═══════════════════════════════════════════════════════════════════
+let aumState = { local: null };
+
+async function renderAumentos() {
+  const cont = document.getElementById('main');
+  const isAdmin = session.role === 'admin';
+  const isGerente = session.role === 'gerente';
+  if (!isAdmin && !isGerente) {
+    cont.innerHTML = '<div class="card"><div class="card-body">No tenés acceso a esta sección.</div></div>';
+    return;
+  }
+  const gerenteLocal = session.empleadoData?.local || null;
+  const localFiltro = isAdmin ? (aumState.local || '') : gerenteLocal;
+
+  let q = sb.from('rrhh_aumento_pedido').select('*').order('abierto_at', { ascending: false });
+  if (localFiltro) q = q.eq('local', localFiltro);
+  const { data: pedidos, error } = await q;
+  if (error) {
+    cont.innerHTML = `<div class="card"><div class="card-body" style="color:#b91c1c">Error: ${escapeHtml(error.message)}</div></div>`;
+    return;
+  }
+
+  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtPct = (n) => (n==null ? '—' : Number(n).toFixed(2) + '%');
+  const estadoChip = (e) => {
+    const colores = { abierto: '#0ea5e9', propuesto: '#f59e0b', aprobado: '#16a34a', rechazado: '#dc2626', aplicado: '#7c3aed' };
+    return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${e}</span>`;
+  };
+
+  cont.innerHTML = `
+    <div class="page-header">
+      <h2>Aumentos pedidos</h2>
+      <div class="subtitle">${isAdmin
+        ? 'Abrí un pedido con rango % por local. La encargada lo completa y vos aprobás/aplicás.'
+        : 'La oficina te pide que propongas un % de aumento por empleada dentro del rango habilitado.'}</div>
+    </div>
+
+    ${isAdmin ? `
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <h3 style="margin:0 0 12px;">➕ Abrir nuevo pedido</h3>
+      <div style="display:grid;grid-template-columns:1fr 1.2fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
+        <div class="form-row"><label>Local</label>
+          <select id="aum-local">
+            <option value="alcorta">Alcorta</option>
+            <option value="unicenter">Unicenter</option>
+            <option value="oficina">Oficina</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Vigente desde</label>
+          <input type="date" id="aum-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        </div>
+        <div class="form-row"><label>% mínimo</label><input type="number" id="aum-pmin" value="5" min="0" step="0.5"></div>
+        <div class="form-row"><label>% máximo</label><input type="number" id="aum-pmax" value="10" min="0" step="0.5"></div>
+        <div class="form-row"><label>Notas (opcional)</label><input type="text" id="aum-notas" placeholder="Ej: ajuste paritaria mayo"></div>
+        <button class="btn primary" onclick="aumAbrirPedido()">📤 Abrir pedido</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+      <span style="font-size:13px;color:var(--muted);">Filtrar:</span>
+      <select onchange="aumState.local=this.value; switchTab('aumentos');" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+        <option value="" ${localFiltro===''?'selected':''}>Todos los locales</option>
+        <option value="alcorta" ${localFiltro==='alcorta'?'selected':''}>Alcorta</option>
+        <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="oficina" ${localFiltro==='oficina'?'selected':''}>Oficina</option>
+      </select>
+    </div>
+    ` : ''}
+
+    <div class="card">
+      <div class="section-title">Pedidos ${localFiltro ? `de ${localFiltro}` : ''}</div>
+      ${(pedidos||[]).length === 0 ? `<div style="padding:14px;color:var(--muted);">No hay pedidos.</div>` : `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:8px;">Local</th>
+          <th style="padding:8px;">Vigencia</th>
+          <th style="padding:8px;">Rango</th>
+          <th style="padding:8px;">Estado</th>
+          <th style="padding:8px;">Abierto</th>
+          <th style="padding:8px;">Notas</th>
+          <th style="padding:8px;text-align:right;">Acciones</th>
+        </tr></thead>
+        <tbody>
+          ${pedidos.map(p => `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px;font-weight:600;">${escapeHtml(p.local)}</td>
+            <td style="padding:8px;font-family:monospace;">${fmtFecha(p.fecha_vigencia)}</td>
+            <td style="padding:8px;font-family:monospace;">${fmtPct(p.pct_min)} – ${fmtPct(p.pct_max)}</td>
+            <td style="padding:8px;">${estadoChip(p.estado)}</td>
+            <td style="padding:8px;font-size:12px;color:var(--muted);">${fmtFecha((p.abierto_at||'').slice(0,10))}${p.abierto_por?'<br><span style="font-size:11px;">'+escapeHtml(p.abierto_por)+'</span>':''}</td>
+            <td style="padding:8px;color:var(--muted);">${escapeHtml(p.notas||'')}</td>
+            <td style="padding:8px;text-align:right;">
+              <button class="btn small" onclick="aumAbrirDetalle(${p.id})">📝 Detalle</button>
+              ${isAdmin && p.estado === 'abierto' ? `<button class="btn small" onclick="aumCancelar(${p.id})" title="Cancelar pedido">🗑</button>` : ''}
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+}
+
+async function aumAbrirPedido() {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  const local = document.getElementById('aum-local').value;
+  const fecha_vigencia = document.getElementById('aum-vigencia').value;
+  const pct_min = Number(document.getElementById('aum-pmin').value);
+  const pct_max = Number(document.getElementById('aum-pmax').value);
+  const notas = document.getElementById('aum-notas').value.trim() || null;
+  if (!local || !fecha_vigencia) { toast('Faltan local o fecha', 'error'); return; }
+  if (!(pct_max >= pct_min)) { toast('% máximo debe ser ≥ % mínimo', 'error'); return; }
+
+  const { data: ped, error: e1 } = await sb.from('rrhh_aumento_pedido').insert({
+    local, fecha_vigencia, pct_min, pct_max, notas,
+    estado: 'abierto', abierto_por: session.user?.email || 'admin',
+  }).select('id').single();
+  if (e1) { toast('Error: ' + e1.message, 'error'); return; }
+
+  const periodoFull = fecha_vigencia;
+  const { data: configs } = await sb.from('rrhh_sueldo_empleada_config')
+    .select('empleado_id, fijo_mensual, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
+    .lte('vigente_desde', periodoFull)
+    .eq('activa_en_modulo', true);
+  const porEmp = {};
+  (configs||[])
+    .filter(c => c.rrhh_empleados?.local === local && c.rrhh_empleados?.estado === 'activo')
+    .forEach(c => { porEmp[c.empleado_id] = c; });
+
+  const filas = Object.values(porEmp).map(c => ({
+    pedido_id: ped.id, empleado_id: c.empleado_id, fijo_anterior: c.fijo_mensual,
+  }));
+  if (filas.length === 0) {
+    toast('No hay empleadas activas en ' + local, 'warning');
+  } else {
+    const { error: e2 } = await sb.from('rrhh_aumento_pedido_detalle').insert(filas);
+    if (e2) { toast('Pedido creado pero falló detalle: ' + e2.message, 'error'); return; }
+  }
+  toast(`Pedido #${ped.id} abierto con ${filas.length} empleadas`, 'success');
+  switchTab('aumentos');
+}
+
+async function aumCancelar(pedidoId) {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Cancelar y eliminar este pedido? Se pierden los % cargados.')) return;
+  const { error } = await sb.from('rrhh_aumento_pedido').delete().eq('id', pedidoId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Pedido eliminado', 'success');
+  switchTab('aumentos');
+}
+
+async function aumAbrirDetalle(pedidoId) {
+  const { data: ped } = await sb.from('rrhh_aumento_pedido').select('*').eq('id', pedidoId).single();
+  if (!ped) { toast('Pedido no encontrado', 'error'); return; }
+  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle')
+    .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo)')
+    .eq('pedido_id', pedidoId)
+    .order('empleado(apellido)');
+
+  const isAdmin = session.role === 'admin';
+  const isGerente = session.role === 'gerente';
+  const editable = (ped.estado === 'abierto' && (isGerente || isAdmin)) || (ped.estado === 'propuesto' && isAdmin);
+  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  const html = `
+    <div style="background:white;border-radius:10px;max-width:880px;width:95vw;max-height:90vh;overflow:auto;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Pedido #${ped.id} — ${escapeHtml(ped.local)}</h3>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-bottom:14px;">
+        <div><strong>Vigente desde:</strong> ${fmtFecha(ped.fecha_vigencia)}</div>
+        <div><strong>Rango:</strong> ${Number(ped.pct_min).toFixed(2)}% – ${Number(ped.pct_max).toFixed(2)}%</div>
+        <div><strong>Estado:</strong> ${ped.estado}</div>
+        ${ped.notas ? `<div><strong>Notas:</strong> ${escapeHtml(ped.notas)}</div>` : ''}
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:8px;">Empleada</th>
+          <th style="padding:8px;text-align:right;">Fijo anterior</th>
+          <th style="padding:8px;text-align:right;">% propuesto</th>
+          <th style="padding:8px;text-align:right;">Fijo nuevo</th>
+          <th style="padding:8px;">Notas</th>
+        </tr></thead>
+        <tbody>
+          ${(det||[]).map(d => {
+            const fijoNuevo = (d.pct_propuesto != null && d.fijo_anterior != null)
+              ? Number(d.fijo_anterior) * (1 + Number(d.pct_propuesto)/100)
+              : null;
+            return `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:8px;">${escapeHtml((d.empleado?.apellido||'') + ', ' + (d.empleado?.nombre||''))}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(d.fijo_anterior)}</td>
+              <td style="padding:8px;text-align:right;">
+                ${editable
+                  ? `<input type="number" id="aum-pct-${d.id}" value="${d.pct_propuesto ?? ''}" min="${ped.pct_min}" max="${ped.pct_max}" step="0.5" style="width:80px;padding:4px;text-align:right;" oninput="aumActualizarFijoNuevo(${d.id}, ${d.fijo_anterior}, ${ped.pct_min}, ${ped.pct_max})">`
+                  : `<span style="font-family:monospace;">${d.pct_propuesto != null ? Number(d.pct_propuesto).toFixed(2)+'%' : '—'}</span>`}
+              </td>
+              <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;" id="aum-nuevo-${d.id}">${fijoNuevo != null ? fmt$(fijoNuevo) : '—'}</td>
+              <td style="padding:8px;">
+                ${editable
+                  ? `<input type="text" id="aum-notas-${d.id}" value="${escapeHtml(d.notas_encargada||'')}" placeholder="(opcional)" style="width:100%;padding:4px;">`
+                  : `<span style="color:var(--muted);">${escapeHtml(d.notas_encargada||'')}</span>`}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap;">
+        ${editable ? `<button class="btn primary" onclick="aumGuardarDetalle(${ped.id})">💾 Guardar % cargados</button>` : ''}
+        ${ped.estado === 'abierto' && (isGerente || isAdmin) ? `<button class="btn" onclick="aumMarcarPropuesto(${ped.id})">📤 Marcar como propuesto (al admin)</button>` : ''}
+        ${ped.estado === 'propuesto' && isAdmin ? `<button class="btn" style="background:#16a34a;color:white;" onclick="aumAprobar(${ped.id})">✓ Aprobar</button>` : ''}
+        ${ped.estado === 'propuesto' && isAdmin ? `<button class="btn" style="background:#dc2626;color:white;" onclick="aumRechazar(${ped.id})">✗ Rechazar</button>` : ''}
+        ${ped.estado === 'aprobado' && isAdmin ? `<button class="btn" style="background:#7c3aed;color:white;" onclick="aumAplicar(${ped.id})">🚀 Aplicar (crear nuevos fijos)</button>` : ''}
+      </div>
+    </div>
+  `;
+  openModal(html);
+}
+
+function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
+  const inp = document.getElementById('aum-pct-' + detId);
+  const tgt = document.getElementById('aum-nuevo-' + detId);
+  if (!inp || !tgt) return;
+  const v = Number(inp.value);
+  if (isNaN(v) || inp.value === '') { tgt.textContent = '—'; return; }
+  if (v < pmin || v > pmax) {
+    tgt.textContent = `Fuera de rango (${pmin}-${pmax}%)`;
+    tgt.style.color = '#dc2626';
+    return;
+  }
+  tgt.style.color = '';
+  const nuevo = fijoAnt * (1 + v/100);
+  tgt.textContent = '$' + Math.round(nuevo).toLocaleString('es-AR');
+}
+
+async function aumGuardarDetalle(pedidoId) {
+  const { data: ped } = await sb.from('rrhh_aumento_pedido').select('pct_min, pct_max').eq('id', pedidoId).single();
+  if (!ped) { toast('Pedido no encontrado', 'error'); return; }
+  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle').select('id, fijo_anterior').eq('pedido_id', pedidoId);
+
+  const updates = [];
+  for (const d of (det||[])) {
+    const inp = document.getElementById('aum-pct-' + d.id);
+    const inpN = document.getElementById('aum-notas-' + d.id);
+    if (!inp) continue;
+    const raw = inp.value.trim();
+    const pct = raw === '' ? null : Number(raw);
+    if (pct != null) {
+      if (isNaN(pct) || pct < Number(ped.pct_min) || pct > Number(ped.pct_max)) {
+        toast(`% fuera de rango (${ped.pct_min}-${ped.pct_max}%) en una empleada`, 'error');
+        return;
+      }
+    }
+    const fijo_nuevo = pct != null ? Math.round(Number(d.fijo_anterior) * (1 + pct/100) * 100) / 100 : null;
+    updates.push({ id: d.id, pct_propuesto: pct, fijo_nuevo, notas_encargada: (inpN?.value || '').trim() || null });
+  }
+  for (const u of updates) {
+    const { error } = await sb.from('rrhh_aumento_pedido_detalle').update({
+      pct_propuesto: u.pct_propuesto, fijo_nuevo: u.fijo_nuevo, notas_encargada: u.notas_encargada,
+    }).eq('id', u.id);
+    if (error) { toast('Error guardando: ' + error.message, 'error'); return; }
+  }
+  toast(`${updates.length} % guardados ✓`, 'success');
+  closeModal();
+  switchTab('aumentos');
+}
+
+async function aumMarcarPropuesto(pedidoId) {
+  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle').select('id, pct_propuesto').eq('pedido_id', pedidoId);
+  const faltan = (det||[]).filter(d => d.pct_propuesto == null);
+  if (faltan.length > 0) {
+    if (!confirm(`Hay ${faltan.length} empleada(s) sin % cargado. ¿Marcar igual como propuesto? Esas empleadas quedarán sin aumento.`)) return;
+  }
+  const { error } = await sb.from('rrhh_aumento_pedido').update({
+    estado: 'propuesto', propuesto_at: new Date().toISOString(),
+  }).eq('id', pedidoId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Marcado como propuesto. El admin lo va a revisar.', 'success');
+  closeModal();
+  switchTab('aumentos');
+}
+
+async function aumAprobar(pedidoId) {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Aprobar este pedido? Después podrás aplicarlo para que los nuevos fijos entren en vigor.')) return;
+  const { error } = await sb.from('rrhh_aumento_pedido').update({
+    estado: 'aprobado', aprobado_at: new Date().toISOString(),
+    aprobado_por: session.user?.email || 'admin',
+  }).eq('id', pedidoId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Pedido aprobado ✓', 'success');
+  closeModal();
+  switchTab('aumentos');
+}
+
+async function aumRechazar(pedidoId) {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Rechazar este pedido? La encargada tendrá que rehacerlo.')) return;
+  const { error } = await sb.from('rrhh_aumento_pedido').update({
+    estado: 'rechazado', aprobado_at: new Date().toISOString(),
+    aprobado_por: session.user?.email || 'admin',
+  }).eq('id', pedidoId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Pedido rechazado', 'success');
+  closeModal();
+  switchTab('aumentos');
+}
+
+async function aumAplicar(pedidoId) {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Aplicar el aumento? Se van a crear filas nuevas en sueldo_empleada_config con vigencia a la fecha del pedido.')) return;
+  const { data: ped } = await sb.from('rrhh_aumento_pedido').select('*').eq('id', pedidoId).single();
+  if (!ped) { toast('Pedido no encontrado', 'error'); return; }
+  if (ped.estado !== 'aprobado') { toast('El pedido tiene que estar en estado "aprobado"', 'error'); return; }
+
+  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle')
+    .select('empleado_id, fijo_nuevo, pct_propuesto')
+    .eq('pedido_id', pedidoId)
+    .not('fijo_nuevo', 'is', null);
+
+  let aplicadas = 0, errores = 0;
+  for (const d of (det||[])) {
+    const { data: cfgVieja } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('*')
+      .eq('empleado_id', d.empleado_id)
+      .lte('vigente_desde', ped.fecha_vigencia)
+      .order('vigente_desde', { ascending: false })
+      .limit(1).maybeSingle();
+    if (!cfgVieja) { errores++; continue; }
+    const nuevaCfg = { ...cfgVieja };
+    delete nuevaCfg.id;
+    delete nuevaCfg.creado_at;
+    nuevaCfg.fijo_mensual = d.fijo_nuevo;
+    nuevaCfg.vigente_desde = ped.fecha_vigencia;
+    const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert(nuevaCfg);
+    if (eIns) { errores++; continue; }
+    aplicadas++;
+  }
+
+  const { error: eEst } = await sb.from('rrhh_aumento_pedido').update({
+    estado: 'aplicado', aplicado_at: new Date().toISOString(),
+  }).eq('id', pedidoId);
+  if (eEst) { toast('Fijos aplicados pero falló cambio de estado: ' + eEst.message, 'warning'); return; }
+
+  toast(`✓ ${aplicadas} fijos nuevos aplicados${errores ? ` (${errores} errores)` : ''}`, 'success');
+  closeModal();
+  switchTab('aumentos');
+}
+
+
 async function liqHistoricoEmpleada(empleadoId) {
   // Últimas 12 liquidaciones del empleado
   const { data: liqs } = await sb.from('rrhh_liquidacion')
@@ -9126,6 +9484,15 @@ const salaryEngine = (() => {
     // basico_lleno está prorrateado por días (porque total_rem_obj sí lo está implícitamente vía el módulo).
     // Para devolver el "básico escala" (full mes), dividir por fracción.
     const basico_escala = fraccion > 0 ? (basico_lleno / fraccion) : basico_lleno;
+    // Guard: el neto objetivo podría ser tan bajo que arroje un básico negativo o inválido.
+    // Eso indica inputs mal cargados (ej: total_negro_esperado < descuentos no removibles).
+    if (!isFinite(basico_escala) || basico_escala <= 0) {
+      throw new Error(
+        'Solver inverso: neto objetivo imposiblemente bajo ($' +
+        Number(neto_objetivo||0).toLocaleString('es-AR') +
+        '). Revisá fijo + comisión + premio + viáticos + extras + feriado.'
+      );
+    }
     return basico_escala;
   }
 
@@ -9323,20 +9690,30 @@ const salaryWorkflow = (() => {
     const viaticos = viaticos_full * (dias_trabajados / 30);
 
     // Plus por feriado trabajado: solo en locales en shoppings (Alcorta/Unicenter).
-    // Se cuentan los feriados del mes donde el local NO cierra.
+    // Se cuentan los feriados del mes donde el local NO cierra Y la empleada efectivamente
+    // estuvo disponible (no de vacaciones / licencia / ausente). Esto evita pagarle plus
+    // a alguien que estaba de vacaciones cuando el local trabajó el feriado.
     const [py, pm] = periodo.split('-').map(Number);
     const desdeFer = `${periodo}-01`;
     const hastaFer = `${py}-${String(pm).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
     const { data: fers } = await sb.from('rrhh_feriados')
       .select('fecha, cierra_oficina, cierra_shoppings')
       .gte('fecha', desdeFer).lte('fecha', hastaFer);
+    const { data: detalleEmp } = await sb.from('rrhh_asistencias_detalle')
+      .select('fecha, estado').eq('empleado_id', empleadoId)
+      .gte('fecha', desdeFer).lte('fecha', hastaFer);
+    const estadoNoTrabajado = new Set(['vacaciones', 'licencia', 'ausente']);
+    const noDisponiblePorFecha = new Set(
+      (detalleEmp || [])
+        .filter(d => estadoNoTrabajado.has(d.estado))
+        .map(d => d.fecha)
+    );
     let feriado_dias = 0;
     (fers || []).forEach(f => {
-      if (emp.local === 'oficina') {
-        if (!f.cierra_oficina) feriado_dias += 1;
-      } else {
-        if (!f.cierra_shoppings) feriado_dias += 1;
-      }
+      const localTrabaja = (emp.local === 'oficina') ? !f.cierra_oficina : !f.cierra_shoppings;
+      if (!localTrabaja) return;
+      if (noDisponiblePorFecha.has(f.fecha)) return;
+      feriado_dias += 1;
     });
     const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
     const feriado_monto = feriado_dias * feriado_por_dia;
@@ -9373,7 +9750,9 @@ const salaryWorkflow = (() => {
         fraccion_no_rem_override: fraccionNR,
       });
       efectivo = 0;
-      ajuste_blanco = 0;
+      // Snapshot del delta para trazabilidad: cuánto se modificó el básico
+      // respecto del escalafón puro (positivo si subió, negativo si bajó).
+      ajuste_blanco = Number((reciboFinal.totales.basico - recibo.totales.basico).toFixed(2));
     } else {
       efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste);
     }

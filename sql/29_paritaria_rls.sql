@@ -7,6 +7,9 @@
 --  puede leerla. Solo el admin puede escribir.
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- Habilitar RLS sobre la tabla (sin esto las políticas son inertes)
+ALTER TABLE rrhh_paritaria_sumas_nr ENABLE ROW LEVEL SECURITY;
+
 DROP POLICY IF EXISTS paritaria_read   ON rrhh_paritaria_sumas_nr;
 CREATE POLICY paritaria_read   ON rrhh_paritaria_sumas_nr FOR SELECT TO authenticated
     USING (true);

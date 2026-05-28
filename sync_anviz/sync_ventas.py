@@ -208,17 +208,20 @@ def main():
             if not values:
                 print(f"  AVISO {local}: hoja '{mes_hoja}' vacia o no existe")
                 continue
-            # Chequear el control G1 (la oficina marca OK cuando termina de controlar)
-            ok, err_ctrl = chequear_control_g1(values)
-            if not ok:
-                print(f"  PAUSADO {local}: {err_ctrl} -- salteo este local")
-                continue
+            # Chequear el control G1 SOLO para locales en shoppings (Alcorta/Unicenter).
+            # Oficina no tiene G1, se importa directamente.
+            if local != 'oficina':
+                ok, err_ctrl = chequear_control_g1(values)
+                if not ok:
+                    print(f"  PAUSADO {local}: {err_ctrl} -- salteo este local")
+                    continue
             monto, err = extraer_total_mes(values)
             if err:
                 print(f"  AVISO {local}: {err}")
                 continue
             resultados.append((local, monto))
-            print(f"  OK {local}: ${monto:,.2f}  (G1 = OK)".replace(',', '.'))
+            tag = "(sin G1: aplica siempre)" if local == 'oficina' else "(G1 = OK)"
+            print(f"  OK {local}: ${monto:,.2f}  {tag}".replace(',', '.'))
         except Exception as e:
             print(f"  ERROR {local}: {e}")
 
