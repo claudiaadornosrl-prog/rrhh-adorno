@@ -8447,6 +8447,7 @@ async function renderLiquidaciones() {
               <th style="padding:8px;">Premio</th>
               <th style="padding:8px;">Viáticos</th>
               <th style="padding:8px;">Extras</th>
+              <th style="padding:8px;">Feriado</th>
               <th style="padding:8px;background:#eef2ff;">Total esp.</th>
               <th style="padding:8px;background:#fef3c7;">Recibo</th>
               <th style="padding:8px;">Merc.</th>
@@ -8470,6 +8471,7 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;font-family:monospace;color:${premioOk?'#059669':'#dc2626'};" title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}">${premioOk?fmt(l.premio_monto):'—'}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.viaticos)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.extras)}</td>
+                <td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
                 <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
                 <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;">${fmt(l.recibo_neto)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
@@ -8545,7 +8547,7 @@ async function liqVerDetalle(liqId) {
     </table>
     <div style="margin-top:18px;padding:12px;background:#eef2ff;border-radius:8px;font-size:13px;">
       <div style="font-weight:600;margin-bottom:6px;">Cálculo del sueldo total (negro + ajuste):</div>
-      <div>Fijo ${fmt(liq.fijo)} + Comisión ${fmt(liq.comision)} + Premio ${liq.premio_cobra ? fmt(liq.premio_monto) : '—'} + Viáticos ${fmt(liq.viaticos)} + Extras ${fmt(liq.extras)} = <strong>${fmt(liq.total_negro)}</strong></div>
+      <div>Fijo ${fmt(liq.fijo)} + Comisión ${fmt(liq.comision)} + Premio ${liq.premio_cobra ? fmt(liq.premio_monto) : '—'} + Viáticos ${fmt(liq.viaticos)} + Extras ${fmt(liq.extras)} + Feriado ${fmt(liq.feriado_monto)} (${liq.feriado_dias||0}d) = <strong>${fmt(liq.total_negro)}</strong></div>
       <div>Recibo neto ${fmt(liq.recibo_neto)} + Efectivo ${fmt(liq.efectivo)} + Merc ${fmt(liq.mercaderia)} + Ajuste ${fmt(liq.ajuste)} = <strong>${fmt((+liq.recibo_neto||0)+(+liq.efectivo||0)+(+liq.mercaderia||0)+(+liq.ajuste||0))}</strong></div>
     </div>
   `;
@@ -8569,6 +8571,7 @@ async function liqEditar(liqId) {
       <div class="form-row"><label>Premio fich+uniforme</label><input type="number" id="ledit-premio" value="${fmt(liq.premio_monto)}"></div>
       <div class="form-row"><label>Viáticos (ya prorrateados)</label><input type="number" id="ledit-viaticos" value="${fmt(liq.viaticos)}"></div>
       <div class="form-row"><label>Extras (SAC, vacaciones, etc.)</label><input type="number" id="ledit-extras" value="${fmt(liq.extras)}"></div>
+      <div class="form-row"><label>Feriado (${liq.feriado_dias||0} día(s))</label><input type="number" id="ledit-feriado" value="${fmt(liq.feriado_monto)}"></div>
       <div class="form-row"><label>Mercadería</label><input type="number" id="ledit-merc" value="${fmt(liq.mercaderia)}"></div>
       <div class="form-row"><label>Ajuste</label><input type="number" id="ledit-ajuste" value="${fmt(liq.ajuste)}"></div>
       <div class="form-row"><label>Uniforme OK?</label>
@@ -8601,12 +8604,13 @@ async function liqEditarGuardar(liqId) {
   const premio  = Number(document.getElementById('ledit-premio').value) || 0;
   const viaticos= Number(document.getElementById('ledit-viaticos').value) || 0;
   const extras  = Number(document.getElementById('ledit-extras').value) || 0;
+  const feriado_monto = Number(document.getElementById('ledit-feriado').value) || 0;
   const merc    = Number(document.getElementById('ledit-merc').value) || 0;
   const ajuste  = Number(document.getElementById('ledit-ajuste').value) || 0;
   const uniOK   = document.getElementById('ledit-uniforme').value === 'true';
   const obs     = document.getElementById('ledit-obs').value.trim() || null;
 
-  const total_negro_esperado = fijo + comision + premio + viaticos + extras;
+  const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto;
 
   // Cargar config y paritaria para recalcular el recibo con los datos manuales
   const periodo = String(liq.periodo).substring(0,7);
@@ -8657,7 +8661,7 @@ async function liqEditarGuardar(liqId) {
     dias_trabajados: dias, mercaderia: merc, ajuste: ajuste, uniforme_ok: uniOK,
     puntos_mes: puntos, observaciones: obs,
     fijo, comision, premio_cobra: premio > 0, premio_monto: premio,
-    viaticos, extras, total_negro: total_negro_esperado, efectivo, ajuste_blanco: 0,
+    viaticos, extras, feriado_monto, total_negro: total_negro_esperado, efectivo, ajuste_blanco: 0,
     recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
     recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
     recibo_recompos_nr: t.recompos_nr, recibo_otros_rem: t.otros_rem,
@@ -9210,7 +9214,27 @@ const salaryWorkflow = (() => {
     // Viáticos: se pagan solo los días efectivamente trabajados (vacaciones / sin goce no cobran viático)
     const viaticos_full = Number(configEmp.viaticos);
     const viaticos = viaticos_full * (dias_trabajados / 30);
-    const total_negro_esperado = fijo + comision + premio + viaticos + extras;
+
+    // Plus por feriado trabajado: solo en locales en shoppings (Alcorta/Unicenter).
+    // Se cuentan los feriados del mes donde el local NO cierra.
+    const [py, pm] = periodo.split('-').map(Number);
+    const desdeFer = `${periodo}-01`;
+    const hastaFer = `${py}-${String(pm).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+    const { data: fers } = await sb.from('rrhh_feriados')
+      .select('fecha, cierra_oficina, cierra_shoppings')
+      .gte('fecha', desdeFer).lte('fecha', hastaFer);
+    let feriado_dias = 0;
+    (fers || []).forEach(f => {
+      if (emp.local === 'oficina') {
+        if (!f.cierra_oficina) feriado_dias += 1;
+      } else {
+        if (!f.cierra_shoppings) feriado_dias += 1;
+      }
+    });
+    const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
+    const feriado_monto = feriado_dias * feriado_por_dia;
+
+    const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto;
 
     // Modo de liquidación: cct_negro (default) vs doble_blanco (recibo ajustado: Contreras/Escasany)
     // En doble_blanco el estudio re-liquida con el básico ajustado para que el neto del único
@@ -9265,7 +9289,8 @@ const salaryWorkflow = (() => {
       recibo_bruto: t.bruto, recibo_descuentos: t.total_descuentos, recibo_neto: t.neto,
       // negro
       fijo, comision, premio_cobra: cobraPremio, premio_monto: premio,
-      viaticos, extras, total_negro: total_negro_esperado,
+      viaticos, extras, feriado_dias, feriado_monto,
+      total_negro: total_negro_esperado,
       efectivo, ajuste_blanco,
       calculado_at: new Date().toISOString(),
     };
