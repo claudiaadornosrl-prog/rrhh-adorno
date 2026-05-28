@@ -484,6 +484,7 @@ const NAV = {
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
     { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
+    { id: 'prestamos',   label: 'Préstamos',     icon: '💵', section: 'Personal' },
     { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
     { id: 'documentos',  label: 'Documentos',    icon: '📄', section: 'Personal' },
@@ -659,6 +660,7 @@ async function renderPage(tabId) {
     'liquidaciones':   renderLiquidaciones,
     'retiros':         renderRetirosMercaderia,
     'aumentos':        renderAumentos,
+    'prestamos':       renderPrestamos,
     'asistencias':     renderAsistenciasAdmin,
     'vacaciones':      renderVacacionesAdmin,
     'documentos':      renderDocumentosAdmin,
@@ -9361,6 +9363,439 @@ async function aumAplicar(pedidoId) {
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  PRÉSTAMOS — Adorno SRL ↔ Empleadas
+//  Sistema francés: tasa mensual fija, cuotas iguales.
+//  Capital → descuento del banco (recibo).
+//  Interés → descuento del efectivo (negro).
+// ═══════════════════════════════════════════════════════════════════
+const prestamoEngine = (() => {
+  /**
+   * Calcula la cuota fija con sistema francés.
+   *   c = K · (i·(1+i)^n) / ((1+i)^n - 1)
+   *   Si i = 0 (sin interés): c = K / n
+   */
+  function cuotaFrancesa(capital, tasaMensual, cuotas) {
+    const K = Number(capital), i = Number(tasaMensual||0), n = Number(cuotas);
+    if (!(K > 0) || !(n > 0)) throw new Error('Capital y cuotas deben ser > 0');
+    if (i === 0) return K / n;
+    const pot = Math.pow(1 + i, n);
+    return K * (i * pot) / (pot - 1);
+  }
+
+  /**
+   * Arma el plan de amortización francés. Devuelve [{numero, monto_total, monto_capital, monto_interes, saldo_post}].
+   * El saldo final debe quedar exactamente 0 (se ajusta la última cuota por redondeo).
+   */
+  function armarPlan(capital, tasaMensual, cuotas) {
+    const K = Number(capital), i = Number(tasaMensual||0), n = Number(cuotas);
+    const cuota = cuotaFrancesa(K, i, n);
+    let saldo = K;
+    const filas = [];
+    for (let k = 1; k <= n; k++) {
+      const interes = round2(saldo * i);
+      let capital_k = round2(cuota - interes);
+      // Última cuota: ajustar para que saldo final = 0 (limpia redondeo)
+      if (k === n) capital_k = round2(saldo);
+      const total = round2(capital_k + interes);
+      saldo = round2(saldo - capital_k);
+      filas.push({ numero: k, monto_total: total, monto_capital: capital_k, monto_interes: interes, saldo_post: Math.max(0, saldo) });
+    }
+    return { cuota_monto: round2(cuota), plan: filas };
+  }
+
+  function round2(n) { return Math.round((Number(n)||0) * 100) / 100; }
+
+  /**
+   * Avanza una fecha en N meses, devuelve YYYY-MM-01.
+   */
+  function sumarMeses(fechaIsoMes, meses) {
+    const [y, m] = fechaIsoMes.split('-').map(Number);
+    const d = new Date(y, m - 1 + meses, 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  }
+
+  return { cuotaFrancesa, armarPlan, sumarMeses };
+})();
+
+let prestamoState = { filtro: 'activos' };
+
+async function renderPrestamos() {
+  const cont = document.getElementById('main');
+  if (session.role !== 'admin') {
+    cont.innerHTML = '<div class="card"><div class="card-body">Solo el admin puede gestionar préstamos.</div></div>';
+    return;
+  }
+
+  // Cargar préstamos según filtro
+  const filtro = prestamoState.filtro || 'activos';
+  let q = sb.from('rrhh_prestamo')
+    .select('*, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local)')
+    .order('otorgado_at', { ascending: false });
+  if (filtro === 'activos')   q = q.eq('estado', 'activo');
+  if (filtro === 'pagados')   q = q.eq('estado', 'pagado');
+  if (filtro === 'cancelados') q = q.eq('estado', 'cancelado_anticipado');
+  const { data: prestamos, error } = await q;
+  if (error) {
+    cont.innerHTML = `<div class="card"><div class="card-body" style="color:#b91c1c">Error: ${escapeHtml(error.message)}</div></div>`;
+    return;
+  }
+
+  // Para cada préstamo activo, calcular saldo y cuotas pagadas
+  const prestamoIds = (prestamos||[]).map(p => p.id);
+  let cuotasResumen = {};
+  if (prestamoIds.length > 0) {
+    const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+      .select('prestamo_id, estado, monto_capital')
+      .in('prestamo_id', prestamoIds);
+    (cuotas||[]).forEach(c => {
+      const r = cuotasResumen[c.prestamo_id] = cuotasResumen[c.prestamo_id] || { pagadas: 0, pendientes: 0, saldo: 0 };
+      if (c.estado === 'aplicada') r.pagadas += 1;
+      else if (c.estado === 'pendiente') { r.pendientes += 1; r.saldo += Number(c.monto_capital||0); }
+    });
+  }
+
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtPct = (t) => (Number(t||0) * 100).toFixed(2) + '%';
+  const estadoChip = (e) => {
+    const colores = { activo: '#0ea5e9', pagado: '#16a34a', cancelado_anticipado: '#dc2626' };
+    return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${e}</span>`;
+  };
+
+  cont.innerHTML = `
+    <div class="page-header">
+      <h2>Préstamos a empleadas</h2>
+      <div class="subtitle">Sistema francés · capital → banco · interés → efectivo. Solo el admin gestiona.</div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <h3 style="margin:0 0 12px;">➕ Otorgar nuevo préstamo</h3>
+      <button class="btn primary" onclick="prestamoAbrirNuevo()">📤 Crear préstamo</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+      <span style="font-size:13px;color:var(--muted);">Filtrar:</span>
+      <select onchange="prestamoState.filtro=this.value; switchTab('prestamos');" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+        <option value="activos"    ${filtro==='activos'?'selected':''}>Activos</option>
+        <option value="pagados"    ${filtro==='pagados'?'selected':''}>Pagados</option>
+        <option value="cancelados" ${filtro==='cancelados'?'selected':''}>Cancelados</option>
+        <option value="todos"      ${filtro==='todos'?'selected':''}>Todos</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="section-title">${(prestamos||[]).length} préstamo${(prestamos||[]).length===1?'':'s'} ${filtro}</div>
+      ${(prestamos||[]).length === 0 ? `<div style="padding:14px;color:var(--muted);">Sin préstamos para mostrar.</div>` : `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:8px;">Empleada</th>
+          <th style="padding:8px;">Local</th>
+          <th style="padding:8px;">Otorgado</th>
+          <th style="padding:8px;text-align:right;">Capital</th>
+          <th style="padding:8px;text-align:right;">Tasa</th>
+          <th style="padding:8px;text-align:right;">Cuota</th>
+          <th style="padding:8px;text-align:right;">Progreso</th>
+          <th style="padding:8px;text-align:right;">Saldo</th>
+          <th style="padding:8px;">Estado</th>
+          <th style="padding:8px;text-align:right;">Acción</th>
+        </tr></thead>
+        <tbody>
+          ${prestamos.map(p => {
+            const r = cuotasResumen[p.id] || { pagadas: 0, pendientes: p.cuotas_totales, saldo: p.capital };
+            const pctProg = Math.round(100 * r.pagadas / p.cuotas_totales);
+            return `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:8px;font-weight:600;">${escapeHtml((p.empleado?.apellido||'') + ', ' + (p.empleado?.nombre||''))}</td>
+              <td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(p.empleado?.local||'')}</td>
+              <td style="padding:8px;font-family:monospace;font-size:12px;">${fmtFecha(p.fecha_otorgamiento)}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;">${fmt(p.capital)}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;">${fmtPct(p.tasa_mensual)}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;">${fmt(p.cuota_monto)}</td>
+              <td style="padding:8px;text-align:right;">
+                <div style="font-size:11px;color:var(--muted);">${r.pagadas}/${p.cuotas_totales}</div>
+                <div style="width:80px;height:6px;background:#e5e7eb;border-radius:3px;margin:2px 0 0 auto;overflow:hidden;">
+                  <div style="width:${pctProg}%;height:100%;background:#16a34a;"></div>
+                </div>
+              </td>
+              <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(r.saldo)}</td>
+              <td style="padding:8px;">${estadoChip(p.estado)}</td>
+              <td style="padding:8px;text-align:right;">
+                <button class="btn small" onclick="prestamoAbrirDetalle(${p.id})" title="Ver detalle">📝</button>
+                ${p.estado === 'activo' ? `<button class="btn small" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+}
+
+async function prestamoAbrirNuevo() {
+  // Lista de empleadas activas para el dropdown
+  const { data: emps } = await sb.from('rrhh_empleados')
+    .select('id, apellido, nombre, local')
+    .eq('estado', 'activo')
+    .order('apellido');
+  const opts = (emps||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)} — ${escapeHtml(e.local)}</option>`).join('');
+  const hoy = new Date().toISOString().slice(0,10);
+  const proxMes = new Date(); proxMes.setMonth(proxMes.getMonth()+1, 1);
+  const proxIso = proxMes.toISOString().slice(0,10);
+
+  const html = `
+    <h3 style="margin:0 0 14px;">➕ Otorgar nuevo préstamo</h3>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:10px;">
+      <div class="form-row"><label>Empleada</label>
+        <select id="pr-emp"><option value="">— Elegir —</option>${opts}</select>
+      </div>
+      <div class="form-row"><label>Fecha otorgamiento</label><input type="date" id="pr-fecha" value="${hoy}"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div class="form-row"><label>Capital</label><input type="number" id="pr-capital" placeholder="300000" min="1" step="any"></div>
+      <div class="form-row"><label>Tasa mensual %</label><input type="number" id="pr-tasa" placeholder="5" min="0" max="50" step="0.1"></div>
+      <div class="form-row"><label>Cuotas</label><input type="number" id="pr-cuotas" placeholder="6" min="1" max="60" step="1"></div>
+      <div class="form-row"><label>Primer descuento (mes)</label><input type="month" id="pr-mes" value="${proxIso.slice(0,7)}"></div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px;">
+      <label>Notas (opcional)</label>
+      <input type="text" id="pr-notas" placeholder="Ej: ayuda mudanza, anticipo escritura, etc.">
+    </div>
+
+    <div id="pr-preview" style="background:#f9fafb;padding:12px;border-radius:8px;margin:14px 0;display:none;">
+      <div style="font-weight:600;margin-bottom:8px;">Plan de cuotas (sistema francés)</div>
+      <div id="pr-preview-body"></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="prestamoCalcularPreview()">🧮 Calcular plan</button>
+      <div>
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="prestamoCrear()">💾 Crear préstamo</button>
+      </div>
+    </div>
+  `;
+  openModal(html, '720px');
+}
+
+function prestamoCalcularPreview() {
+  const capital = Number(document.getElementById('pr-capital').value);
+  const tasaPct = Number(document.getElementById('pr-tasa').value || 0);
+  const cuotas  = Number(document.getElementById('pr-cuotas').value);
+  const mesIni  = document.getElementById('pr-mes').value; // YYYY-MM
+  if (!capital || !cuotas || capital <= 0 || cuotas <= 0) {
+    toast('Cargá capital y cuotas válidas', 'error'); return;
+  }
+  if (!mesIni) { toast('Cargá el mes del primer descuento', 'error'); return; }
+
+  const tasa = tasaPct / 100;
+  let plan;
+  try {
+    plan = prestamoEngine.armarPlan(capital, tasa, cuotas);
+  } catch(e) { toast(e.message, 'error'); return; }
+
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const labelMes = (iso) => {
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+  };
+
+  const totalDevolver = plan.plan.reduce((a, c) => a + c.monto_total, 0);
+  const totalInteres  = plan.plan.reduce((a, c) => a + c.monto_interes, 0);
+
+  document.getElementById('pr-preview').style.display = 'block';
+  document.getElementById('pr-preview-body').innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;">
+      <div><strong>Cuota mensual:</strong> <span style="font-family:monospace;">${fmt(plan.cuota_monto)}</span></div>
+      <div><strong>Total a devolver:</strong> <span style="font-family:monospace;">${fmt(totalDevolver)}</span></div>
+      <div><strong>Total intereses:</strong> <span style="font-family:monospace;color:#d97706;">${fmt(totalInteres)}</span></div>
+    </div>
+    <div style="max-height:240px;overflow:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:#f3f4f6;text-align:right;">
+        <th style="padding:4px;text-align:left;">#</th>
+        <th style="padding:4px;text-align:left;">Mes</th>
+        <th style="padding:4px;">Cuota</th>
+        <th style="padding:4px;">Capital</th>
+        <th style="padding:4px;">Interés</th>
+        <th style="padding:4px;">Saldo</th>
+      </tr></thead>
+      <tbody>
+        ${plan.plan.map(c => {
+          const mes = prestamoEngine.sumarMeses(mesIni + '-01', c.numero - 1);
+          return `<tr style="border-top:1px solid #e5e7eb;text-align:right;">
+            <td style="padding:4px;text-align:left;">${c.numero}</td>
+            <td style="padding:4px;text-align:left;text-transform:capitalize;">${labelMes(mes)}</td>
+            <td style="padding:4px;font-family:monospace;font-weight:600;">${fmt(c.monto_total)}</td>
+            <td style="padding:4px;font-family:monospace;">${fmt(c.monto_capital)}</td>
+            <td style="padding:4px;font-family:monospace;color:#d97706;">${fmt(c.monto_interes)}</td>
+            <td style="padding:4px;font-family:monospace;color:var(--muted);">${fmt(c.saldo_post)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+
+async function prestamoCrear() {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  const empId   = parseInt(document.getElementById('pr-emp').value);
+  const fecha   = document.getElementById('pr-fecha').value;
+  const capital = Number(document.getElementById('pr-capital').value);
+  const tasaPct = Number(document.getElementById('pr-tasa').value || 0);
+  const cuotas  = Number(document.getElementById('pr-cuotas').value);
+  const mesIni  = document.getElementById('pr-mes').value;
+  const notas   = (document.getElementById('pr-notas').value || '').trim() || null;
+
+  if (!empId)   { toast('Elegí una empleada', 'error'); return; }
+  if (!fecha)   { toast('Falta la fecha de otorgamiento', 'error'); return; }
+  if (!capital || capital <= 0) { toast('Capital inválido', 'error'); return; }
+  if (!cuotas || cuotas <= 0)   { toast('Cuotas inválidas', 'error'); return; }
+  if (!mesIni)  { toast('Mes del primer descuento requerido', 'error'); return; }
+
+  const tasa = tasaPct / 100;
+  let plan;
+  try {
+    plan = prestamoEngine.armarPlan(capital, tasa, cuotas);
+  } catch(e) { toast(e.message, 'error'); return; }
+
+  if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la empleada en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}? Esta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
+
+  // 1. Crear cabecera
+  const { data: pres, error: e1 } = await sb.from('rrhh_prestamo').insert({
+    empleado_id: empId,
+    fecha_otorgamiento: fecha,
+    capital,
+    tasa_mensual: tasa,
+    cuotas_totales: cuotas,
+    cuota_monto: plan.cuota_monto,
+    mes_primer_descuento: mesIni + '-01',
+    estado: 'activo',
+    otorgado_por: session.user?.email || 'admin',
+    notas,
+  }).select('id').single();
+  if (e1) { toast('Error creando préstamo: ' + e1.message, 'error'); return; }
+
+  // 2. Insertar las N cuotas del plan
+  const filasCuotas = plan.plan.map(c => ({
+    prestamo_id: pres.id,
+    numero: c.numero,
+    mes_descuento: prestamoEngine.sumarMeses(mesIni + '-01', c.numero - 1),
+    monto_total: c.monto_total,
+    monto_capital: c.monto_capital,
+    monto_interes: c.monto_interes,
+    saldo_post_cuota: c.saldo_post,
+    estado: 'pendiente',
+  }));
+  const { error: e2 } = await sb.from('rrhh_prestamo_cuota').insert(filasCuotas);
+  if (e2) {
+    toast('Préstamo creado pero falló el plan: ' + e2.message, 'error');
+    return;
+  }
+
+  toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
+  closeModal();
+  switchTab('prestamos');
+}
+
+async function prestamoAbrirDetalle(prestamoId) {
+  const { data: p } = await sb.from('rrhh_prestamo')
+    .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, local)')
+    .eq('id', prestamoId).single();
+  if (!p) { toast('Préstamo no encontrado', 'error'); return; }
+  const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+    .select('*, liquidacion:rrhh_liquidacion(periodo)')
+    .eq('prestamo_id', prestamoId)
+    .order('numero');
+
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtPct = (t) => (Number(t||0) * 100).toFixed(2) + '%';
+  const labelMes = (iso) => {
+    if (!iso) return '';
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+  };
+  const totalPagado    = (cuotas||[]).filter(c=>c.estado==='aplicada').reduce((a,c)=>a + Number(c.monto_total||0), 0);
+  const totalPendiente = (cuotas||[]).filter(c=>c.estado==='pendiente').reduce((a,c)=>a + Number(c.monto_total||0), 0);
+  const capitalPend    = (cuotas||[]).filter(c=>c.estado==='pendiente').reduce((a,c)=>a + Number(c.monto_capital||0), 0);
+
+  const html = `
+    <h3 style="margin:0 0 14px;">Préstamo #${p.id} — ${escapeHtml(p.empleado?.nombre_completo || '')}</h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-bottom:14px;">
+      <div><strong>Local:</strong> ${escapeHtml(p.empleado?.local||'')}</div>
+      <div><strong>Otorgado:</strong> ${fmtFecha(p.fecha_otorgamiento)}</div>
+      <div><strong>Capital:</strong> <span style="font-family:monospace;">${fmt(p.capital)}</span></div>
+      <div><strong>Tasa mensual:</strong> ${fmtPct(p.tasa_mensual)}</div>
+      <div><strong>Cuota:</strong> <span style="font-family:monospace;">${fmt(p.cuota_monto)}</span></div>
+      <div><strong>Estado:</strong> ${p.estado}</div>
+    </div>
+    ${p.notas ? `<div style="background:#fef3c7;padding:8px;border-radius:6px;font-size:13px;margin-bottom:10px;"><strong>Notas:</strong> ${escapeHtml(p.notas)}</div>` : ''}
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin-bottom:10px;">
+      <div style="background:#dcfce7;padding:6px 12px;border-radius:6px;"><strong>Pagado:</strong> <span style="font-family:monospace;">${fmt(totalPagado)}</span></div>
+      <div style="background:#fef3c7;padding:6px 12px;border-radius:6px;"><strong>Pendiente:</strong> <span style="font-family:monospace;">${fmt(totalPendiente)}</span></div>
+      <div style="background:#eef2ff;padding:6px 12px;border-radius:6px;"><strong>Capital restante:</strong> <span style="font-family:monospace;">${fmt(capitalPend)}</span></div>
+    </div>
+
+    <div style="max-height:380px;overflow:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:#f3f4f6;text-align:right;">
+        <th style="padding:6px;text-align:left;">#</th>
+        <th style="padding:6px;text-align:left;">Mes</th>
+        <th style="padding:6px;">Cuota</th>
+        <th style="padding:6px;">Capital</th>
+        <th style="padding:6px;">Interés</th>
+        <th style="padding:6px;">Saldo</th>
+        <th style="padding:6px;text-align:center;">Estado</th>
+        <th style="padding:6px;text-align:left;">Liquidación</th>
+      </tr></thead>
+      <tbody>
+        ${(cuotas||[]).map(c => {
+          const cls = c.estado === 'aplicada' ? 'background:#dcfce7;' : (c.estado === 'cancelada' ? 'background:#fecaca;' : '');
+          return `<tr style="border-top:1px solid #e5e7eb;text-align:right;${cls}">
+            <td style="padding:6px;text-align:left;">${c.numero}</td>
+            <td style="padding:6px;text-align:left;text-transform:capitalize;">${labelMes(c.mes_descuento)}</td>
+            <td style="padding:6px;font-family:monospace;font-weight:600;">${fmt(c.monto_total)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(c.monto_capital)}</td>
+            <td style="padding:6px;font-family:monospace;color:#d97706;">${fmt(c.monto_interes)}</td>
+            <td style="padding:6px;font-family:monospace;color:var(--muted);">${fmt(c.saldo_post_cuota)}</td>
+            <td style="padding:6px;text-align:center;font-size:11px;">${c.estado}</td>
+            <td style="padding:6px;text-align:left;font-size:11px;color:var(--muted);">${c.liquidacion?.periodo ? labelMes(c.liquidacion.periodo) : '—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+  openModal(html, '900px');
+}
+
+async function prestamoCancelar(prestamoId) {
+  if (session.role !== 'admin') { toast('Solo admin', 'error'); return; }
+  const motivo = prompt('¿Por qué cancelás el préstamo anticipadamente? (renuncia, perdón de saldo, etc.)');
+  if (motivo == null) return;
+  if (!motivo.trim()) { toast('El motivo es obligatorio', 'error'); return; }
+
+  // 1. Marcar préstamo como cancelado
+  const { error: e1 } = await sb.from('rrhh_prestamo').update({
+    estado: 'cancelado_anticipado',
+    cancelado_at: new Date().toISOString(),
+    cancelado_motivo: motivo.trim(),
+    cancelado_por: session.user?.email || 'admin',
+  }).eq('id', prestamoId);
+  if (e1) { toast('Error: ' + e1.message, 'error'); return; }
+
+  // 2. Marcar cuotas pendientes como canceladas (las aplicadas quedan como están)
+  const { error: e2 } = await sb.from('rrhh_prestamo_cuota').update({
+    estado: 'cancelada',
+  }).eq('prestamo_id', prestamoId).eq('estado', 'pendiente');
+  if (e2) { toast('Préstamo cancelado pero falló marcar cuotas: ' + e2.message, 'warning'); return; }
+
+  toast('Préstamo cancelado anticipadamente', 'success');
+  switchTab('prestamos');
+}
+
+
 async function liqHistoricoEmpleada(empleadoId) {
   // Últimas 12 liquidaciones del empleado
   const { data: liqs } = await sb.from('rrhh_liquidacion')
@@ -9939,6 +10374,23 @@ const salaryWorkflow = (() => {
     }
     // Usar reciboFinal (con básico ajustado si doble_blanco, sino el original)
 
+    // ── Cuotas de préstamo del mes (capital sale del banco, interés del efectivo) ──
+    const { data: cuotasPendientes } = await sb.from('rrhh_prestamo_cuota')
+      .select('id, monto_capital, monto_interes, prestamo_id, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
+      .eq('estado', 'pendiente')
+      .eq('mes_descuento', periodo + '-01');
+    const cuotasEmp = (cuotasPendientes || []).filter(
+      c => c.prestamo?.empleado_id === empleadoId && c.prestamo?.estado === 'activo'
+    );
+    const prestamo_capital = cuotasEmp.reduce((a, c) => a + Number(c.monto_capital || 0), 0);
+    const prestamo_interes = cuotasEmp.reduce((a, c) => a + Number(c.monto_interes || 0), 0);
+    // Capital → descontar del efectivo (sale del banco/total a transferir).
+    // Interés → también descontar del efectivo (no figura en el recibo blanco).
+    // Resultado neto: efectivo = max(0, total_negro - recibo - merc - ajuste - cap - int)
+    if (configEmp.modo_liquidacion !== 'doble_blanco') {
+      efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste - prestamo_capital - prestamo_interes);
+    }
+
     // ── UPSERT en rrhh_liquidacion ──
     const t = reciboFinal.totales;
     const filaLiq = {
@@ -9946,6 +10398,7 @@ const salaryWorkflow = (() => {
       estado: 'borrador',
       dias_trabajados, mercaderia, ajuste, uniforme_ok,
       puntos_mes, observaciones: inputs.observaciones || null,
+      prestamo_capital, prestamo_interes,
       // recibo
       recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
       recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
@@ -9976,6 +10429,30 @@ const salaryWorkflow = (() => {
       const { data: ins, error } = await sb.from('rrhh_liquidacion').insert(filaLiq).select('id').single();
       if (error) throw new Error('Error insert liquidación: ' + error.message);
       liqId = ins.id;
+    }
+
+    // Marcar las cuotas de préstamo aplicadas con esta liquidación
+    if (cuotasEmp.length > 0) {
+      const cuotaIds = cuotasEmp.map(c => c.id);
+      await sb.from('rrhh_prestamo_cuota').update({
+        estado: 'aplicada',
+        liquidacion_id: liqId,
+        aplicada_at: new Date().toISOString(),
+      }).in('id', cuotaIds);
+      // Si con esta cuota se completó el préstamo, marcarlo como pagado
+      const prestamoIdsAfectados = [...new Set(cuotasEmp.map(c => c.prestamo_id))];
+      for (const pid of prestamoIdsAfectados) {
+        const { data: restantes } = await sb.from('rrhh_prestamo_cuota')
+          .select('id', { count: 'exact', head: true })
+          .eq('prestamo_id', pid).eq('estado', 'pendiente');
+        // restantes es null pero el count viene en el head; usar otra query si hay 0
+        const { count: pendCount } = await sb.from('rrhh_prestamo_cuota')
+          .select('id', { count: 'exact', head: true })
+          .eq('prestamo_id', pid).eq('estado', 'pendiente');
+        if (pendCount === 0) {
+          await sb.from('rrhh_prestamo').update({ estado: 'pagado' }).eq('id', pid);
+        }
+      }
     }
 
     // Conceptos
