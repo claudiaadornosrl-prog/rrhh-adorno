@@ -481,6 +481,7 @@ const NAV = {
     { id: 'dashboard',   label: 'Dashboard',     icon: '📊', section: null },
     { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
     { id: 'sueldos',     label: 'Sueldos',       icon: '💰', section: 'Personal' },
+    { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
     { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
     { id: 'documentos',  label: 'Documentos',    icon: '📄', section: 'Personal' },
@@ -493,6 +494,7 @@ const NAV = {
     { id: 'empleados',   label: 'Mi equipo',    icon: '👥', section: null },
     { id: 'asistencias', label: 'Asistencias',  icon: '🕐', section: null },
     { id: 'vacaciones',  label: 'Vacaciones',   icon: '🌴', section: null },
+    { id: 'liquidaciones', label: 'Liquidación', icon: '🧮', section: null },
   ],
   empleado: [
     { id: 'mi-calendario', label: 'Mi calendario', icon: '📅', section: null },
@@ -508,6 +510,8 @@ const NAV = {
 };
 
 let session = null;  // { user, rol, empleado, empleadoData }
+let liqState = { periodo: null, local: null };
+
 let currentTab = 'dashboard';
 
 // ════════════════════════════════════════════════════════════
@@ -648,6 +652,7 @@ async function renderPage(tabId) {
     'dashboard':       renderDashboard,
     'empleados':       renderEmpleados,
     'sueldos':         renderSueldosAdmin,
+    'liquidaciones':   renderLiquidaciones,
     'asistencias':     renderAsistenciasAdmin,
     'vacaciones':      renderVacacionesAdmin,
     'documentos':      renderDocumentosAdmin,
@@ -8344,6 +8349,658 @@ async function renderMiBanco() {
     </div>
   `;
 }
+
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER — Liquidación del mes (admin + encargada)
+// ═══════════════════════════════════════════════════════════════════════
+async function renderLiquidaciones() {
+  // Período por defecto: mes actual
+  if (!liqState.periodo) {
+    const hoy = new Date();
+    liqState.periodo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  }
+  const isAdmin   = session.rol === 'admin';
+  const isGerente = session.rol === 'gerente';
+  if (!liqState.local) liqState.local = isAdmin ? 'alcorta' : (session.empleadoData?.local || 'alcorta');
+  const local = isGerente ? session.empleadoData.local : liqState.local;
+  const periodo = liqState.periodo;
+
+  // Cargar ventas del local del mes
+  const { data: ventasRow } = await sb.from('rrhh_ventas_local_mes')
+    .select('monto_ventas').eq('local', local).eq('periodo', periodo + '-01').limit(1);
+  const ventasMes = ventasRow?.[0]?.monto_ventas || 0;
+
+  // Cargar liquidaciones existentes del mes/local
+  const { data: liqs } = await sb.from('rrhh_liquidacion')
+    .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, categoria:rrhh_categorias_cct(nombre))')
+    .eq('local', local).eq('periodo', periodo + '-01')
+    .order('empleado(apellido)');
+
+  const periodos = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    periodos.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  const labelMes = (p) => {
+    const [y,m] = p.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+  };
+
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  let totalRecibo=0, totalNegro=0, totalAjBlanco=0, totalEfectivo=0;
+  (liqs||[]).forEach(l => { totalRecibo += +l.recibo_neto||0; totalNegro += +l.total_negro||0; totalAjBlanco += +l.ajuste_blanco||0; totalEfectivo += +l.efectivo||0; });
+
+  return `
+    <div class="page-header">
+      <h2>Liquidación del mes</h2>
+      <div class="subtitle">Cálculo del recibo CCT + lo que cobra cada empleada según la fórmula de Adorno (fijo + comisión + premio + viáticos + extras).</div>
+    </div>
+
+    <div class="cal-toolbar">
+      <select onchange="liqState.periodo=this.value; switchTab('liquidaciones');">
+        ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
+      </select>
+      ${isAdmin ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');">
+        <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : `<span class="emp-tag" style="background:#eef2ff;color:#4338ca;">${LOCALES[local]?.nombre || local}</span>`}
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <label style="font-size:13px;color:var(--muted);">Ventas del mes:</label>
+        <input type="number" id="liq-ventas" value="${ventasMes}" style="width:160px;text-align:right;font-family:monospace;" ${isAdmin?'':'disabled'}>
+        ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
+        ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 Generar / Recalcular mes</button>` : ''}
+      </div>
+    </div>
+
+    ${(liqs||[]).length === 0 ? `
+      <div class="card"><div class="placeholder">
+        <div class="icon">🧮</div>
+        <h3>Aún no hay liquidaciones para este mes</h3>
+        <p>Cargá las ventas del local del mes y dale "Generar mes" para calcular todas las liquidaciones.</p>
+      </div></div>
+    ` : `
+      <div class="metrics-grid" style="margin-bottom:12px;">
+        <div class="metric-card"><div class="label">Recibo neto (CCT)</div><div class="value">${fmt(totalRecibo)}</div></div>
+        <div class="metric-card"><div class="label">Total negro/sueldo</div><div class="value">${fmt(totalNegro)}</div></div>
+        <div class="metric-card accent"><div class="label">Ajuste 2do recibo</div><div class="value">${fmt(totalAjBlanco)}</div></div>
+        <div class="metric-card accent2"><div class="label">A pagar en efectivo</div><div class="value">${fmt(totalEfectivo)}</div></div>
+      </div>
+
+      <div class="card" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+          <thead>
+            <tr style="background:#f9fafb;text-align:right;">
+              <th style="padding:8px;text-align:left;">Empleada</th>
+              <th style="padding:8px;">Cat.</th>
+              <th style="padding:8px;">Días</th>
+              <th style="padding:8px;">Pts</th>
+              <th style="padding:8px;">Fijo</th>
+              <th style="padding:8px;">Comisión</th>
+              <th style="padding:8px;">Premio</th>
+              <th style="padding:8px;">Viáticos</th>
+              <th style="padding:8px;">Extras</th>
+              <th style="padding:8px;background:#eef2ff;">Total esp.</th>
+              <th style="padding:8px;background:#fef3c7;">Recibo</th>
+              <th style="padding:8px;">Merc.</th>
+              <th style="padding:8px;">Ajuste</th>
+              <th style="padding:8px;background:#d1fae5;">2do recibo</th>
+              <th style="padding:8px;background:#fde2e8;">Efectivo</th>
+              <th style="padding:8px;">Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(liqs||[]).map(l => {
+              const e = l.empleado;
+              const cat = e?.categoria?.nombre || '';
+              const premioOk = l.premio_cobra;
+              return `<tr style="border-top:1px solid var(--border);text-align:right;">
+                <td style="padding:8px;text-align:left;font-weight:600;">${escapeHtml(e?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e?.nombre || '').split(' ')[0])}</span></td>
+                <td style="padding:8px;text-align:left;font-size:11px;color:var(--muted);">${escapeHtml(cat)}</td>
+                <td style="padding:8px;">${l.dias_trabajados}</td>
+                <td style="padding:8px;${(l.puntos_mes||0) > 4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>
+                <td style="padding:8px;font-family:monospace;">${fmt(l.fijo)}</td>
+                <td style="padding:8px;font-family:monospace;">${fmt(l.comision)}</td>
+                <td style="padding:8px;font-family:monospace;color:${premioOk?'#059669':'#dc2626'};" title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}">${premioOk?fmt(l.premio_monto):'—'}</td>
+                <td style="padding:8px;font-family:monospace;">${fmt(l.viaticos)}</td>
+                <td style="padding:8px;font-family:monospace;">${fmt(l.extras)}</td>
+                <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
+                <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;">${fmt(l.recibo_neto)}</td>
+                <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
+                <td style="padding:8px;font-family:monospace;">${fmt(l.ajuste)}</td>
+                <td style="padding:8px;font-family:monospace;background:#d1fae5;font-weight:600;">${(+l.ajuste_blanco)>0?fmt(l.ajuste_blanco):'—'}</td>
+                <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
+                <td style="padding:8px;"><button class="btn small" onclick="liqVerDetalle(${l.id})">👁️</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:14px;padding:12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
+        💡 <strong>Cómo se lee:</strong> "Total esp." es lo que debería cobrar la empleada (Fijo + Comisión + Premio + Viáticos + Extras). "Recibo" es el neto del CCT calculado por el sistema. Para vendedoras del local, la diferencia se paga en <strong>Efectivo</strong> (negro). Para Contreras y Escasany (esquema doble blanco) la diferencia va al <strong>2do recibo</strong> y no hay negro.
+      </div>
+    `}
+  `;
+}
+
+async function liqGuardarVentas(local, periodo) {
+  const monto = Number(document.getElementById('liq-ventas').value || 0);
+  const { data: existing } = await sb.from('rrhh_ventas_local_mes')
+    .select('id').eq('local', local).eq('periodo', periodo + '-01').limit(1);
+  if (existing?.[0]) {
+    await sb.from('rrhh_ventas_local_mes').update({ monto_ventas: monto, cargado_at: new Date().toISOString() }).eq('id', existing[0].id);
+  } else {
+    await sb.from('rrhh_ventas_local_mes').insert({ local, periodo: periodo + '-01', monto_ventas: monto, origen: 'manual' });
+  }
+  toast('Ventas guardadas ✓', 'success');
+}
+
+async function liqGenerarMes(local, periodo) {
+  if (!confirm(`Generar/recalcular liquidaciones de ${local} para ${periodo}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
+  toast('Calculando…', '');
+  try {
+    const r = await salaryWorkflow.liquidarMes(local, periodo);
+    let msg = `✓ ${r.ok.length} liquidaciones generadas`;
+    if (r.errores.length) msg += ` · ⚠ ${r.errores.length} errores`;
+    toast(msg, r.errores.length ? 'error' : 'success');
+    if (r.errores.length) {
+      console.error('Errores liquidación:', r.errores);
+      alert('Errores en algunas liquidaciones:\n\n' + r.errores.map(e => `${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+    }
+    switchTab('liquidaciones');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function liqVerDetalle(liqId) {
+  const { data: liq } = await sb.from('rrhh_liquidacion')
+    .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, categoria:rrhh_categorias_cct(nombre)), conceptos:rrhh_liquidacion_concepto(*)')
+    .eq('id', liqId).single();
+  if (!liq) { toast('No encontrada', 'error'); return; }
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const conc = (liq.conceptos || []).sort((a,b) => a.orden - b.orden);
+  const remun = conc.filter(c => !c.es_descuento);
+  const desc = conc.filter(c => c.es_descuento);
+  const html = `
+    <h3 style="margin:0 0 6px;">Recibo — ${escapeHtml(liq.empleado?.nombre_completo || '')}</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${escapeHtml(liq.empleado?.categoria?.nombre || '')} · ${liq.local} · Período ${liq.periodo} · ${liq.dias_trabajados} días · ${liq.puntos_mes} pts</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;"><th style="padding:6px;text-align:left;">Cód.</th><th style="padding:6px;text-align:left;">Concepto</th><th style="padding:6px;text-align:right;">Importe</th></tr></thead>
+      <tbody>
+        ${remun.map(c => `<tr><td style="padding:6px;font-family:monospace;color:var(--muted);">${c.codigo}</td><td style="padding:6px;">${escapeHtml(c.nombre)}</td><td style="padding:6px;text-align:right;font-family:monospace;">${fmt(c.importe)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--border);font-weight:600;"><td colspan="2" style="padding:8px;">BRUTO</td><td style="padding:8px;text-align:right;font-family:monospace;">${fmt(liq.recibo_bruto)}</td></tr>
+        ${desc.map(c => `<tr style="color:#dc2626;"><td style="padding:6px;font-family:monospace;">${c.codigo}</td><td style="padding:6px;">${escapeHtml(c.nombre)}</td><td style="padding:6px;text-align:right;font-family:monospace;">−${fmt(c.importe)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--border);font-weight:700;background:#fef3c7;"><td colspan="2" style="padding:10px;">NETO</td><td style="padding:10px;text-align:right;font-family:monospace;">${fmt(liq.recibo_neto)}</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:18px;padding:12px;background:#eef2ff;border-radius:8px;font-size:13px;">
+      <div style="font-weight:600;margin-bottom:6px;">Cálculo del sueldo total (negro + ajuste):</div>
+      <div>Fijo ${fmt(liq.fijo)} + Comisión ${fmt(liq.comision)} + Premio ${liq.premio_cobra ? fmt(liq.premio_monto) : '—'} + Viáticos ${fmt(liq.viaticos)} + Extras ${fmt(liq.extras)} = <strong>${fmt(liq.total_negro)}</strong></div>
+      <div>Recibo ${fmt(liq.recibo_neto)} + 2do recibo ${fmt(liq.ajuste_blanco)} + Efectivo ${fmt(liq.efectivo)} = <strong>${fmt((+liq.recibo_neto||0)+(+liq.ajuste_blanco||0)+(+liq.efectivo||0)+(+liq.mercaderia||0)+(+liq.ajuste||0))}</strong> (incluye Merc ${fmt(liq.mercaderia)} + Ajuste ${fmt(liq.ajuste)})</div>
+    </div>
+  `;
+  openModal(html);
+}
+
+function openModal(html) {
+  let modal = document.getElementById('global-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'global-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div style="background:white;max-width:800px;width:90vw;max-height:85vh;overflow:auto;padding:24px;border-radius:12px;position:relative;">
+    <button onclick="document.getElementById('global-modal').remove()" style="position:absolute;top:10px;right:10px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);">✕</button>
+    ${html}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SALARY ENGINE — Cálculo del recibo blanco (CCT 130/75) y del negro
+//  Basado en skills/control-sueldos-adorno (escalas + calculo-conceptos.md)
+// ═══════════════════════════════════════════════════════════════════════
+const salaryEngine = (() => {
+  const PCT = { JUB: 0.11, LEY19032: 0.03, OS: 0.03, SEC: 0.02, FAECYS: 0.005, PRES: 0.0833 };
+
+  // Devuelve años COMPLETOS de antigüedad al ÚLTIMO DÍA del mes del período
+  function aniosCumplidosAlPeriodo(fechaIngresoISO, periodoISO) {
+    if (!fechaIngresoISO) return 0;
+    const ing = new Date(fechaIngresoISO + 'T12:00:00');
+    const [y, m] = periodoISO.split('-').map(Number);
+    const finMes = new Date(y, m, 0, 12, 0, 0); // último día del mes del período
+    let anios = finMes.getFullYear() - ing.getFullYear();
+    const cumpleEsteAnio = new Date(finMes.getFullYear(), ing.getMonth(), ing.getDate(), 12);
+    if (finMes < cumpleEsteAnio) anios -= 1;
+    return Math.max(0, anios);
+  }
+
+  // Helper para crear la fila de un concepto
+  function concepto(orden, codigo, nombre, base, porcentaje, importe, remunerativo, es_descuento = false) {
+    return {
+      orden, codigo, nombre,
+      base: base != null ? round2(base) : null,
+      porcentaje: porcentaje != null ? round2(porcentaje) : null,
+      importe: round2(importe),
+      remunerativo, es_descuento
+    };
+  }
+  function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+  /**
+   * Cálculo puro del RECIBO BLANCO según CCT 130/75.
+   *
+   * input = {
+   *   basico_escala: number,          // de rrhh_categorias_cct.sueldo_basico (full mes)
+   *   fecha_ingreso: 'YYYY-MM-DD',
+   *   periodo: 'YYYY-MM',             // ej. '2026-04'
+   *   dias_trabajados: number,        // unidades sobre 30
+   *   obra_social_codigo: string,     // 'osecac' o slug
+   *   suma_fija_nr: number,           // full mes (ej. 100000)
+   *   recompos_nr: number,            // full mes (ej. 20000)
+   *   fuera_convenio: boolean,        // si true: sin presentismo, sin SEC, sin FAECYS
+   *   otros_remunerativos: number     // opcional, ej. concepto 0073 a cuenta
+   * }
+   *
+   * Devuelve { conceptos[], totales{...} }
+   */
+  function calcularReciboCCT(input) {
+    const {
+      basico_escala, fecha_ingreso, periodo,
+      dias_trabajados = 30,
+      obra_social_codigo = '',
+      suma_fija_nr = 0, recompos_nr = 0,
+      fuera_convenio = false,
+      otros_remunerativos = 0,
+      // opcional: forzar otra fracción para las sumas no rem (caso franquera Escasany
+      // donde MEMOSOFT prorratea básico a 16/30 y no rem a 50%)
+      fraccion_no_rem_override = null,
+    } = input;
+
+    const periodoFull = /^\d{4}-\d{2}$/.test(periodo) ? `${periodo}-01` : periodo;
+    const fraccion = Math.min(1, Math.max(0, (dias_trabajados || 0) / 30));
+    const fraccionNR = (fraccion_no_rem_override != null) ? fraccion_no_rem_override : fraccion;
+    const anios = aniosCumplidosAlPeriodo(fecha_ingreso, periodoFull);
+    const conceptos = [];
+
+    // ── Remunerativos ──
+    const basico = (basico_escala || 0) * fraccion;
+    conceptos.push(concepto(10, '0001', 'Sueldo Básico', basico_escala, fraccion * 100, basico, true));
+
+    let antiguedad = 0;
+    if (anios > 0) {
+      antiguedad = basico * (anios / 100);
+      conceptos.push(concepto(20, '0022', 'Adicional Antigüedad', basico, anios, antiguedad, true));
+    }
+
+    let presentismo = 0;
+    if (!fuera_convenio) {
+      presentismo = (basico + antiguedad) * PCT.PRES;
+      conceptos.push(concepto(30, '0025', 'Presentismo', basico + antiguedad, PCT.PRES * 100, presentismo, true));
+    }
+
+    const otrosRem = otros_remunerativos || 0;
+    if (otrosRem > 0) {
+      conceptos.push(concepto(40, '0073', 'A cuenta de futuros aumentos', null, null, otrosRem, true));
+    }
+
+    const total_rem = basico + antiguedad + presentismo + otrosRem;
+
+    // ── No remunerativos ──
+    const sumafija_nr = (suma_fija_nr || 0) * fraccionNR;
+    const recompos = (recompos_nr || 0) * fraccionNR;
+    let ant_nr = 0, pres_nr = 0;
+
+    if (sumafija_nr > 0) {
+      conceptos.push(concepto(50, '0491', 'Suma fija no rem', suma_fija_nr, fraccionNR * 100, sumafija_nr, false));
+    }
+    if (sumafija_nr + recompos > 0 && anios > 0) {
+      ant_nr = (sumafija_nr + recompos) * (anios / 100);
+      conceptos.push(concepto(60, '0492', 'Antigüedad no rem', sumafija_nr + recompos, anios, ant_nr, false));
+    }
+    if (!fuera_convenio && (sumafija_nr + recompos + ant_nr) > 0) {
+      pres_nr = (sumafija_nr + recompos + ant_nr) * PCT.PRES;
+      conceptos.push(concepto(70, '0493', 'Presentismo no rem', sumafija_nr + recompos + ant_nr, PCT.PRES * 100, pres_nr, false));
+    }
+    if (recompos > 0) {
+      conceptos.push(concepto(80, '0497', 'Recompos Ac. 2026', recompos_nr, fraccionNR * 100, recompos, false));
+    }
+    const total_nr = sumafija_nr + ant_nr + pres_nr + recompos;
+
+    const bruto = total_rem + total_nr;
+
+    // ── Descuentos ──
+    const jubilacion = total_rem * PCT.JUB;
+    const ley19032   = total_rem * PCT.LEY19032;
+    const baseOS = (obra_social_codigo === 'osecac') ? bruto : total_rem;
+    const os         = baseOS * PCT.OS;
+    const sec        = fuera_convenio ? 0 : bruto * PCT.SEC;
+    const faecys     = fuera_convenio ? 0 : bruto * PCT.FAECYS;
+
+    conceptos.push(concepto(100, '1001', 'Jubilación', total_rem, PCT.JUB * 100, jubilacion, true, true));
+    conceptos.push(concepto(110, '1002', 'Ley 19.032 (PAMI)', total_rem, PCT.LEY19032 * 100, ley19032, true, true));
+    conceptos.push(concepto(120, '1031', 'Obra Social', baseOS, PCT.OS * 100, os, true, true));
+    if (!fuera_convenio) {
+      conceptos.push(concepto(130, '1011', 'SEC (sindicato)', bruto, PCT.SEC * 100, sec, true, true));
+      conceptos.push(concepto(140, '1012', 'FAECYS', bruto, PCT.FAECYS * 100, faecys, true, true));
+    }
+
+    const total_descuentos = jubilacion + ley19032 + os + sec + faecys;
+    const neto = bruto - total_descuentos;
+
+    return {
+      conceptos: conceptos.map(c => ({ ...c, importe: round2(c.importe) })),
+      totales: {
+        basico: round2(basico),
+        antiguedad: round2(antiguedad),
+        presentismo: round2(presentismo),
+        otros_rem: round2(otrosRem),
+        sumafija_nr: round2(sumafija_nr),
+        ant_nr: round2(ant_nr),
+        pres_nr: round2(pres_nr),
+        recompos_nr: round2(recompos),
+        total_rem: round2(total_rem),
+        total_nr: round2(total_nr),
+        bruto: round2(bruto),
+        jubilacion: round2(jubilacion),
+        ley19032: round2(ley19032),
+        obra_social: round2(os),
+        sec: round2(sec),
+        faecys: round2(faecys),
+        total_descuentos: round2(total_descuentos),
+        neto: round2(neto),
+        anios_antiguedad: anios,
+        fraccion: round2(fraccion),
+      }
+    };
+  }
+
+  return { calcularReciboCCT, aniosCumplidosAlPeriodo, PCT };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SALARY WORKFLOW — Orquesta el cálculo y guardado de liquidaciones
+//  Usa salaryEngine.calcularReciboCCT por debajo, suma el negro/ajuste blanco,
+//  y vuelca a rrhh_liquidacion + rrhh_liquidacion_concepto.
+// ═══════════════════════════════════════════════════════════════════════
+const salaryWorkflow = (() => {
+
+  // Días del mes para un periodo 'YYYY-MM'
+  function diasDelMes(periodo) {
+    const [y, m] = periodo.split('-').map(Number);
+    return new Date(y, m, 0).getDate();
+  }
+
+  // Mapea código de OS a 'osecac' / otro (case-insensitive)
+  function esOsecac(codigo) {
+    return (codigo || '').toLowerCase() === 'osecac';
+  }
+
+  // Cuenta puntos del mes (tarde=1, ausente=2) excluyendo errores salvados
+  async function calcularPuntosMes(empleadoId, periodo) {
+    const [y, m] = periodo.split('-').map(Number);
+    const desde = `${periodo}-01`;
+    const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+    const { data } = await sb.from('rrhh_asistencias_detalle')
+      .select('estado, error_salvado')
+      .eq('empleado_id', empleadoId)
+      .gte('fecha', desde).lte('fecha', hasta);
+    let pts = 0;
+    (data || []).forEach(d => {
+      if (d.error_salvado) return;
+      if (d.estado === 'tarde')   pts += 1;
+      if (d.estado === 'ausente') pts += 2;
+    });
+    return pts;
+  }
+
+  // Lee la config vigente del local al período (de rrhh_sueldo_local_config)
+  async function cargarConfigLocal(local, periodo) {
+    const periodoFull = periodo + '-01';
+    const { data } = await sb.from('rrhh_sueldo_local_config')
+      .select('*').eq('local', local).lte('vigente_desde', periodoFull)
+      .order('vigente_desde', { ascending: false }).limit(1);
+    return data?.[0] || null;
+  }
+
+  // Lee la config vigente de la empleada al período
+  async function cargarConfigEmpleada(empleadoId, periodo) {
+    const periodoFull = periodo + '-01';
+    const { data } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('*').eq('empleado_id', empleadoId).lte('vigente_desde', periodoFull)
+      .order('vigente_desde', { ascending: false }).limit(1);
+    return data?.[0] || null;
+  }
+
+  // Lee la paritaria vigente al período
+  async function cargarParitaria(periodo) {
+    const periodoFull = periodo + '-01';
+    const { data } = await sb.from('rrhh_paritaria_sumas_nr')
+      .select('*').lte('vigente_desde', periodoFull)
+      .order('vigente_desde', { ascending: false }).limit(1);
+    return data?.[0] || null;
+  }
+
+  // Lee el empleado completo + su categoría CCT vigente
+  async function cargarEmpleadoCompleto(empleadoId, periodo) {
+    const periodoFull = periodo + '-01';
+    const { data: emp } = await sb.from('rrhh_empleados')
+      .select('*, categoria:rrhh_categorias_cct(*)')
+      .eq('id', empleadoId).single();
+    if (!emp) return null;
+    // Resolver la escala vigente al período (puede ser la actual o una con vigente_desde más reciente)
+    const { data: esc } = await sb.from('rrhh_categorias_cct')
+      .select('*').eq('codigo', emp.categoria?.codigo)
+      .lte('fecha_vigencia', periodoFull)
+      .order('fecha_vigencia', { ascending: false }).limit(1);
+    if (esc?.[0]) emp.categoria = esc[0];
+    return emp;
+  }
+
+  // Ventas del local del mes (de rrhh_ventas_local_mes)
+  async function cargarVentasLocalMes(local, periodo) {
+    const { data } = await sb.from('rrhh_ventas_local_mes')
+      .select('monto_ventas').eq('local', local).eq('periodo', periodo + '-01').limit(1);
+    return data?.[0]?.monto_ventas || 0;
+  }
+
+  // Días con vacaciones/licencia del mes para la empleada (para prorrateo)
+  async function cargarDiasNoTrabajados(empleadoId, periodo) {
+    const [y, m] = periodo.split('-').map(Number);
+    const desde = `${periodo}-01`;
+    const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+    const { data } = await sb.from('rrhh_asistencias_detalle')
+      .select('estado').eq('empleado_id', empleadoId)
+      .gte('fecha', desde).lte('fecha', hasta)
+      .in('estado', ['vacaciones','licencia','ausente']);
+    return (data || []).length;
+  }
+
+  // Cuenta cuántas empleadas activas hay en el local en ese período (para reparto 'dividido_activos')
+  async function contarActivasLocal(local, periodoFull) {
+    const { data } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('empleado_id, rrhh_empleados!inner(local, estado)')
+      .lte('vigente_desde', periodoFull)
+      .eq('activa_en_modulo', true);
+    return (data || []).filter(d => d.rrhh_empleados?.local === local && d.rrhh_empleados?.estado === 'activo').length;
+  }
+
+  /**
+   * Liquida una empleada para un período. Inputs opcionales del usuario:
+   *   { dias_trabajados, mercaderia, ajuste, uniforme_ok, extras, otros_remunerativos, observaciones }
+   * Si no se pasan, se infieren (días = 30 - dias_no_trabajados, uniforme_ok = true, etc.)
+   */
+  async function liquidarEmpleada(empleadoId, periodo, inputs = {}) {
+    // Cargas
+    const [emp, configLocal, configEmp, paritaria] = await Promise.all([
+      cargarEmpleadoCompleto(empleadoId, periodo),
+      null,            // se carga después con emp.local
+      cargarConfigEmpleada(empleadoId, periodo),
+      cargarParitaria(periodo),
+    ]);
+    if (!emp) throw new Error('Empleado no encontrado');
+    if (!configEmp) throw new Error(`Empleada ${emp.nombre_completo} no tiene config de sueldo`);
+    if (!configEmp.activa_en_modulo) throw new Error(`Empleada ${emp.nombre_completo} no está activa en el módulo`);
+    if (!emp.categoria) throw new Error('Empleada sin categoría CCT asignada');
+    if (!paritaria) throw new Error('No hay paritaria vigente para ' + periodo);
+
+    const cfgLocal = await cargarConfigLocal(emp.local, periodo);
+    if (!cfgLocal) throw new Error('Local sin config de sueldo: ' + emp.local);
+
+    // Días del mes y días no trabajados
+    const diasNoTrab = await cargarDiasNoTrabajados(empleadoId, periodo);
+    const diasMes = diasDelMes(periodo);
+    const diasTrabajadosInferidos = Math.max(0, 30 - diasNoTrab);
+    const dias_trabajados = inputs.dias_trabajados ?? diasTrabajadosInferidos;
+    const mercaderia = inputs.mercaderia ?? 0;
+    const ajuste = inputs.ajuste ?? 0;
+    const extras = inputs.extras ?? 0;
+    const otros_rem = inputs.otros_remunerativos ?? 0;
+    const uniforme_ok = inputs.uniforme_ok ?? true;
+    const fuera_convenio = !!emp.fuera_convenio;
+    const fraccionNR = (configEmp.fraccion_no_rem != null) ? Number(configEmp.fraccion_no_rem) : null;
+
+    // ── RECIBO BLANCO (CCT) ──
+    const recibo = salaryEngine.calcularReciboCCT({
+      basico_escala: Number(emp.categoria.sueldo_basico),
+      fecha_ingreso: emp.fecha_ingreso,
+      periodo,
+      dias_trabajados,
+      obra_social_codigo: emp.obra_social_codigo || '',
+      suma_fija_nr: Number(paritaria.suma_fija_nr),
+      recompos_nr: Number(paritaria.recompos_nr),
+      fuera_convenio,
+      otros_remunerativos: otros_rem,
+      fraccion_no_rem_override: fraccionNR,
+    });
+
+    // ── NEGRO ──
+    const puntos_mes = await calcularPuntosMes(empleadoId, periodo);
+    const cobraPremio = uniforme_ok && (puntos_mes <= cfgLocal.umbral_premio);
+    const premio = cobraPremio ? Number(configEmp.premio_fichadas_uniforme) : 0;
+
+    // Comisión
+    const ventasLocal = await cargarVentasLocalMes(emp.local, periodo);
+    const tasaLocal = Number(cfgLocal.tasa_comision);
+    let comision_base = ventasLocal * tasaLocal;
+    if (cfgLocal.modo_reparto === 'dividido_activos') {
+      const activas = await contarActivasLocal(emp.local, periodo + '-01');
+      if (activas > 0) comision_base = comision_base / activas;
+    }
+    let comision = comision_base * Number(configEmp.fraccion_comision);
+    if (configEmp.modo_prorrateo_comision === 'por_dias_trabajados') {
+      comision = comision * (dias_trabajados / 30);
+    }
+
+    const fijo     = Number(configEmp.fijo);
+    const viaticos = Number(configEmp.viaticos);
+    const total_negro_esperado = fijo + comision + premio + viaticos + extras;
+
+    // Modo de liquidación: cct_negro (default) vs doble_blanco (Contreras/Escasany)
+    let ajuste_blanco = 0;
+    let efectivo = 0;
+    if (configEmp.modo_liquidacion === 'doble_blanco') {
+      ajuste_blanco = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste);
+      efectivo = 0;
+    } else {
+      ajuste_blanco = 0;
+      efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste);
+    }
+
+    // ── UPSERT en rrhh_liquidacion ──
+    const t = recibo.totales;
+    const filaLiq = {
+      empleado_id: empleadoId, periodo: periodo + '-01', local: emp.local,
+      estado: 'borrador',
+      dias_trabajados, mercaderia, ajuste, uniforme_ok,
+      puntos_mes, observaciones: inputs.observaciones || null,
+      // recibo
+      recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
+      recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
+      recibo_recompos_nr: t.recompos_nr, recibo_otros_rem: t.otros_rem,
+      recibo_jubilacion: t.jubilacion, recibo_ley19032: t.ley19032,
+      recibo_obra_social: t.obra_social, recibo_sec: t.sec, recibo_faecys: t.faecys,
+      recibo_total_rem: t.total_rem, recibo_total_nr: t.total_nr,
+      recibo_bruto: t.bruto, recibo_descuentos: t.total_descuentos, recibo_neto: t.neto,
+      // negro
+      fijo, comision, premio_cobra: cobraPremio, premio_monto: premio,
+      viaticos, extras, total_negro: total_negro_esperado,
+      efectivo, ajuste_blanco,
+      calculado_at: new Date().toISOString(),
+    };
+
+    // Upsert por (empleado_id, periodo)
+    const { data: existing } = await sb.from('rrhh_liquidacion')
+      .select('id').eq('empleado_id', empleadoId).eq('periodo', periodo + '-01').limit(1);
+    let liqId;
+    if (existing?.[0]) {
+      liqId = existing[0].id;
+      const { error } = await sb.from('rrhh_liquidacion').update(filaLiq).eq('id', liqId);
+      if (error) throw new Error('Error update liquidación: ' + error.message);
+      // Borrar conceptos viejos antes de re-insertar
+      await sb.from('rrhh_liquidacion_concepto').delete().eq('liquidacion_id', liqId);
+    } else {
+      const { data: ins, error } = await sb.from('rrhh_liquidacion').insert(filaLiq).select('id').single();
+      if (error) throw new Error('Error insert liquidación: ' + error.message);
+      liqId = ins.id;
+    }
+
+    // Conceptos
+    const conceptos = recibo.conceptos.map(c => ({
+      liquidacion_id: liqId,
+      codigo: c.codigo, nombre: c.nombre,
+      base: c.base, porcentaje: c.porcentaje, importe: c.importe,
+      remunerativo: c.remunerativo, es_descuento: c.es_descuento, orden: c.orden,
+    }));
+    if (conceptos.length) {
+      const { error } = await sb.from('rrhh_liquidacion_concepto').insert(conceptos);
+      if (error) throw new Error('Error insert conceptos: ' + error.message);
+    }
+
+    return { liquidacion_id: liqId, recibo, totales_negro: { fijo, comision, premio, viaticos, extras, total_negro_esperado, ajuste_blanco, efectivo }, puntos_mes, cobraPremio };
+  }
+
+  /**
+   * Liquida todas las empleadas activas del módulo en un local para un período.
+   * Devuelve { ok: [...], errores: [{empleado, error}] }
+   */
+  async function liquidarMes(local, periodo, inputsPorEmpleado = {}) {
+    // Empleadas activas del módulo de ese local
+    const periodoFull = periodo + '-01';
+    const { data: configs } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('empleado_id, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
+      .lte('vigente_desde', periodoFull)
+      .eq('activa_en_modulo', true);
+
+    const empleadas = (configs || [])
+      .filter(c => c.rrhh_empleados?.local === local && c.rrhh_empleados?.estado === 'activo')
+      .map(c => c.rrhh_empleados);
+    // Dedup (puede haber varias configs históricas)
+    const uniq = {};
+    empleadas.forEach(e => { uniq[e.id] = e; });
+    const lista = Object.values(uniq);
+
+    const ok = [], errores = [];
+    for (const e of lista) {
+      try {
+        const r = await liquidarEmpleada(e.id, periodo, inputsPorEmpleado[e.id] || {});
+        ok.push({ empleado: e, resultado: r });
+      } catch (err) {
+        errores.push({ empleado: e, error: err.message });
+      }
+    }
+    return { ok, errores };
+  }
+
+  return { liquidarEmpleada, liquidarMes, calcularPuntosMes };
+})();
 
 </script>
 </body>
