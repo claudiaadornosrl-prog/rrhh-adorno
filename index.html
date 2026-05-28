@@ -2050,23 +2050,204 @@ async function doSubirDoc() {
 async function renderTabSueldos() {
   document.getElementById('emp-modal-save').style.display = 'none';
   document.getElementById('emp-modal-footer-left').innerHTML = '';
-  document.getElementById('emp-modal-body').innerHTML = `
-    <div class="placeholder">
+  const body = document.getElementById('emp-modal-body');
+  body.innerHTML = '<div class="loading"><span class="spinner"></span> Cargando histórico…</div>';
+
+  const empleadoId = empModalState.empleadoId;
+  if (!empleadoId) {
+    body.innerHTML = '<div class="placeholder"><div class="icon">💰</div><h3>Sin empleado seleccionado</h3></div>';
+    return;
+  }
+
+  // Últimas 12 liquidaciones del empleado
+  const { data: liqs, error } = await sb.from('rrhh_liquidacion')
+    .select('*')
+    .eq('empleado_id', empleadoId)
+    .order('periodo', { ascending: false })
+    .limit(12);
+
+  if (error) {
+    body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${escapeHtml(error.message)}</p></div>`;
+    return;
+  }
+  if (!liqs || liqs.length === 0) {
+    body.innerHTML = `<div class="placeholder">
       <div class="icon">💰</div>
-      <h3>Próximamente</h3>
-      <p>Historial mes a mes con control automático contra CCT 130/75.</p>
-      <div class="phase-tag">Fase 2</div>
+      <h3>Aún no hay liquidaciones</h3>
+      <p>Cuando se genere la primera liquidación del mes desde el módulo de Liquidación, va a aparecer acá.</p>
+    </div>`;
+    return;
+  }
+
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const labelMes = (iso) => {
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  };
+
+  // KPIs: total cobrado en el período, promedio mensual, último mes
+  const totalCobrado = liqs.reduce((a, l) => a + (+l.recibo_neto||0) + (+l.efectivo||0) + (+l.ajuste||0), 0);
+  const promedio = totalCobrado / liqs.length;
+  const ultimo = liqs[0];
+  const ultimoTotal = (+ultimo.recibo_neto||0) + (+ultimo.efectivo||0) + (+ultimo.ajuste||0);
+
+  body.innerHTML = `
+    <div class="metrics-grid" style="margin-bottom:14px;">
+      <div class="metric-card accent">
+        <div class="label">Último mes (${labelMes(ultimo.periodo)})</div>
+        <div class="value" style="font-size:18px;">${fmt(ultimoTotal)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Promedio últimos ${liqs.length}</div>
+        <div class="value" style="font-size:18px;">${fmt(promedio)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Acumulado período</div>
+        <div class="value" style="font-size:18px;">${fmt(totalCobrado)}</div>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:right;">
+          <th style="padding:6px;text-align:left;">Mes</th>
+          <th style="padding:6px;">Días</th>
+          <th style="padding:6px;">Pts</th>
+          <th style="padding:6px;">Fijo</th>
+          <th style="padding:6px;">Comisión</th>
+          <th style="padding:6px;">Premio</th>
+          <th style="padding:6px;">Viáticos</th>
+          <th style="padding:6px;">Feriado</th>
+          <th style="padding:6px;">Extras</th>
+          <th style="padding:6px;background:#eef2ff;">Total esp.</th>
+          <th style="padding:6px;background:#fef3c7;">Recibo</th>
+          <th style="padding:6px;background:#fde2e8;">Efectivo</th>
+          <th style="padding:6px;">Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${liqs.map(l => `<tr style="border-top:1px solid var(--border);text-align:right;">
+          <td style="padding:6px;text-align:left;font-weight:600;text-transform:capitalize;">${labelMes(l.periodo)}</td>
+          <td style="padding:6px;">${l.dias_trabajados||0}</td>
+          <td style="padding:6px;">${l.puntos_mes||0}</td>
+          <td style="padding:6px;font-family:monospace;">${fmt(l.fijo)}</td>
+          <td style="padding:6px;font-family:monospace;">${fmt(l.comision)}</td>
+          <td style="padding:6px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};">${l.premio_cobra?fmt(l.premio_monto):'—'}</td>
+          <td style="padding:6px;font-family:monospace;">${fmt(l.viaticos)}</td>
+          <td style="padding:6px;font-family:monospace;">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
+          <td style="padding:6px;font-family:monospace;">${fmt(l.extras)}</td>
+          <td style="padding:6px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
+          <td style="padding:6px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo CCT">${fmt(l.recibo_neto)}</td>
+          <td style="padding:6px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
+          <td style="padding:6px;text-align:center;font-size:11px;">${escapeHtml(l.estado||'')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+    <div style="margin-top:10px;padding:8px;background:#eef2ff;border-radius:6px;font-size:12px;color:#3730a3;">
+      💡 Tocá la celda <strong>Recibo</strong> (amarilla) para ver el desglose CCT del mes.
     </div>`;
 }
 async function renderTabAsistencias() {
   document.getElementById('emp-modal-save').style.display = 'none';
   document.getElementById('emp-modal-footer-left').innerHTML = '';
-  document.getElementById('emp-modal-body').innerHTML = `
-    <div class="placeholder">
+  const body = document.getElementById('emp-modal-body');
+  body.innerHTML = '<div class="loading"><span class="spinner"></span> Cargando asistencias…</div>';
+
+  const empleadoId = empModalState.empleadoId;
+  if (!empleadoId) {
+    body.innerHTML = '<div class="placeholder"><div class="icon">🕐</div><h3>Sin empleado seleccionado</h3></div>';
+    return;
+  }
+
+  // Últimos 6 meses de resumen
+  const { data: resumenes, error } = await sb.from('rrhh_asistencias')
+    .select('*')
+    .eq('empleado_id', empleadoId)
+    .order('periodo', { ascending: false })
+    .limit(6);
+
+  if (error) {
+    body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${escapeHtml(error.message)}</p></div>`;
+    return;
+  }
+  if (!resumenes || resumenes.length === 0) {
+    body.innerHTML = `<div class="placeholder">
       <div class="icon">🕐</div>
-      <h3>Próximamente</h3>
-      <p>Mes a mes con fichadas de CrossChex y tardanzas.</p>
-      <div class="phase-tag">Fase 3</div>
+      <h3>Aún no hay resumen procesado</h3>
+      <p>El resumen mensual se genera desde Asistencias → Procesar mes. Cuando esté listo, vas a verlo acá.</p>
+    </div>`;
+    return;
+  }
+
+  const labelMes = (iso) => {
+    // periodo puede venir como 'YYYY-MM' o 'YYYY-MM-DD'
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  };
+  const fmtMin = (m) => {
+    if (!m) return '—';
+    const h = Math.floor(m / 60), mm = m % 60;
+    return h > 0 ? `${h}h${String(mm).padStart(2,'0')}` : `${mm}m`;
+  };
+
+  // KPIs del último mes procesado
+  const ultimo = resumenes[0];
+
+  body.innerHTML = `
+    <div class="metrics-grid" style="margin-bottom:14px;">
+      <div class="metric-card accent">
+        <div class="label">Últ. mes (${labelMes(ultimo.periodo)})</div>
+        <div class="value" style="font-size:18px;">${ultimo.dias_trabajados||0} días</div>
+      </div>
+      <div class="metric-card warn">
+        <div class="label">Tardanzas mes</div>
+        <div class="value" style="font-size:18px;">${ultimo.llegadas_tarde||0}</div>
+        <div class="hint">${fmtMin(ultimo.minutos_tarde_total||0)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Ausencias mes</div>
+        <div class="value" style="font-size:18px;">${ultimo.dias_ausente||0}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Horas extras mes</div>
+        <div class="value" style="font-size:18px;">${ultimo.horas_extras||0}</div>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="background:#f9fafb;text-align:right;">
+          <th style="padding:8px;text-align:left;">Mes</th>
+          <th style="padding:8px;">Días trab.</th>
+          <th style="padding:8px;">Puntuales</th>
+          <th style="padding:8px;">Tardes</th>
+          <th style="padding:8px;">Min tarde</th>
+          <th style="padding:8px;">Ausencias</th>
+          <th style="padding:8px;">Min extra</th>
+          <th style="padding:8px;">Δ banco</th>
+          <th style="padding:8px;">Premio</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${resumenes.map(r => `<tr style="border-top:1px solid var(--border);text-align:right;">
+          <td style="padding:8px;text-align:left;font-weight:600;text-transform:capitalize;">${labelMes(r.periodo)}</td>
+          <td style="padding:8px;">${r.dias_trabajados||0}</td>
+          <td style="padding:8px;color:#059669;">${r.dias_puntuales||0}</td>
+          <td style="padding:8px;color:${(r.llegadas_tarde||0)>0?'#d97706':''};">${r.llegadas_tarde||0}</td>
+          <td style="padding:8px;font-family:monospace;">${fmtMin(r.minutos_tarde_total||0)}</td>
+          <td style="padding:8px;color:${(r.dias_ausente||0)>0?'#dc2626':''};">${r.dias_ausente||0}</td>
+          <td style="padding:8px;font-family:monospace;">${fmtMin(r.minutos_extras_total||0)}</td>
+          <td style="padding:8px;font-family:monospace;color:${(r.delta_banco_minutos||0)<0?'#dc2626':'#059669'};">${(r.delta_banco_minutos==null)?'—':((r.delta_banco_minutos>0?'+':'')+fmtMin(Math.abs(r.delta_banco_minutos)))}</td>
+          <td style="padding:8px;font-size:12px;">${r.premio_cobra===true?'✓':(r.premio_cobra===false?'✗':'—')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+    <div style="margin-top:10px;padding:8px;background:#eef2ff;border-radius:6px;font-size:12px;color:#3730a3;">
+      💡 Para el detalle día por día, andá a <strong>Asistencias → Resumen mensual</strong> y abrí la fila del empleado.
     </div>`;
 }
 async function renderTabLicencias() {
