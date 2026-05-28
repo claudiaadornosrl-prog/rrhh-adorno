@@ -8484,7 +8484,7 @@ async function renderLiquidaciones() {
               const cat = e?.categoria?.nombre || '';
               const premioOk = l.premio_cobra;
               return `<tr style="border-top:1px solid var(--border);text-align:right;">
-                <td style="padding:8px;text-align:left;font-weight:600;">${escapeHtml(e?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e?.nombre || '').split(' ')[0])}</span></td>
+                <td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${escapeHtml(e?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e?.nombre || '').split(' ')[0])}</span></td>
                 ${local === 'todos' ? `<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` : ''}
                 <td style="padding:8px;text-align:left;font-size:11px;color:var(--muted);">${escapeHtml(cat)}</td>
                 <td style="padding:8px;">${l.dias_trabajados}</td>
@@ -8496,7 +8496,7 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;font-family:monospace;">${fmt(l.extras)}</td>
                 <td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
                 <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
-                <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;">${fmt(l.recibo_neto)}</td>
+                <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo">${fmt(l.recibo_neto)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.ajuste)}</td>
                 <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
@@ -8822,7 +8822,83 @@ async function retBorrar(id) {
   switchTab('retiros');
 }
 
-function openModal(html) {
+async function liqHistoricoEmpleada(empleadoId) {
+  // Últimas 12 liquidaciones del empleado
+  const { data: liqs } = await sb.from('rrhh_liquidacion')
+    .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, local, categoria:rrhh_categorias_cct(nombre))')
+    .eq('empleado_id', empleadoId)
+    .order('periodo', { ascending: false })
+    .limit(12);
+  if (!liqs || liqs.length === 0) { toast('Sin liquidaciones para esta empleada', ''); return; }
+  const emp = liqs[0].empleado;
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const labelMes = (iso) => {
+    const [y,m] = String(iso).substring(0,7).split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'short', year:'2-digit' });
+  };
+  let totRecibo=0, totNegro=0, totEfectivo=0, totFeriado=0;
+  liqs.forEach(l => { totRecibo += +l.recibo_neto||0; totNegro += +l.total_negro||0; totEfectivo += +l.efectivo||0; totFeriado += +l.feriado_monto||0; });
+
+  const html = `
+    <h3 style="margin:0 0 4px;">👤 ${escapeHtml(emp?.nombre_completo || '')}</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${escapeHtml(emp?.categoria?.nombre || '')} · ${LOCALES[emp?.local]?.nombre || emp?.local} · Últimos ${liqs.length} mes(es)</div>
+
+    <div class="metrics-grid" style="margin-bottom:14px;">
+      <div class="metric-card"><div class="label">Total recibo (12m)</div><div class="value" style="font-size:20px;">${fmt(totRecibo)}</div></div>
+      <div class="metric-card"><div class="label">Total cobrado (12m)</div><div class="value" style="font-size:20px;">${fmt(totNegro)}</div></div>
+      <div class="metric-card accent2"><div class="label">Efectivo (12m)</div><div class="value" style="font-size:20px;">${fmt(totEfectivo)}</div></div>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:right;">
+            <th style="padding:8px;text-align:left;">Mes</th>
+            <th style="padding:8px;">Días</th>
+            <th style="padding:8px;">Pts</th>
+            <th style="padding:8px;">Fijo</th>
+            <th style="padding:8px;">Comisión</th>
+            <th style="padding:8px;">Premio</th>
+            <th style="padding:8px;">Viáticos</th>
+            <th style="padding:8px;">Feriado</th>
+            <th style="padding:8px;">Extras</th>
+            <th style="padding:8px;background:#eef2ff;">Total</th>
+            <th style="padding:8px;background:#fef3c7;">Recibo</th>
+            <th style="padding:8px;">Merc.</th>
+            <th style="padding:8px;">Ajuste</th>
+            <th style="padding:8px;background:#fde2e8;">Efectivo</th>
+            <th style="padding:8px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${liqs.map(l => `<tr style="border-top:1px solid var(--border);text-align:right;">
+            <td style="padding:8px;text-align:left;font-weight:600;text-transform:capitalize;">${labelMes(l.periodo)}</td>
+            <td style="padding:8px;">${l.dias_trabajados}</td>
+            <td style="padding:8px;">${l.puntos_mes||0}</td>
+            <td style="padding:8px;font-family:monospace;">${fmt(l.fijo)}</td>
+            <td style="padding:8px;font-family:monospace;">${fmt(l.comision)}</td>
+            <td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};">${l.premio_cobra?fmt(l.premio_monto):'—'}</td>
+            <td style="padding:8px;font-family:monospace;">${fmt(l.viaticos)}</td>
+            <td style="padding:8px;font-family:monospace;">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
+            <td style="padding:8px;font-family:monospace;">${fmt(l.extras)}</td>
+            <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
+            <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="document.getElementById('global-modal').remove(); liqVerDetalle(${l.id});" title="Ver desglose del recibo">${fmt(l.recibo_neto)}</td>
+            <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
+            <td style="padding:8px;font-family:monospace;">${fmt(l.ajuste)}</td>
+            <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
+            <td style="padding:8px;text-align:center;"><button class="btn small" onclick="document.getElementById('global-modal').remove(); liqVerDetalle(${l.id});" title="Detalle">👁️</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;padding:10px;background:#eef2ff;border-radius:8px;font-size:12px;color:#3730a3;">
+      💡 Tocá la celda <strong>Recibo</strong> (amarilla) o el 👁️ para ver el desglose CCT del mes (básico, antig, descuentos, etc.).
+    </div>
+  `;
+  openModal(html, '95vw');
+}
+
+function openModal(html, maxWidth) {
   let modal = document.getElementById('global-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -8831,7 +8907,8 @@ function openModal(html) {
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     document.body.appendChild(modal);
   }
-  modal.innerHTML = `<div style="background:white;max-width:800px;width:90vw;max-height:85vh;overflow:auto;padding:24px;border-radius:12px;position:relative;">
+  const mw = maxWidth || '800px';
+  modal.innerHTML = `<div style="background:white;max-width:${mw};width:90vw;max-height:90vh;overflow:auto;padding:24px;border-radius:12px;position:relative;">
     <button onclick="document.getElementById('global-modal').remove()" style="position:absolute;top:10px;right:10px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);">✕</button>
     ${html}
   </div>`;
