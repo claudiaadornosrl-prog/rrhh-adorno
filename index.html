@@ -8812,6 +8812,25 @@ async function generarPDFRecibo(liqId) {
     const mitad = W / 2;
     doc.line(margen + 10, yFirma, mitad - 10, yFirma);
     doc.line(mitad + 10, yFirma, W - margen - 10, yFirma);
+
+    // Embeber firma del admin (JP) automáticamente — encima de la línea derecha.
+    // Si el archivo no existe (404), seguimos sin firma — graceful fallback.
+    try {
+      const resFirma = await fetch('./assets/firma_admin.png');
+      if (resFirma.ok) {
+        const blob = await resFirma.blob();
+        const dataUrl = await new Promise(res => {
+          const r = new FileReader();
+          r.onloadend = () => res(r.result);
+          r.readAsDataURL(blob);
+        });
+        // Dimensiones: ~35mm de ancho, 18mm de alto, centrada en el bloque derecho de firma
+        const firmaW = 35, firmaH = 18;
+        const firmaCenterX = (mitad + 10 + W - margen - 10) / 2;
+        doc.addImage(dataUrl, 'PNG', firmaCenterX - firmaW/2, yFirma - firmaH - 1, firmaW, firmaH);
+      }
+    } catch(e) { console.warn('No se pudo cargar firma_admin.png', e); }
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
