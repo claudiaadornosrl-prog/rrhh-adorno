@@ -683,6 +683,7 @@ const NAV = {
     { id: 'mis-vacaciones',label: 'Mis vacaciones',icon: '🌴', section: null },
     { id: 'mis-permisos',  label: 'Mis permisos',  icon: '🙋', section: null },
     { id: 'mi-banco',      label: 'Mi banco',      icon: '🏦', section: null },
+    { id: 'mis-prestamos', label: 'Mis préstamos', icon: '💵', section: null },
     { id: 'mis-fichadas',  label: 'Mis fichadas',  icon: '🕐', section: null },
     { id: 'mis-certif',    label: 'Mis certif. médicos', icon: '🏥', section: null },
     { id: 'buzon',         label: 'Buzón anónimo', icon: '✉️', section: null },
@@ -851,6 +852,7 @@ async function renderPage(tabId) {
     'mi-banco':        renderMiBanco,
     'mis-fichadas':    renderMisFichadas,
     'mis-certif':      renderMisCertificados,
+    'mis-prestamos':   renderMisPrestamos,
   };
   const fn = renderers[tabId] || (() => '<div class="placeholder">Página no encontrada</div>');
   main.innerHTML = '<div class="spinner"></div>';
@@ -4277,6 +4279,203 @@ async function renderMisFichadas() {
       `}
     </div>
   `;
+}
+
+async function renderMisPrestamos() {
+  if (!session.empleado_id) {
+    return '<div class="emp-empty">Tu usuario no está vinculado a un empleado.</div>';
+  }
+
+  // Cargar préstamos del empleado + sus cuotas
+  const { data: prestamos, error: e1 } = await sb.from('rrhh_prestamo')
+    .select('*')
+    .eq('empleado_id', session.empleado_id)
+    .order('fecha_otorgamiento', { ascending: false });
+  if (e1) return `<div class="card" style="color:#b91c1c">Error: ${escapeHtml(e1.message)}</div>`;
+
+  const ids = (prestamos||[]).map(p => p.id);
+  let cuotasPorPres = {};
+  if (ids.length) {
+    const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+      .select('*').in('prestamo_id', ids).order('numero');
+    (cs||[]).forEach(c => {
+      (cuotasPorPres[c.prestamo_id] = cuotasPorPres[c.prestamo_id] || []).push(c);
+    });
+  }
+
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const labelMes = (iso) => {
+    if (!iso) return '';
+    const [y, m] = iso.split('-').map(Number);
+    const txt = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+    return txt.charAt(0).toUpperCase() + txt.slice(1);
+  };
+  const fmtFecha = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
+    return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+  };
+
+  const propuestos = (prestamos||[]).filter(p => p.estado === 'propuesto');
+  const activos    = (prestamos||[]).filter(p => p.estado === 'activo');
+  const cerrados   = (prestamos||[]).filter(p => ['pagado','cancelado_anticipado','rechazado'].includes(p.estado));
+
+  const renderCuotas = (cuotas) => `
+    <div style="max-height:240px;overflow:auto;margin-top:10px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#f3f4f6;text-align:right;">
+          <th style="padding:5px;text-align:left;">#</th>
+          <th style="padding:5px;text-align:left;">Mes</th>
+          <th style="padding:5px;">Cuota</th>
+          <th style="padding:5px;">Capital</th>
+          <th style="padding:5px;">Interés</th>
+          <th style="padding:5px;text-align:left;">Estado</th>
+        </tr></thead>
+        <tbody>
+          ${(cuotas||[]).map(c => {
+            const colorEstado = { propuesta:'#6366f1', pendiente:'#0891b2', aplicada:'#15803d', cancelada:'#9ca3af', rechazada:'#dc2626' };
+            return `<tr style="border-top:1px solid #e5e7eb;text-align:right;">
+              <td style="padding:5px;text-align:left;">${c.numero}</td>
+              <td style="padding:5px;text-align:left;text-transform:capitalize;">${labelMes(c.mes_descuento)}</td>
+              <td style="padding:5px;font-family:monospace;font-weight:600;">${fmt(c.monto_total)}</td>
+              <td style="padding:5px;font-family:monospace;">${fmt(c.monto_capital)}</td>
+              <td style="padding:5px;font-family:monospace;color:#d97706;">${fmt(c.monto_interes)}</td>
+              <td style="padding:5px;text-align:left;color:${colorEstado[c.estado]||'#374151'};font-weight:600;">${c.estado}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  return `
+    <div class="page-header">
+      <h2>Mis préstamos</h2>
+      <div class="subtitle">Revisá tus préstamos activos, propuestas pendientes e historial</div>
+    </div>
+
+    ${propuestos.length === 0 ? '' : `
+      <div class="section-title" style="color:#6366f1;">📩 Propuestas pendientes (${propuestos.length})</div>
+      ${propuestos.map(p => `
+        <div class="card" style="background:#eef2ff;border:2px solid #c7d2fe;margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+            <div>
+              <div style="font-size:11px;color:#6366f1;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Propuesta · ${fmtFecha(p.fecha_otorgamiento)}</div>
+              <div style="font-size:20px;font-weight:700;color:#3730a3;">${fmt(p.capital)} en ${p.cuotas_totales} cuotas</div>
+              <div style="font-size:14px;color:#4338ca;margin-top:4px;">Cuota mensual: <strong>${fmt(p.cuota_monto)}</strong></div>
+              ${p.notas ? `<div style="font-size:12px;color:#6366f1;margin-top:6px;font-style:italic;">"${escapeHtml(p.notas)}"</div>` : ''}
+              <div style="font-size:12px;color:#6366f1;margin-top:6px;">Primer mes de descuento si aceptás: <strong>${labelMes(p.mes_primer_descuento)}</strong></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+              <button class="btn primary" style="background:#16a34a;border-color:#16a34a;" onclick="aceptarMiPrestamo(${p.id})">✅ Aceptar propuesta</button>
+              <button class="btn" style="background:white;color:#dc2626;border-color:#fca5a5;" onclick="rechazarMiPrestamo(${p.id})">❌ Rechazar</button>
+            </div>
+          </div>
+          <details style="margin-top:14px;">
+            <summary style="cursor:pointer;font-size:13px;color:#6366f1;font-weight:600;">Ver plan completo de cuotas</summary>
+            ${renderCuotas(cuotasPorPres[p.id])}
+          </details>
+        </div>
+      `).join('')}
+    `}
+
+    <div class="section-title">✅ Préstamos activos (${activos.length})</div>
+    ${activos.length === 0 ? `
+      <div class="card"><div style="padding:14px;color:var(--muted);">No tenés préstamos activos.</div></div>
+    ` : activos.map(p => {
+        const cs = cuotasPorPres[p.id] || [];
+        const pagadas = cs.filter(c => c.estado === 'aplicada').length;
+        const pendientes = cs.filter(c => c.estado === 'pendiente');
+        const saldo = pendientes.reduce((a, c) => a + Number(c.monto_capital||0), 0);
+        return `
+        <div class="card" style="margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+            <div>
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Préstamo · otorgado ${fmtFecha(p.fecha_otorgamiento)}</div>
+              <div style="font-size:18px;font-weight:600;">${fmt(p.capital)} en ${p.cuotas_totales} cuotas de ${fmt(p.cuota_monto)}</div>
+              <div style="font-size:13px;color:var(--muted);margin-top:4px;">${pagadas} pagadas · ${pendientes.length} pendientes · saldo capital ${fmt(saldo)}</div>
+              ${p.notas ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic;">"${escapeHtml(p.notas)}"</div>` : ''}
+            </div>
+          </div>
+          <details style="margin-top:14px;">
+            <summary style="cursor:pointer;font-size:13px;color:#0891b2;font-weight:600;">Ver detalle de cuotas</summary>
+            ${renderCuotas(cs)}
+          </details>
+        </div>
+      `;
+    }).join('')}
+
+    ${cerrados.length === 0 ? '' : `
+      <div class="section-title" style="color:var(--muted);">Historial (${cerrados.length})</div>
+      ${cerrados.map(p => `
+        <div class="card" style="background:#f9fafb;margin-bottom:10px;opacity:0.85;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:14px;font-weight:600;">${fmt(p.capital)} en ${p.cuotas_totales} cuotas</div>
+              <div style="font-size:12px;color:var(--muted);">${fmtFecha(p.fecha_otorgamiento)} · estado: <strong>${p.estado}</strong>${p.rechazo_motivo ? ' · motivo: ' + escapeHtml(p.rechazo_motivo) : ''}</div>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    `}
+  `;
+}
+
+async function aceptarMiPrestamo(prestamoId) {
+  if (!confirm('¿Aceptás la propuesta de préstamo?\n\nVa a quedar activo y se va a empezar a descontar de tus haberes en el próximo cierre de mes.')) return;
+  try {
+    const { data, error } = await sb.rpc('rrhh_aceptar_prestamo', { p_prestamo_id: prestamoId });
+    if (error) throw error;
+    toast('Préstamo aceptado ✓', 'success');
+    // Push al admin (notif a JP)
+    try {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          'Préstamo aceptado ✓',
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} aceptó la propuesta de préstamo #${prestamoId}.`,
+          { url: './#prestamos', tag: 'prestamo-' + prestamoId }
+        );
+      }
+    } catch(_) {}
+    switchTab('mis-prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+async function rechazarMiPrestamo(prestamoId) {
+  const motivo = prompt('¿Por qué rechazás la propuesta? (opcional)');
+  if (motivo === null) return;
+  try {
+    const { error } = await sb.rpc('rrhh_rechazar_prestamo', { p_prestamo_id: prestamoId, p_motivo: motivo || null });
+    if (error) throw error;
+    toast('Propuesta rechazada', 'info');
+    try {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          'Préstamo rechazado',
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} rechazó la propuesta de préstamo #${prestamoId}.${motivo ? ' Motivo: ' + motivo : ''}`,
+          { url: './#prestamos', tag: 'prestamo-' + prestamoId }
+        );
+      }
+    } catch(_) {}
+    switchTab('mis-prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// Helper: busca el empleado_id asociado al usuario admin para mandarle push
+async function _buscarAdminIdParaPush() {
+  try {
+    const { data } = await sb.from('rrhh_usuarios')
+      .select('empleado_id').eq('rol', 'admin').eq('activo', true).limit(1).maybeSingle();
+    return data?.empleado_id || null;
+  } catch (_) { return null; }
 }
 
 async function renderMisCertificados() {
@@ -10835,9 +11034,11 @@ async function renderPrestamos() {
   let q = sb.from('rrhh_prestamo')
     .select('*, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local)')
     .order('otorgado_at', { ascending: false });
+  if (filtro === 'propuestos') q = q.eq('estado', 'propuesto');
   if (filtro === 'activos')   q = q.eq('estado', 'activo');
   if (filtro === 'pagados')   q = q.eq('estado', 'pagado');
   if (filtro === 'cancelados') q = q.eq('estado', 'cancelado_anticipado');
+  if (filtro === 'rechazados') q = q.eq('estado', 'rechazado');
   const { data: prestamos, error } = await q;
   if (error) {
     cont.innerHTML = `<div class="card"><div class="card-body" style="color:#b91c1c">Error: ${escapeHtml(error.message)}</div></div>`;
@@ -10861,8 +11062,9 @@ async function renderPrestamos() {
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const fmtPct = (t) => (Number(t||0) * 100).toFixed(2) + '%';
   const estadoChip = (e) => {
-    const colores = { activo: '#0ea5e9', pagado: '#16a34a', cancelado_anticipado: '#dc2626' };
-    return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${e}</span>`;
+    const colores = { propuesto: '#6366f1', activo: '#0ea5e9', pagado: '#16a34a', cancelado_anticipado: '#dc2626', rechazado: '#dc2626' };
+    const etiquetas = { cancelado_anticipado: 'cancelado' };
+    return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${etiquetas[e]||e}</span>`;
   };
 
   cont.innerHTML = `
@@ -10879,9 +11081,11 @@ async function renderPrestamos() {
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
       <span style="font-size:13px;color:var(--muted);">Filtrar:</span>
       <select onchange="prestamoState.filtro=this.value; switchTab('prestamos');" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+        <option value="propuestos" ${filtro==='propuestos'?'selected':''}>📩 Propuestos</option>
         <option value="activos"    ${filtro==='activos'?'selected':''}>Activos</option>
         <option value="pagados"    ${filtro==='pagados'?'selected':''}>Pagados</option>
         <option value="cancelados" ${filtro==='cancelados'?'selected':''}>Cancelados</option>
+        <option value="rechazados" ${filtro==='rechazados'?'selected':''}>Rechazados</option>
         <option value="todos"      ${filtro==='todos'?'selected':''}>Todos</option>
       </select>
     </div>
@@ -10961,6 +11165,13 @@ async function prestamoAbrirNuevo() {
     <div class="form-row" style="margin-bottom:10px;">
       <label>Notas (opcional)</label>
       <input type="text" id="pr-notas" placeholder="Ej: ayuda mudanza, anticipo escritura, etc.">
+    </div>
+    <div style="background:#eef2ff;padding:10px 12px;border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pr-esperar-confirmacion" checked style="width:18px;height:18px;cursor:pointer;">
+      <label for="pr-esperar-confirmacion" style="cursor:pointer;font-size:13px;color:#3730a3;line-height:1.4;">
+        <strong>Esperar confirmación de la empleada</strong><br>
+        <span style="font-size:11px;color:#6366f1;">Tildado: queda como propuesta y la empleada lo acepta/rechaza desde su app. Destildado: queda activo directo (para préstamos ya acordados verbalmente o históricos).</span>
+      </label>
     </div>
 
     <div id="pr-preview" style="background:#f9fafb;padding:12px;border-radius:8px;margin:14px 0;display:none;">
@@ -11121,6 +11332,13 @@ async function prestamoCrear() {
   if (!cuotas || cuotas <= 0)   { toast('Cuotas inválidas', 'error'); return; }
   if (!mesIni)  { toast('Mes del primer descuento requerido', 'error'); return; }
 
+  // Lookup del nombre de la empleada para los mensajes (best effort)
+  let empNombre = '';
+  try {
+    const { data: e } = await sb.from('rrhh_empleados').select('nombre').eq('id', empId).single();
+    empNombre = e?.nombre || '';
+  } catch(_) {}
+
   const tasa = tasaPct / 100;
   let plan;
   try {
@@ -11128,6 +11346,11 @@ async function prestamoCrear() {
   } catch(e) { toast(e.message, 'error'); return; }
 
   if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la empleada en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}? Esta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
+
+  // ¿Es propuesta o activo directo?
+  const esperarConf = document.getElementById('pr-esperar-confirmacion')?.checked ?? true;
+  const estadoInicialPres = esperarConf ? 'propuesto' : 'activo';
+  const estadoInicialCuota = esperarConf ? 'propuesta' : 'pendiente';
 
   // 1. Crear cabecera
   const { data: pres, error: e1 } = await sb.from('rrhh_prestamo').insert({
@@ -11138,8 +11361,9 @@ async function prestamoCrear() {
     cuotas_totales: cuotas,
     cuota_monto: plan.cuota_monto,
     mes_primer_descuento: mesIni + '-01',
-    estado: 'activo',
+    estado: estadoInicialPres,
     otorgado_por: session.user?.email || 'admin',
+    propuesto_por: esperarConf ? (session.user?.email || 'admin') : null,
     notas,
   }).select('id').single();
   if (e1) { toast('Error creando préstamo: ' + e1.message, 'error'); return; }
@@ -11153,7 +11377,7 @@ async function prestamoCrear() {
     monto_capital: c.monto_capital,
     monto_interes: c.monto_interes,
     saldo_post_cuota: c.saldo_post,
-    estado: 'pendiente',
+    estado: estadoInicialCuota,
   }));
   const { error: e2 } = await sb.from('rrhh_prestamo_cuota').insert(filasCuotas);
   if (e2) {
@@ -11161,18 +11385,31 @@ async function prestamoCrear() {
     return;
   }
 
-  toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
-  // 🔔 Push a la empleada
+  if (esperarConf) {
+    toast(`✓ Propuesta #${pres.id} creada · esperando que ${empNombre || 'la empleada'} confirme`, 'success');
+  } else {
+    toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
+  }
+  // 🔔 Push a la empleada (mensaje según el caso)
   const mesIniTxt = (() => {
     const [y, m] = mesIni.split('-').map(Number);
     return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
   })();
-  enviarPush(
-    empId,
-    'Préstamo otorgado ✓',
-    `Te otorgamos un préstamo de $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas de $${plan.cuota_monto.toLocaleString('es-AR')}. Primera cuota: ${mesIniTxt}.`,
-    { url: './#mi-banco', tag: 'prestamo-' + pres.id }
-  );
+  if (esperarConf) {
+    enviarPush(
+      empId,
+      'Te proponemos un préstamo 📩',
+      `Capital $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas de $${plan.cuota_monto.toLocaleString('es-AR')}. Abrí "Mis préstamos" para ver el plan y aceptarlo o rechazarlo.`,
+      { url: './#mis-prestamos', tag: 'prestamo-' + pres.id }
+    );
+  } else {
+    enviarPush(
+      empId,
+      'Préstamo otorgado ✓',
+      `Te otorgamos un préstamo de $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas de $${plan.cuota_monto.toLocaleString('es-AR')}. Primera cuota: ${mesIniTxt}.`,
+      { url: './#mis-prestamos', tag: 'prestamo-' + pres.id }
+    );
+  }
   closeModal();
   switchTab('prestamos');
 }
