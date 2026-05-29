@@ -11158,7 +11158,7 @@ async function prestamoAbrirNuevo() {
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="form-row"><label>Capital</label><input type="number" id="pr-capital" placeholder="300000" min="1" step="any"></div>
-      <div class="form-row"><label>Tasa mensual %</label><input type="number" id="pr-tasa" placeholder="5" min="0" max="50" step="0.1"></div>
+      <div class="form-row"><label>CFT anual %</label><input type="number" id="pr-tasa" placeholder="60" min="0" max="500" step="0.1"></div>
       <div class="form-row"><label>Cuotas</label><input type="number" id="pr-cuotas" placeholder="6" min="1" max="60" step="1"></div>
       <div class="form-row"><label>Primer descuento (mes)</label><input type="month" id="pr-mes" value="${proxIso.slice(0,7)}"></div>
     </div>
@@ -11208,10 +11208,13 @@ function prestamoCalcularPreview() {
   }
   if (!mesIni) { toast('Cargá el mes del primer descuento', 'error'); return; }
 
-  const tasa = tasaPct / 100;
+  // La tasa ingresada es el CFT anual (Costo Financiero Total).
+  // Convertimos a mensual compuesta: (1 + CFT)^(1/12) - 1
+  const cftPct = tasaPct;
+  const tasaMensual = Math.pow(1 + cftPct / 100, 1/12) - 1;
   let plan;
   try {
-    plan = prestamoEngine.armarPlan(capital, tasa, cuotas);
+    plan = prestamoEngine.armarPlan(capital, tasaMensual, cuotas);
   } catch(e) { toast(e.message, 'error'); return; }
 
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -11223,12 +11226,32 @@ function prestamoCalcularPreview() {
   const totalDevolver = plan.plan.reduce((a, c) => a + c.monto_total, 0);
   const totalInteres  = plan.plan.reduce((a, c) => a + c.monto_interes, 0);
 
+  // Guardar plan vigente en estado global (para que prestamoCrear lo use)
+  window._prestamoPlanActual = plan;
+  window._prestamoPlanInputs = { capital, cftPct, tasaMensual, cuotas, ajustado: false };
+
+  const capLineal = plan.plan[0].monto_capital;
+  const intLineal = plan.plan[0].monto_interes;
+
   document.getElementById('pr-preview').style.display = 'block';
   document.getElementById('pr-preview-body').innerHTML = `
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;">
-      <div><strong>Cuota mensual:</strong> <span style="font-family:monospace;">${fmt(plan.cuota_monto)}</span></div>
-      <div><strong>Total a devolver:</strong> <span style="font-family:monospace;">${fmt(totalDevolver)}</span></div>
-      <div><strong>Total intereses:</strong> <span style="font-family:monospace;color:#d97706;">${fmt(totalInteres)}</span></div>
+      <div><strong>Cuota mensual:</strong> <span id="pr-info-cuota" style="font-family:monospace;">${fmt(plan.cuota_monto)}</span></div>
+      <div><strong>Total a devolver:</strong> <span id="pr-info-total" style="font-family:monospace;">${fmt(totalDevolver)}</span></div>
+      <div><strong>Total intereses:</strong> <span id="pr-info-int" style="font-family:monospace;color:#d97706;">${fmt(totalInteres)}</span></div>
+      <div style="color:var(--muted);font-size:12px;">CFT ${cftPct.toFixed(1)}% (mensual ${(tasaMensual*100).toFixed(2)}%)</div>
+    </div>
+
+    <div style="background:#fef9c3;border:1px solid #fde68a;padding:10px 12px;border-radius:6px;margin:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:12px;color:#854d0e;"><strong>✏️ Ajustar manualmente</strong> (para redondear):</span>
+      <label style="font-size:12px;color:#854d0e;">Capital/cuota:
+        <input type="number" id="pr-ajuste-cap" value="${capLineal}" step="1000" style="width:110px;padding:4px 8px;border:1px solid #fcd34d;border-radius:4px;font-family:monospace;">
+      </label>
+      <label style="font-size:12px;color:#854d0e;">Interés/cuota:
+        <input type="number" id="pr-ajuste-int" value="${intLineal}" step="1000" style="width:110px;padding:4px 8px;border:1px solid #fcd34d;border-radius:4px;font-family:monospace;">
+      </label>
+      <button class="btn small" onclick="prestamoAjustarManual()">🔄 Recalcular</button>
+      <button class="btn small" onclick="prestamoCalcularPreview()" title="Volver al cálculo del sistema francés">↺ Restablecer</button>
     </div>
     <div style="max-height:240px;overflow:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -11260,9 +11283,10 @@ function prestamoCalcularPreview() {
 
 function prestamoCompararCuotas() {
   const capital = Number(document.getElementById('pr-capital').value);
-  const tasaPct = Number(document.getElementById('pr-tasa').value || 0);
+  const cftPct = Number(document.getElementById('pr-tasa').value || 0);
   if (!capital || capital <= 0) { toast('Cargá capital primero', 'error'); return; }
-  const tasa = tasaPct / 100;
+  // CFT anual → mensual compuesta
+  const tasa = Math.pow(1 + cftPct / 100, 1/12) - 1;
 
   // Opciones de cuotas a comparar
   const opciones = [3, 4, 5, 6, 8, 10, 12];
@@ -11282,7 +11306,7 @@ function prestamoCompararCuotas() {
   document.getElementById('pr-comparativa').style.display = 'block';
   document.getElementById('pr-comparativa-body').innerHTML = `
     <div style="font-size:12px;color:#854d0e;margin-bottom:8px;">
-      Capital: <strong>${fmt(capital)}</strong> · Tasa mensual: <strong>${tasaPct}%</strong>
+      Capital: <strong>${fmt(capital)}</strong> · CFT <strong>${cftPct.toFixed(1)}%</strong> (mensual ${(tasa*100).toFixed(2)}%)
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;background:white;">
       <thead><tr style="background:#fde68a;text-align:right;">
@@ -11316,6 +11340,74 @@ function prestamoCompararCuotas() {
   `;
 }
 
+function prestamoAjustarManual() {
+  // Lee los inputs ajustados y recalcula el plan con esos valores
+  const capInput = document.getElementById('pr-ajuste-cap');
+  const intInput = document.getElementById('pr-ajuste-int');
+  if (!capInput || !intInput) { toast('Calculá el plan primero', 'error'); return; }
+
+  const capCuota = Number(capInput.value);
+  const intCuota = Number(intInput.value);
+  if (!(capCuota > 0)) { toast('Capital por cuota inválido', 'error'); return; }
+  if (!(intCuota >= 0)) { toast('Interés por cuota inválido', 'error'); return; }
+
+  const cuotas = Number(document.getElementById('pr-cuotas').value);
+  const capital = Number(document.getElementById('pr-capital').value);
+  const mesIni  = document.getElementById('pr-mes').value;
+
+  const cuotaTotal = capCuota + intCuota;
+  // Saldo se decrementa con el capital por cuota; la última cuota absorbe redondeo
+  let saldo = capital;
+  const filas = [];
+  for (let k = 1; k <= cuotas; k++) {
+    let capital_k = capCuota;
+    if (k === cuotas) capital_k = Math.round(saldo);  // ajuste final
+    const total = capital_k + intCuota;
+    saldo = saldo - capital_k;
+    filas.push({
+      numero: k,
+      monto_total: total,
+      monto_capital: capital_k,
+      monto_interes: intCuota,
+      saldo_post: Math.max(0, Math.round(saldo))
+    });
+  }
+  const planAjustado = { cuota_monto: cuotaTotal, plan: filas };
+  window._prestamoPlanActual = planAjustado;
+  if (window._prestamoPlanInputs) window._prestamoPlanInputs.ajustado = true;
+
+  // Refrescar UI: header + tabla
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const totalDevolver = filas.reduce((a, c) => a + c.monto_total, 0);
+  const totalInteres  = filas.reduce((a, c) => a + c.monto_interes, 0);
+
+  document.getElementById('pr-info-cuota').textContent = fmt(cuotaTotal);
+  document.getElementById('pr-info-total').textContent = fmt(totalDevolver);
+  document.getElementById('pr-info-int').textContent = fmt(totalInteres);
+
+  const labelMes = (iso) => {
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+  };
+
+  // Reemplazar el tbody de la tabla
+  const tabla = document.querySelector('#pr-preview-body table tbody');
+  if (tabla) {
+    tabla.innerHTML = filas.map(c => {
+      const mes = prestamoEngine.sumarMeses(mesIni + '-01', c.numero - 1);
+      return `<tr style="border-top:1px solid #e5e7eb;text-align:right;">
+        <td style="padding:4px;text-align:left;">${c.numero}</td>
+        <td style="padding:4px;text-align:left;text-transform:capitalize;">${labelMes(mes)}</td>
+        <td style="padding:4px;font-family:monospace;font-weight:600;">${fmt(c.monto_total)}</td>
+        <td style="padding:4px;font-family:monospace;">${fmt(c.monto_capital)}</td>
+        <td style="padding:4px;font-family:monospace;color:#d97706;">${fmt(c.monto_interes)}</td>
+        <td style="padding:4px;font-family:monospace;color:var(--muted);">${fmt(c.saldo_post)}</td>
+      </tr>`;
+    }).join('');
+  }
+  toast('Plan ajustado ✓', 'success');
+}
+
 async function prestamoCrear() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const empId   = parseInt(document.getElementById('pr-emp').value);
@@ -11339,13 +11431,22 @@ async function prestamoCrear() {
     empNombre = e?.nombre || '';
   } catch(_) {}
 
-  const tasa = tasaPct / 100;
+  // tasaPct viene como CFT anual — convertimos a mensual compuesta
+  const tasa = Math.pow(1 + tasaPct / 100, 1/12) - 1;
   let plan;
-  try {
-    plan = prestamoEngine.armarPlan(capital, tasa, cuotas);
-  } catch(e) { toast(e.message, 'error'); return; }
+  // Si el admin ya calculó/ajustó el plan, usar el del estado global (refleja ajuste manual)
+  if (window._prestamoPlanActual && window._prestamoPlanInputs &&
+      window._prestamoPlanInputs.capital === capital &&
+      window._prestamoPlanInputs.cuotas === cuotas) {
+    plan = window._prestamoPlanActual;
+  } else {
+    try {
+      plan = prestamoEngine.armarPlan(capital, tasa, cuotas);
+    } catch(e) { toast(e.message, 'error'); return; }
+  }
+  const ajustado = window._prestamoPlanInputs?.ajustado ? ' (con ajuste manual)' : '';
 
-  if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la empleada en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}? Esta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
+  if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la empleada en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}?\n\nCFT ${tasaPct}% anual (mensual ${(tasa*100).toFixed(2)}%)${ajustado}\n\nEsta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
 
   // ¿Es propuesta o activo directo?
   const esperarConf = document.getElementById('pr-esperar-confirmacion')?.checked ?? true;
