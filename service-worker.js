@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v20-pagos-blanco';
+const CACHE_VERSION = 'rrhh-v21-prestamo-historico';
 const ASSETS = [
   './',
   './index.html',
