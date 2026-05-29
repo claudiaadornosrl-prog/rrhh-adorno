@@ -4383,10 +4383,41 @@ async function renderMisPrestamos() {
     </div>
   `;
 
+  // ¿Estamos en ventana 5-14 para pedir adelanto?
+  const _diaHoy = new Date().getDate();
+  const enVentanaAdelanto = _diaHoy >= 5 && _diaHoy <= 14;
+
+  // ¿Ya tiene solicitud de adelanto este mes?
+  const _hoyMes = new Date(); _hoyMes.setDate(1); _hoyMes.setHours(0,0,0,0);
+  const { data: adelantosMes } = await sb.from('rrhh_prestamo_solicitud')
+    .select('id, estado')
+    .eq('empleado_id', session.empleado_id)
+    .eq('tipo', 'adelanto_sueldo')
+    .gte('solicitado_at', _hoyMes.toISOString())
+    .in('estado', ['pendiente','aprobada']);
+  const yaPidioAdelantoEsteMes = (adelantosMes || []).length > 0;
+
   return `
     <div class="page-header">
       <h2>Mis préstamos</h2>
       <div class="subtitle">Revisá tus préstamos activos, propuestas pendientes e historial</div>
+    </div>
+
+    <div class="card" style="background:#dbeafe;border:1px solid #93c5fd;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#1e3a8a;">💵 Pedir adelanto de sueldo</div>
+          <div style="font-size:12px;color:#1e40af;margin-top:4px;">
+            Disponible del <strong>día 5 al 14</strong> de cada mes. Se descuenta del recibo del mismo mes. Tope: 50% del neto del mes pasado.
+          </div>
+        </div>
+        ${enVentanaAdelanto && !yaPidioAdelantoEsteMes
+          ? `<button class="btn primary" onclick="abrirPedirAdelantoSueldo()">💵 Solicitar adelanto</button>`
+          : yaPidioAdelantoEsteMes
+            ? `<span style="font-size:12px;color:#1e40af;font-weight:600;">Ya pediste un adelanto este mes</span>`
+            : `<span style="font-size:12px;color:#1e40af;font-weight:600;">Fuera de ventana (hoy día ${_diaHoy})</span>`
+        }
+      </div>
     </div>
 
     ${propuestos.length === 0 ? '' : `
@@ -4502,6 +4533,76 @@ async function rechazarMiPrestamo(prestamoId) {
         );
       }
     } catch(_) {}
+    switchTab('mis-prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Self-service: pedir adelanto de sueldo (ventana 5-14)
+// ─────────────────────────────────────────────────────────────────────
+async function abrirPedirAdelantoSueldo() {
+  const hoy = new Date();
+  const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+  const periodoMA = mesAnterior.toISOString().slice(0,10);
+  let topeTxt = 'No hay liquidación del mes pasado cargada — admin valida el tope.';
+  try {
+    const { data: liqAnt } = await sb.from('rrhh_liquidacion')
+      .select('recibo_neto').eq('empleado_id', session.empleado_id).eq('periodo', periodoMA).maybeSingle();
+    if (liqAnt?.recibo_neto) {
+      const tope = Math.floor(Number(liqAnt.recibo_neto) * 0.5);
+      topeTxt = `Tope: <strong>$${tope.toLocaleString('es-AR')}</strong> (50% de tu neto del mes pasado: $${Math.round(Number(liqAnt.recibo_neto)).toLocaleString('es-AR')})`;
+    }
+  } catch(_) {}
+
+  const htmlModal = `
+    <h3 style="margin:0 0 8px;">💵 Solicitar adelanto de sueldo</h3>
+    <div style="background:#dbeafe;padding:10px 12px;border-radius:6px;font-size:12px;color:#1e3a8a;margin-bottom:14px;line-height:1.5;">
+      ${topeTxt}<br>
+      Se va a descontar del recibo del mes en curso.
+    </div>
+    <div class="form-grid">
+      <div class="form-row full">
+        <label>¿Cuánto necesitás?</label>
+        <input type="text" inputmode="numeric" id="adelsueldo-monto" data-money placeholder="$50.000">
+      </div>
+      <div class="form-row full">
+        <label>Motivo (opcional)</label>
+        <input type="text" id="adelsueldo-motivo" placeholder="Ej: cubrir un gasto urgente">
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" onclick="enviarSolicitudAdelantoSueldo()">📩 Enviar solicitud</button>
+    </div>
+  `;
+  openModal(htmlModal, '520px');
+  setTimeout(() => wireAllMoneyInputs(document.getElementById('global-modal')), 0);
+}
+
+async function enviarSolicitudAdelantoSueldo() {
+  const monto = parseMoneyInput(document.getElementById('adelsueldo-monto'));
+  const motivo = (document.getElementById('adelsueldo-motivo').value || '').trim() || null;
+  if (!(monto > 0)) { toast('Cargá un monto mayor a 0', 'error'); return; }
+  try {
+    const { data, error } = await sb.rpc('rrhh_solicitar_adelanto_sueldo', {
+      p_monto: monto, p_motivo: motivo
+    });
+    if (error) throw error;
+    toast('Solicitud enviada · te avisamos cuando esté aprobada ✓', 'success');
+    try {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          'Solicitud de adelanto 💵',
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} pide $${monto.toLocaleString('es-AR')} de adelanto.`,
+          { url: './#prestamos', tag: 'solic-prestamo-' + data?.solicitud_id }
+        );
+      }
+    } catch(_) {}
+    closeModal();
     switchTab('mis-prestamos');
   } catch (e) {
     toast('Error: ' + (e.message || e), 'error');
@@ -11320,6 +11421,21 @@ async function renderPrestamos() {
               </div>
             </div>
           `;
+        } else if (s.tipo === 'adelanto_sueldo') {
+          return `
+            <div style="background:white;padding:12px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+              <div style="flex:1;min-width:260px;">
+                <div style="font-size:13px;color:#854d0e;font-weight:600;">💵 ${escapeHtml(empNom)} pide adelanto de sueldo</div>
+                <div style="font-size:14px;color:#854d0e;margin-top:4px;font-weight:600;">${fmt2(s.monto_solicitado)}</div>
+                ${s.motivo ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;">"${escapeHtml(s.motivo)}"</div>` : ''}
+                <div style="font-size:11px;color:var(--muted);margin-top:6px;">Enviada: ${new Date(s.solicitado_at).toLocaleString('es-AR')}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+                <button class="btn small primary" style="background:#16a34a;border-color:#16a34a;" onclick="aprobarAdelantoSueldo(${s.id})">✅ Aprobar</button>
+                <button class="btn small" style="color:#dc2626;" onclick="rechazarSolicitudPrestamo(${s.id})">❌ Rechazar</button>
+              </div>
+            </div>
+          `;
         }
         return '';
       }).join('')}
@@ -11337,6 +11453,7 @@ async function renderPrestamos() {
       <h3 style="margin:0 0 12px;">➕ Otorgar nuevo préstamo</h3>
       <button class="btn primary" onclick="prestamoAbrirNuevo()">📤 Crear préstamo</button>
       <button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;margin-left:8px;" onclick="adelantoAbrirNuevo()">💵 Nuevo adelanto</button>
+      <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;margin-left:8px;" onclick="exportarAdelantosGalicia()" title="Descargar Excel con todos los adelantos del mes para subir a Galicia Office">📊 Exportar Galicia adelantos</button>
     </div>
 
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
@@ -12092,6 +12209,69 @@ async function aplicarAdelantoSolicitud(solicitudId) {
       );
     }
     switchTab('prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin: aprobar adelanto de sueldo
+// ─────────────────────────────────────────────────────────────────────
+async function aprobarAdelantoSueldo(solicitudId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Aprobar este adelanto?\n\nSe va a crear un préstamo 1 cuota 0% CFT con descuento en el mes en curso.')) return;
+  try {
+    const { data: s } = await sb.from('rrhh_prestamo_solicitud')
+      .select('empleado_id, monto_solicitado').eq('id', solicitudId).single();
+    const { data, error } = await sb.rpc('rrhh_aprobar_adelanto_sueldo', { p_solicitud_id: solicitudId });
+    if (error) throw error;
+    toast(`Adelanto aprobado ✓ · pagar el ${data?.fecha_pago_estimada || 'día hábil después del 14'}`, 'success');
+    if (s?.empleado_id) {
+      enviarPush(
+        s.empleado_id,
+        'Adelanto aprobado ✓',
+        `Tu adelanto de $${Number(s.monto_solicitado||0).toLocaleString('es-AR')} fue aprobado. Te transferimos el ${data?.fecha_pago_estimada || 'día hábil siguiente al 14'}.`,
+        { url: './#mis-prestamos', tag: 'solic-prestamo-' + solicitudId }
+      );
+    }
+    switchTab('prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin: exportar Excel Galicia de adelantos del mes en curso
+// ─────────────────────────────────────────────────────────────────────
+async function exportarAdelantosGalicia() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  try {
+    const { data: rows, error } = await sb.from('rrhh_adelantos_mes_actual').select('*');
+    if (error) throw error;
+    if (!rows || rows.length === 0) {
+      toast('No hay adelantos cargados este mes', 'info'); return;
+    }
+    const filas = rows.map(r => ({
+      'CBU':           r.cbu || '',
+      'CUIL':          r.cuil || '',
+      'Apellido y Nombre': (r.apellido || '') + ', ' + (r.nombre || ''),
+      'Importe':       Number(r.monto || 0),
+      'Concepto':      'ADELANTO',
+      'Referencia':    'ADL ' + new Date().toLocaleDateString('es-AR'),
+    }));
+    const ws = XLSX.utils.json_to_sheet(filas);
+    ws['!cols'] = [{wch:25},{wch:14},{wch:32},{wch:14},{wch:12},{wch:22}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Adelantos');
+    const hoy = new Date();
+    const nombre = `Adelantos_Galicia_${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}.xlsx`;
+    XLSX.writeFile(wb, nombre);
+    const sinCbu = rows.filter(r => !r.cbu || String(r.cbu).length < 22);
+    if (sinCbu.length > 0) {
+      toast(`⚠ ${sinCbu.length} empleadas sin CBU válido — revisalas en su legajo`, 'warning');
+    } else {
+      toast(`Excel descargado ✓ · ${rows.length} adelantos`, 'success');
+    }
   } catch (e) {
     toast('Error: ' + (e.message || e), 'error');
   }

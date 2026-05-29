@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v16-prestamo-este-mes';
+const CACHE_VERSION = 'rrhh-v17-adelanto-sueldo';
 const ASSETS = [
   './',
   './index.html',
