@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v24-pagos-por-fecha';
+const CACHE_VERSION = 'rrhh-v25-pagos-auto-neto';
 const ASSETS = [
   './',
   './index.html',

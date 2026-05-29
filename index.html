@@ -10404,10 +10404,16 @@ async function renderPagosMes() {
   const periodo = pagosMesState.periodo;
   const periodoFull = periodo + '-01';
 
-  // 1) Empleadas activas
+  // 1) Empleadas activas + su categoría CCT (para calcular neto blanco)
   const { data: empleados } = await sb.from('rrhh_empleados')
-    .select('id, apellido, nombre, nombre_completo, local, cbu, cuil')
+    .select('id, apellido, nombre, nombre_completo, local, cbu, cuil, fecha_ingreso, obra_social_codigo, fuera_convenio, categoria:rrhh_categorias_cct(sueldo_basico)')
     .eq('estado', 'activo').order('local').order('apellido');
+
+  // Paritaria vigente del período
+  const { data: paritariaArr } = await sb.from('rrhh_paritaria_sumas_nr')
+    .select('*').lte('vigente_desde', periodoFull)
+    .order('vigente_desde', { ascending: false }).limit(1);
+  const paritaria = paritariaArr?.[0] || null;
 
   if (!empleados || empleados.length === 0) {
     return '<div class="card"><div class="card-body">No hay empleadas activas.</div></div>';
@@ -10449,21 +10455,47 @@ async function renderPagosMes() {
     }
   });
 
-  // 3) Pagos blancos ya cargados para este período
+  // 3) Pagos blancos ya cargados para este período (override manual de JP)
   const { data: pagosCargados } = await sb.from('rrhh_pagos_blanco')
     .select('empleado_id, neto_cct, notas, transferido_at')
     .eq('periodo', periodoFull);
   const pagosMap = {};
   (pagosCargados || []).forEach(p => { pagosMap[p.empleado_id] = p; });
 
+  // 4) Calcular neto CCT automático por cada empleada (asumiendo 30 días trabajados)
+  //    Si JP ya cargó un override manual en rrhh_pagos_blanco, ese gana.
+  const netosCalculados = {};
+  if (paritaria) {
+    empleados.forEach(e => {
+      if (!e.categoria?.sueldo_basico) return;
+      try {
+        const recibo = salaryEngine.calcularReciboCCT({
+          basico_escala:  Number(e.categoria.sueldo_basico),
+          fecha_ingreso:  e.fecha_ingreso,
+          periodo,
+          dias_trabajados: 30,
+          obra_social_codigo: e.obra_social_codigo || '',
+          suma_fija_nr:   Number(paritaria.suma_fija_nr),
+          recompos_nr:    Number(paritaria.recompos_nr),
+          fuera_convenio: !!e.fuera_convenio,
+        });
+        netosCalculados[e.id] = Number(recibo.totales.neto || 0);
+      } catch (err) {
+        console.warn('calc neto failed for', e.nombre_completo, err);
+      }
+    });
+  }
+
   // 4) Render
   const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
 
-  // Calcular totales (para los que ya tienen neto cargado)
+  // Calcular totales (usando override manual si existe, sino el calculado automático)
   let totalNeto = 0, totalAdel = 0, totalPres = 0, totalTransf = 0;
   empleados.forEach(e => {
     const pag = pagosMap[e.id];
-    const neto = Number(pag?.neto_cct || 0);
+    const netoOverride = Number(pag?.neto_cct || 0);
+    const netoCalc = netosCalculados[e.id] || 0;
+    const neto = netoOverride > 0 ? netoOverride : netoCalc;
     const adel = adelantosPorEmp[e.id] || 0;
     const pres = prestamosPorEmp[e.id] || 0;
     if (neto > 0) {
@@ -10526,7 +10558,7 @@ async function renderPagosMes() {
           <tr style="background:#f9fafb;text-align:left;">
             <th style="padding:8px;">Empleada</th>
             <th style="padding:8px;">Local</th>
-            <th style="padding:8px;text-align:right;" title="Neto del recibo CCT (cargás del PDF de MEMOSOFT)">Neto CCT</th>
+            <th style="padding:8px;text-align:right;" title="Neto del recibo CCT calculado automáticamente. Verde = automático, violeta = override manual.">Neto CCT</th>
             <th style="padding:8px;text-align:right;" title="Adelantos del mes (préstamos 1 cuota 0%)">Adelantos</th>
             <th style="padding:8px;text-align:right;" title="Cuotas de préstamos pendientes en este mes">Préstamos</th>
             <th style="padding:8px;text-align:right;background:#dcfce7;" title="Neto - adelantos - préstamos">A transferir</th>
@@ -10536,7 +10568,10 @@ async function renderPagosMes() {
         <tbody>
           ${empleados.map(e => {
             const pag = pagosMap[e.id];
-            const neto = Number(pag?.neto_cct || 0);
+            const netoOverride = Number(pag?.neto_cct || 0);
+            const netoCalc = netosCalculados[e.id] || 0;
+            const neto = netoOverride > 0 ? netoOverride : netoCalc;
+            const tieneOverride = netoOverride > 0;
             const adel = adelantosPorEmp[e.id] || 0;
             const pres = prestamosPorEmp[e.id] || 0;
             const transf = neto > 0 ? (neto - adel - pres) : 0;
@@ -10545,12 +10580,13 @@ async function renderPagosMes() {
               <td style="padding:8px;font-weight:600;">${escapeHtml(e.nombre_completo || '')}</td>
               <td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(e.local || '')}</td>
               <td style="padding:8px;text-align:right;">
-                <input type="text" inputmode="numeric" data-money
-                       data-emp="${e.id}"
-                       value="${neto > 0 ? fmtMoneyInput(neto) : ''}"
-                       onblur="guardarNetoPago(${e.id}, this.value)"
-                       placeholder="$0"
-                       style="width:130px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${neto > 0 ? 'background:#f0fdf4;' : ''}">
+                ${neto > 0 ? `
+                  <div style="font-family:monospace;font-weight:600;color:${tieneOverride?'#9333ea':'#0f6e56'};" title="${tieneOverride?'Valor sobreescrito manualmente':'Calculado automáticamente con CCT 130/75'}">${fmt(neto)}</div>
+                  <div style="font-size:10px;color:var(--muted);">${tieneOverride?'✏️ manual':'auto'} <a href="#" onclick="event.preventDefault();editarNetoManual(${e.id}, ${neto})" style="color:#0891b2;text-decoration:none;">${tieneOverride?'editar':'ajustar'}</a></div>
+                ` : `
+                  <span style="color:var(--muted);font-size:11px;">Sin categoría CCT</span>
+                  <a href="#" onclick="event.preventDefault();editarNetoManual(${e.id}, 0)" style="color:#0891b2;text-decoration:none;font-size:11px;display:block;">Cargar manual</a>
+                `}
               </td>
               <td style="padding:8px;text-align:right;font-family:monospace;color:${adel>0?'#d97706':'var(--muted)'};">${adel>0?'−'+fmt(adel):'—'}</td>
               <td style="padding:8px;text-align:right;font-family:monospace;color:${pres>0?'#9333ea':'var(--muted)'};">${pres>0?'−'+fmt(pres):'—'}</td>
@@ -10558,7 +10594,7 @@ async function renderPagosMes() {
               <td style="padding:8px;font-size:12px;">
                 ${transferido ? `<span style="color:#16a34a;">✓ Transferido ${new Date(pag.transferido_at).toLocaleDateString('es-AR')}</span>` :
                   neto > 0 ? `<button class="btn small" onclick="marcarTransferido(${e.id})">✓ Marcar pagado</button>` :
-                  '<span style="color:var(--muted);">Cargá el neto del recibo</span>'}
+                  '<span style="color:var(--muted);">—</span>'}
                 ${!e.cbu ? '<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠ Sin CBU en legajo</div>' : ''}
               </td>
             </tr>`;
@@ -10567,6 +10603,23 @@ async function renderPagosMes() {
       </table>
     </div>
   `;
+}
+
+async function editarNetoManual(empleadoId, netoActual) {
+  const valor = prompt('Ingresá el neto manualmente (en $):', netoActual > 0 ? Math.round(netoActual).toString() : '');
+  if (valor === null) return;
+  const num = Number(String(valor).replace(/[^\d.-]/g, ''));
+  if (num < 0) { toast('Valor inválido', 'error'); return; }
+  await guardarNetoPago(empleadoId, num.toString());
+}
+
+async function borrarOverrideNeto(empleadoId) {
+  if (!confirm('¿Volver al neto calculado automáticamente?')) return;
+  const periodo = pagosMesState.periodo + '-01';
+  try {
+    await sb.from('rrhh_pagos_blanco').delete().eq('empleado_id', empleadoId).eq('periodo', periodo);
+    switchTab('pagos-mes');
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
 }
 
 async function guardarNetoPago(empleadoId, valor) {
