@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v9-prestamo-propuesta';
+const CACHE_VERSION = 'rrhh-v11-prestamo-cft-ajuste';
 const ASSETS = [
   './',
   './index.html',
