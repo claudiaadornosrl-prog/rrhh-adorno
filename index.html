@@ -5026,6 +5026,13 @@ async function asignarTurno(emp_id, fecha, template_id) {
   const { error } = await sb.from('rrhh_turnos').upsert(payload, { onConflict: 'empleado_id,fecha' });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Turno asignado ✓', 'success');
+  // 🔔 Push a la vendedora
+  const fechaTxt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long' });
+  if (tpl.es_franco) {
+    enviarPush(emp_id, 'Tu turno', `El ${fechaTxt} tenés franco.`, { url: './#mi-calendario', tag: 'turno-' + emp_id });
+  } else {
+    enviarPush(emp_id, 'Te asignaron un turno', `${fechaTxt} · ${tpl.hora_inicio.substring(0,5)} a ${tpl.hora_fin.substring(0,5)}.`, { url: './#mi-calendario', tag: 'turno-' + emp_id });
+  }
 }
 
 async function asignarTurnoCustom(emp_id, fecha) {
@@ -5045,6 +5052,9 @@ async function asignarTurnoCustom(emp_id, fecha) {
   }, { onConflict: 'empleado_id,fecha' });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Turno asignado ✓', 'success');
+  // 🔔 Push a la vendedora
+  const fechaTxt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long' });
+  enviarPush(emp_id, 'Te asignaron un turno', `${fechaTxt} · ${hi} a ${hf}.`, { url: './#mi-calendario', tag: 'turno-' + emp_id });
 }
 
 async function quitarTurno(emp_id, fecha) {
@@ -6138,6 +6148,15 @@ async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCu
   } catch (e) {
     toast('Turno cambiado pero falló el recálculo: ' + e.message, 'warning');
   }
+
+  // 🔔 Push a la vendedora — turno cambiado
+  const fechaTxt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long' });
+  enviarPush(
+    empId,
+    'Te cambiaron el turno',
+    `${fechaTxt} · ${horaInicio.substring(0,5)} a ${horaFin.substring(0,5)}.`,
+    { url: './#mi-calendario', tag: 'turno-' + empId }
+  );
 
   // Re-render
   await renderDetalleEmpDia(empId);
