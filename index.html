@@ -11925,7 +11925,10 @@ async function renderPrestamos() {
                   <button class="btn small" onclick="prestamoEditarPropuesta(${p.id})" title="Editar propuesta" style="color:#6366f1;">✏️</button>
                   <button class="btn small" onclick="prestamoBorrarPropuesta(${p.id})" title="Borrar propuesta" style="color:#dc2626;">🗑️</button>
                 ` : ''}
-                ${p.estado === 'activo' ? `<button class="btn small" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>` : ''}
+                ${p.estado === 'activo' ? `
+                  <button class="btn small" onclick="prestamoMarcarHistorico(${p.id}, ${p.cuotas_totales})" title="Marcar cuotas viejas como pagadas (para préstamos cargados desde MEMOSOFT)" style="color:#0891b2;">📌</button>
+                  <button class="btn small" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>
+                ` : ''}
               </td>
             </tr>`;
           }).join('')}
@@ -12624,6 +12627,120 @@ async function prestamoBorrarPropuesta(prestamoId) {
 
   await auditLog('borrar_propuesta_prestamo', 'rrhh_prestamo', prestamoId, null, null, null);
   toast('Propuesta borrada ✓', 'success');
+  switchTab('prestamos');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Marcar cuotas anteriores como ya pagadas (préstamos cargados desde
+// MEMOSOFT que ya tienen cuotas descontadas en meses pasados).
+// ─────────────────────────────────────────────────────────────────────
+async function prestamoMarcarHistorico(prestamoId, cuotasTotales) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  // Traer estado actual de las cuotas
+  const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+    .select('id, numero, estado, mes_descuento, monto_capital, monto_interes')
+    .eq('prestamo_id', prestamoId)
+    .order('numero');
+
+  const pendientes = (cuotas || []).filter(c => c.estado === 'pendiente');
+  const yaAplicadas = (cuotas || []).filter(c => c.estado === 'aplicada').length;
+  if (pendientes.length === 0) {
+    toast('Este préstamo ya tiene todas las cuotas aplicadas', 'info'); return;
+  }
+
+  const maxN = pendientes.length;
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const labelMes = (iso) => {
+    if (!iso) return '';
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+  };
+
+  const html = `
+    <h3 style="margin:0 0 8px;">📌 Marcar cuotas anteriores como pagadas</h3>
+    <div style="background:#fef9c3;border:1px solid #fde68a;padding:10px 12px;border-radius:6px;font-size:12px;color:#854d0e;margin-bottom:14px;line-height:1.5;">
+      Sirve para préstamos viejos que cargaste con todas las cuotas pero que ya tuvieron N descuentos en MEMOSOFT. Las cuotas marcadas no se van a re-descontar.
+    </div>
+    <div style="margin-bottom:14px;">
+      <strong>Cuotas pendientes actuales:</strong> ${pendientes.length} (ya aplicadas: ${yaAplicadas})<br>
+      <div style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:6px;margin-top:8px;font-size:12px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#f3f4f6;text-align:right;">
+            <th style="padding:5px;text-align:left;">#</th>
+            <th style="padding:5px;text-align:left;">Mes</th>
+            <th style="padding:5px;">Capital</th>
+            <th style="padding:5px;">Interés</th>
+            <th style="padding:5px;">Estado</th>
+          </tr></thead>
+          <tbody>
+            ${(cuotas || []).map(c => `
+              <tr style="border-top:1px solid var(--border);text-align:right;">
+                <td style="padding:5px;text-align:left;">${c.numero}</td>
+                <td style="padding:5px;text-align:left;">${labelMes(c.mes_descuento)}</td>
+                <td style="padding:5px;font-family:monospace;">${fmt(c.monto_capital)}</td>
+                <td style="padding:5px;font-family:monospace;color:#d97706;">${fmt(c.monto_interes)}</td>
+                <td style="padding:5px;text-align:left;color:${c.estado==='aplicada'?'#15803d':'#0891b2'};font-weight:600;">${c.estado}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:14px;">
+      <label>¿Cuántas cuotas ya están pagadas en MEMOSOFT?</label>
+      <input type="number" id="hist-cant" min="1" max="${maxN}" placeholder="2" style="width:120px;">
+      <div class="hint" style="font-size:11px;color:var(--muted);margin-top:4px;">Se van a marcar las primeras N cuotas pendientes (las más viejas, por número). Tenés ${maxN} pendientes.</div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" onclick="aplicarMarcarHistorico(${prestamoId})">📌 Marcar como pagadas</button>
+    </div>
+  `;
+  openModal(html, '640px');
+}
+
+async function aplicarMarcarHistorico(prestamoId) {
+  const cantidad = parseInt(document.getElementById('hist-cant').value, 10);
+  if (!cantidad || cantidad <= 0) { toast('Cantidad inválida', 'error'); return; }
+
+  // Traer las primeras N cuotas pendientes (por número)
+  const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+    .select('id, numero')
+    .eq('prestamo_id', prestamoId)
+    .eq('estado', 'pendiente')
+    .order('numero')
+    .limit(cantidad);
+
+  if (!cuotas || cuotas.length === 0) { toast('No hay cuotas para marcar', 'error'); return; }
+  if (cuotas.length < cantidad) {
+    if (!confirm(`Solo hay ${cuotas.length} cuotas pendientes (vos pediste ${cantidad}). ¿Marcar las ${cuotas.length}?`)) return;
+  }
+
+  const ids = cuotas.map(c => c.id);
+  const { error } = await sb.from('rrhh_prestamo_cuota').update({
+    estado: 'aplicada',
+    aplicada_at: new Date().toISOString(),
+  }).in('id', ids);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  // Si con esto se completó el préstamo, marcarlo como pagado
+  const { data: restantes } = await sb.from('rrhh_prestamo_cuota')
+    .select('id', { count: 'exact', head: true })
+    .eq('prestamo_id', prestamoId)
+    .eq('estado', 'pendiente');
+  if (!restantes || restantes.length === 0) {
+    const { count } = await sb.from('rrhh_prestamo_cuota')
+      .select('id', { count: 'exact', head: true })
+      .eq('prestamo_id', prestamoId).eq('estado', 'pendiente');
+    if (count === 0) {
+      await sb.from('rrhh_prestamo').update({ estado: 'pagado' }).eq('id', prestamoId);
+    }
+  }
+
+  await auditLog('marcar_cuotas_historicas', 'rrhh_prestamo', prestamoId, 'cantidad', null, String(cuotas.length));
+  toast(`${cuotas.length} cuotas marcadas como pagadas ✓`, 'success');
+  closeModal();
   switchTab('prestamos');
 }
 
