@@ -452,6 +452,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
@@ -4119,9 +4120,9 @@ async function verReciboAdmin(path) {
 }
 
 function abrirSubirSueldosBulk() {
-  // Para el bulk upload usamos el script de migración como fallback,
-  // y en la UI ofrecemos drag&drop de varios PDFs juntos
-  toast('Bulk upload: usá el script migrations/01_migrar_recibos.py por ahora', '');
+  abrirSubirRecibosBulk(); return;
+  // Legacy fallback (no se ejecuta):
+  toast('Bulk upload', '');
   setTimeout(() => alert(
     'Para subir muchos recibos a la vez:\n\n' +
     '1) Poné todos los PDFs en C:\CRM_Adorno\rrhh-adorno\inbox\\\n' +
@@ -9001,6 +9002,397 @@ async function marcarReciboEnviado(liqId) {
   switchTab('liquidaciones');
 }
 
+
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDITOR DE RECIBOS — Parsea PDFs MEMOSOFT y los valida contra
+//  el cálculo del CCT 130/75 hecho por salaryEngine.
+// ═══════════════════════════════════════════════════════════════════════
+const reciboAuditor = (() => {
+  // Normaliza un nombre de concepto para matcheo flexible
+  function normalizar(s) {
+    return (s || '')
+      .toLowerCase()
+      .replace(/[áÁ]/g, 'a')
+      .replace(/[éÉ]/g, 'e')
+      .replace(/[íÍ]/g, 'i')
+      .replace(/[óÓ]/g, 'o')
+      .replace(/[úÚ]/g, 'u')
+      .replace(/[ñÑ]/g, 'n')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Mapeo de patrón de nombre PDF → clave del salaryEngine.totales
+  // Cada patrón es un set de keywords que deben TODOS aparecer en el nombre normalizado.
+  const REGLAS = [
+    { keys: ['sueldo','basico'],            campo: 'basico',        es_descuento: false },
+    { keys: ['adic','antiguedad'],          campo: 'antiguedad',    es_descuento: false },
+    { keys: ['antiguedad'],                 campo: 'antiguedad',    es_descuento: false },
+    { keys: ['presentismo','rem'],          campo: 'pres_nr',       es_descuento: false, no_si: ['nr'] },
+    { keys: ['presentismo','no','rem'],     campo: 'pres_nr',       es_descuento: false },
+    { keys: ['presentismo','nr'],           campo: 'pres_nr',       es_descuento: false },
+    { keys: ['presentismo'],                campo: 'presentismo',   es_descuento: false },
+    { keys: ['suma','fija'],                campo: 'sumafija_nr',   es_descuento: false },
+    { keys: ['ant','no','rem'],             campo: 'ant_nr',        es_descuento: false },
+    { keys: ['antiguedad','no','rem'],      campo: 'ant_nr',        es_descuento: false },
+    { keys: ['recompos'],                   campo: 'recompos_nr',   es_descuento: false },
+    { keys: ['jubilacion'],                 campo: 'jubilacion',    es_descuento: true },
+    { keys: ['19032'],                      campo: 'ley19032',      es_descuento: true },
+    { keys: ['pami'],                       campo: 'ley19032',      es_descuento: true },
+    { keys: ['sec'],                        campo: 'sec',           es_descuento: true },
+    { keys: ['sindicato'],                  campo: 'sec',           es_descuento: true },
+    { keys: ['faecys'],                     campo: 'faecys',        es_descuento: true },
+    { keys: ['obra','social'],              campo: 'obra_social',   es_descuento: true },
+    { keys: ['a','cuenta','aumentos'],      campo: 'otros_rem',     es_descuento: false },
+  ];
+
+  function matchearConcepto(nombrePdf) {
+    const n = normalizar(nombrePdf);
+    const tokens = n.split(' ');
+    for (const r of REGLAS) {
+      const todosOk = r.keys.every(k => tokens.includes(k));
+      const noOk = !r.no_si || !r.no_si.some(k => tokens.includes(k));
+      if (todosOk && noOk) return r;
+    }
+    return null;
+  }
+
+  /**
+   * Parsea el texto extraído de un recibo MEMOSOFT.
+   * Devuelve { ok, empleado, periodo, conceptos, totales } o { ok:false, error }.
+   */
+  function parsear(textoCompleto) {
+    if (!textoCompleto) return { ok: false, error: 'PDF vacío' };
+
+    const lineas = textoCompleto.split(/\n+/).map(l => l.trim()).filter(Boolean);
+
+    // ─── Empleado: buscar línea con "DNI ..."
+    let nombre = '', dni = '', cuil = '', categoria = '', periodo = '';
+    for (const l of lineas) {
+      const mDni = l.match(/^([A-ZÁÉÍÓÚÑ\s,]+?)\s+DNI\s+([\d\.]+)/i);
+      if (mDni && !nombre) {
+        nombre = mDni[1].trim();
+        dni = mDni[2].replace(/\./g, '');
+      }
+      const mCuil = l.match(/(\d{2}-\d{8}-\d)/);
+      if (mCuil && !cuil) cuil = mCuil[1];
+      const mPer = l.match(/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\s+(\d{4})/i);
+      if (mPer && !periodo) {
+        const mes = {Enero:1,Febrero:2,Marzo:3,Abril:4,Mayo:5,Junio:6,Julio:7,Agosto:8,Septiembre:9,Octubre:10,Noviembre:11,Diciembre:12}[mPer[1]];
+        periodo = `${mPer[2]}-${String(mes).padStart(2,'0')}`;
+      }
+    }
+
+    // ─── Conceptos: líneas tipo "Sueldo Básico 0001    30,00    1112876,00"
+    // Patrón flexible: el código va al principio o al final del nombre, los importes son la última o las últimas dos columnas con coma decimal.
+    const conceptos = [];
+    // Greedy en el nombre para que el codigo sea el ULTIMO grupo de 4 digitos antes del importe
+    // (sino "Suma fija no rem 2025 0490" matcheaba 2025 como codigo).
+    const reLinea = /^(.+)\s+(\d{4})\s+([\d\.,]+)(?:\s+([\d\.,]+))?(?:\s+([\d\.,]+))?\s*$/;
+    for (const l of lineas) {
+      const m = l.match(reLinea);
+      if (!m) continue;
+      const nombre_c = m[1].trim();
+      const codigo = m[2];
+      // Los importes pueden estar en 1, 2 o 3 columnas. El último es el importe del concepto.
+      const cols = [m[3], m[4], m[5]].filter(Boolean);
+      if (cols.length === 0) continue;
+      const importe = parseImporte(cols[cols.length - 1]);
+      if (!isFinite(importe) || importe <= 0) continue;
+      conceptos.push({ codigo, nombre: nombre_c, importe });
+    }
+
+    // ─── Totales: buscar "TOTAL NETO" y la línea "Son pesos ..."
+    let neto = null, rem = null, desc = null;
+    for (const l of lineas) {
+      const mSon = l.match(/Son\s+pesos.+?_([\d\.,\s]+)$/i);
+      if (mSon) {
+        // El "Son pesos..." termina con los totales: rem, desc
+        const nums = (mSon[1].match(/[\d\.,]+/g) || []).map(parseImporte).filter(n => isFinite(n));
+        if (nums.length >= 2) { rem = nums[0]; desc = nums[1]; }
+        if (nums.length >= 3) neto = nums[2];
+      }
+    }
+    if (neto == null) {
+      // Buscar línea aislada con monto grande después de "TOTAL NETO"
+      for (let i = 0; i < lineas.length - 1; i++) {
+        if (/total\s+neto/i.test(lineas[i])) {
+          const next = lineas[i+1] || '';
+          const n = parseImporte(next);
+          if (isFinite(n) && n > 0) { neto = n; break; }
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      empleado: { nombre, dni, cuil, categoria },
+      periodo,
+      conceptos,
+      totales: { remuneraciones: rem, descuentos: desc, neto },
+    };
+  }
+
+  function parseImporte(s) {
+    if (typeof s === 'number') return s;
+    if (!s) return NaN;
+    // Formato AR: 1.234.567,89 → quitar puntos, coma a punto
+    const limpio = String(s).replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
+    return Number(limpio);
+  }
+
+  /**
+   * Valida un parsed-pdf contra los totales calculados por salaryEngine.
+   * Devuelve un array de discrepancias [{ concepto, esperado, declarado, diff, severity }].
+   */
+  function validar(parsedPdf, calculo, opts = {}) {
+    const tolerancia = opts.tolerancia ?? 1.0;  // $1 de tolerancia por redondeo
+    const discrepancias = [];
+
+    // Sumar por campo del salaryEngine los importes del PDF
+    const declarado = {
+      basico: 0, antiguedad: 0, presentismo: 0,
+      sumafija_nr: 0, ant_nr: 0, pres_nr: 0, recompos_nr: 0, otros_rem: 0,
+      jubilacion: 0, ley19032: 0, sec: 0, faecys: 0, obra_social: 0,
+    };
+    const sinMatch = [];
+    for (const c of parsedPdf.conceptos) {
+      const regla = matchearConcepto(c.nombre);
+      if (!regla || !(regla.campo in declarado)) {
+        sinMatch.push(c);
+        continue;
+      }
+      declarado[regla.campo] += c.importe;
+    }
+
+    // Comparar campo por campo
+    const labels = {
+      basico: 'Sueldo Básico', antiguedad: 'Antigüedad', presentismo: 'Presentismo',
+      sumafija_nr: 'Suma fija no rem', ant_nr: 'Antig no rem', pres_nr: 'Presentismo no rem',
+      recompos_nr: 'Recompos no rem', otros_rem: 'Otros remunerativos',
+      jubilacion: 'Jubilación 11%', ley19032: 'Ley 19032 (3%)',
+      sec: 'SEC (2%)', faecys: 'FAECYS (0.5%)', obra_social: 'Obra Social (3%)',
+    };
+    for (const k of Object.keys(declarado)) {
+      const esperado = Math.round((calculo[k] || 0) * 100) / 100;
+      const decl = Math.round(declarado[k] * 100) / 100;
+      if (Math.abs(esperado - decl) > tolerancia) {
+        discrepancias.push({
+          concepto: labels[k] || k,
+          campo: k,
+          esperado, declarado: decl,
+          diff: decl - esperado,
+          severity: (decl > esperado && k !== 'jubilacion' && k !== 'ley19032' && k !== 'obra_social' && k !== 'sec' && k !== 'faecys') ? 'info' : 'warn',
+        });
+      }
+    }
+
+    // Comparar TOTAL NETO si lo tenemos
+    if (parsedPdf.totales.neto != null && calculo.neto != null) {
+      const diffNeto = parsedPdf.totales.neto - calculo.neto;
+      if (Math.abs(diffNeto) > tolerancia) {
+        discrepancias.push({
+          concepto: 'TOTAL NETO',
+          campo: 'neto',
+          esperado: Math.round(calculo.neto * 100) / 100,
+          declarado: parsedPdf.totales.neto,
+          diff: diffNeto,
+          severity: diffNeto < 0 ? 'error' : 'info',
+        });
+      }
+    }
+
+    return { discrepancias, sinMatch };
+  }
+
+  return { parsear, validar, normalizar, parseImporte };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI: Modal drag&drop para subir varios recibos MEMOSOFT a la vez
+// ═══════════════════════════════════════════════════════════════════════
+async function abrirSubirRecibosBulk() {
+  if (!window.pdfjsLib) {
+    toast('Cargando PDF.js…', 'info');
+    await new Promise(r => setTimeout(r, 200));
+    if (!window.pdfjsLib) { toast('No se pudo cargar PDF.js. Recargá la página.', 'error'); return; }
+  }
+  // Configurar el worker de PDF.js (usa el mismo CDN)
+  if (window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  const html = `
+    <div style="background:white;border-radius:10px;max-width:880px;width:95vw;max-height:90vh;overflow:auto;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 style="margin:0;">📎 Subir y auditar recibos del mes</h3>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+        Arrastrá uno o varios PDFs de MEMOSOFT. El sistema parsea cada recibo, lo matchea con la empleada por el nombre que aparece adentro, y compara los importes contra el cálculo CCT 130/75 + paritaria vigente. Te avisa de discrepancias antes de guardar.
+      </div>
+
+      <div id="recibos-drop" style="border:2px dashed var(--border);border-radius:10px;padding:36px;text-align:center;color:var(--muted);cursor:pointer;margin-bottom:14px;">
+        <div style="font-size:36px;">📎</div>
+        <div style="margin-top:8px;font-size:14px;">Arrastrá los PDFs acá<br><span style="font-size:11px;">o cliqueá para elegirlos</span></div>
+      </div>
+      <input type="file" id="recibos-file" accept="application/pdf" multiple style="display:none;">
+
+      <div id="recibos-resultados"></div>
+    </div>
+  `;
+  openModal(html, '900px');
+
+  const drop = document.getElementById('recibos-drop');
+  const input = document.getElementById('recibos-file');
+  drop.onclick = () => input.click();
+  drop.ondragover = (e) => { e.preventDefault(); drop.style.background = '#f0fdf4'; };
+  drop.ondragleave = (e) => { drop.style.background = ''; };
+  drop.ondrop = async (e) => { e.preventDefault(); drop.style.background = ''; await procesarRecibos(e.dataTransfer.files); };
+  input.onchange = async () => { await procesarRecibos(input.files); };
+}
+
+async function procesarRecibos(fileList) {
+  const archivos = [...fileList].filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+  if (archivos.length === 0) { toast('No detecté PDFs', 'error'); return; }
+  const cont = document.getElementById('recibos-resultados');
+  cont.innerHTML = `<div style="padding:10px;">Procesando ${archivos.length} archivo(s)…</div>`;
+
+  // Cargar empleados activos una sola vez
+  const { data: emps } = await sb.from('rrhh_empleados')
+    .select('id, nombre_completo, apellido, nombre, cuil, dni, fecha_ingreso, obra_social_codigo, fuera_convenio, categoria:rrhh_categorias_cct(sueldo_basico)')
+    .eq('estado', 'activo');
+
+  const filas = [];
+  let i = 0;
+  for (const file of archivos) {
+    i++;
+    cont.innerHTML = `<div style="padding:10px;">Procesando ${i}/${archivos.length}: <strong>${escapeHtml(file.name)}</strong>…</div>`;
+    try {
+      const buf = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+      // Solo la primera página (la ORIGINAL — la COPIA es duplicado)
+      const page = await pdf.getPage(1);
+      const tc = await page.getTextContent();
+      const texto = tc.items.map(it => it.str).join('\n');
+      const parsed = reciboAuditor.parsear(texto);
+      filas.push({ file, parsed, texto });
+    } catch (e) {
+      console.error(file.name, e);
+      filas.push({ file, parsed: { ok: false, error: e.message } });
+    }
+  }
+
+  // Mostrar resultados
+  cont.innerHTML = renderResultadosRecibos(filas, emps);
+}
+
+function buscarEmpleado(parsed, empleados) {
+  if (!parsed?.empleado) return null;
+  const cuil = (parsed.empleado.cuil || '').replace(/\D/g, '');
+  if (cuil) {
+    const m = empleados.find(e => (e.cuil || '').replace(/\D/g, '') === cuil);
+    if (m) return m;
+  }
+  const dni = (parsed.empleado.dni || '').replace(/\D/g, '');
+  if (dni) {
+    const m = empleados.find(e => (e.dni || '').replace(/\D/g, '') === dni);
+    if (m) return m;
+  }
+  const nombre = reciboAuditor.normalizar(parsed.empleado.nombre);
+  if (!nombre) return null;
+  // Match por apellido + primer nombre
+  return empleados.find(e => {
+    const n = reciboAuditor.normalizar(e.nombre_completo || '');
+    const tokensA = new Set(nombre.split(' '));
+    const tokensB = new Set(n.split(' '));
+    let coincide = 0;
+    for (const t of tokensA) if (tokensB.has(t) && t.length >= 4) coincide++;
+    return coincide >= 2;
+  }) || null;
+}
+
+async function obtenerCalculoCCT(emp, periodo) {
+  if (!periodo) return null;
+  const { data: par } = await sb.from('rrhh_paritaria_sumas_nr')
+    .select('*').lte('vigente_desde', periodo + '-01').order('vigente_desde', { ascending: false }).limit(1).maybeSingle();
+  if (!par) return null;
+  try {
+    const recibo = salaryEngine.calcularReciboCCT({
+      basico_escala: Number(emp.categoria?.sueldo_basico || 0),
+      fecha_ingreso: emp.fecha_ingreso,
+      periodo,
+      dias_trabajados: 30,
+      obra_social_codigo: emp.obra_social_codigo || '',
+      suma_fija_nr: Number(par.suma_fija_nr || 0),
+      recompos_nr: Number(par.recompos_nr || 0),
+      fuera_convenio: !!emp.fuera_convenio,
+    });
+    return recibo.totales;
+  } catch(e) { console.warn('No se pudo calcular', emp.nombre_completo, e); return null; }
+}
+
+function renderResultadosRecibos(filas, empleados) {
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const rows = [];
+  // Renderizado básico: una fila por archivo
+  rows.push(`<div style="margin:10px 0;font-size:13px;color:var(--muted);">${filas.length} archivo(s) procesado(s)</div>`);
+  rows.push(`<div id="recibos-lista"></div>`);
+  setTimeout(async () => {
+    const lista = document.getElementById('recibos-lista');
+    let html = '';
+    for (const it of filas) {
+      const emp = it.parsed?.ok ? buscarEmpleado(it.parsed, empleados) : null;
+      const calc = emp ? await obtenerCalculoCCT(emp, it.parsed.periodo) : null;
+      const audit = (it.parsed?.ok && calc) ? reciboAuditor.validar(it.parsed, calc) : null;
+
+      let head = '';
+      if (!it.parsed?.ok) head = `<span style="color:#b91c1c;">⚠ ${escapeHtml(it.parsed.error || 'error')}</span>`;
+      else if (!emp) head = `<span style="color:#b91c1c;">⚠ Empleada no identificada</span>`;
+      else if (!calc) head = `<span style="color:#b91c1c;">⚠ Sin cálculo (faltan datos)</span>`;
+      else if (audit.discrepancias.length === 0) head = `<span style="color:#15803d;">✓ Coincide con el cálculo CCT</span>`;
+      else head = `<span style="color:#b45309;">⚠ ${audit.discrepancias.length} observación(es)</span>`;
+
+      const empTxt = emp ? `${escapeHtml(emp.apellido||'')}, ${escapeHtml(emp.nombre||'')}` : '<em>(sin match)</em>';
+      const perTxt = it.parsed?.periodo || '?';
+
+      let detalle = '';
+      if (audit && audit.discrepancias.length > 0) {
+        detalle = `<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:8px;">
+          <thead><tr style="background:#fef3c7;text-align:right;">
+            <th style="padding:4px;text-align:left;">Concepto</th>
+            <th style="padding:4px;">Esperado (CCT)</th>
+            <th style="padding:4px;">Declarado (PDF)</th>
+            <th style="padding:4px;">Diferencia</th>
+          </tr></thead><tbody>
+          ${audit.discrepancias.map(d => `<tr style="border-top:1px solid #fde68a;text-align:right;">
+            <td style="padding:4px;text-align:left;">${escapeHtml(d.concepto)}</td>
+            <td style="padding:4px;font-family:monospace;">${fmt(d.esperado)}</td>
+            <td style="padding:4px;font-family:monospace;">${fmt(d.declarado)}</td>
+            <td style="padding:4px;font-family:monospace;color:${d.diff < 0 ? '#dc2626' : '#16a34a'};">${(d.diff>=0?'+':'')}${fmt(d.diff)}</td>
+          </tr>`).join('')}
+        </tbody></table>`;
+      }
+
+      html += `<div class="card" style="margin:8px 0;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div>
+            <div style="font-weight:600;">${escapeHtml(it.file.name)}</div>
+            <div style="font-size:12px;color:var(--muted);">${empTxt} · ${perTxt}</div>
+          </div>
+          <div style="font-size:13px;text-align:right;">${head}</div>
+        </div>
+        ${detalle}
+      </div>`;
+    }
+    lista.innerHTML = html;
+  }, 0);
+  return rows.join('');
+}
 
 
 // ═══════════════════════════════════════════════════════════════════
