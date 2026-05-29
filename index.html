@@ -8544,6 +8544,304 @@ async function renderMiBanco() {
 // ═══════════════════════════════════════════════════════════════════════
 //  RENDER — Liquidación del mes (admin + encargada)
 // ═══════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+//  PDF de recibo de sueldo (estilo moderno Adorno, fuente Forum)
+//  Uso: await generarPDFRecibo(liqId)
+// ═══════════════════════════════════════════════════════════════════
+let _forumFontLoaded = false;
+const _forumFontName = 'Forum';
+
+async function _loadForumFont(doc) {
+  try {
+    if (doc.getFontList && doc.getFontList()[_forumFontName]) return true;
+  } catch(_) {}
+  try {
+    const url = 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/forum/Forum-Regular.ttf';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('fetch failed');
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    const b64 = btoa(bin);
+    doc.addFileToVFS('Forum-Regular.ttf', b64);
+    doc.addFont('Forum-Regular.ttf', _forumFontName, 'normal');
+    _forumFontLoaded = true;
+    return true;
+  } catch (e) {
+    console.warn('No se pudo cargar Forum, fallback a helvetica', e);
+    return false;
+  }
+}
+
+async function generarPDFRecibo(liqId) {
+  try {
+    // 1. Cargar liquidación + empleado + conceptos
+    const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
+      .select('*, empleado:rrhh_empleados(*, categoria:rrhh_categorias_cct(nombre, sueldo_basico))')
+      .eq('id', liqId).single();
+    if (e1 || !liq) { toast('No se pudo cargar la liquidación: ' + (e1?.message || 'no encontrada'), 'error'); return; }
+
+    const { data: conceptos } = await sb.from('rrhh_liquidacion_concepto')
+      .select('*').eq('liquidacion_id', liqId).order('orden');
+
+    const emp = liq.empleado;
+    const cat = emp?.categoria;
+
+    // 2. Helpers de formato
+    const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+    const fmtNeg = (n) => '−$' + Math.round(Number(Math.abs(n)||0)).toLocaleString('es-AR');
+    const fmtPct = (n) => (Number(n||0)).toFixed(2) + '%';
+    const labelMes = (iso) => {
+      if (!iso) return '';
+      const [y, m] = iso.split('-').map(Number);
+      const mes = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+      return mes.charAt(0).toUpperCase() + mes.slice(1);
+    };
+    const fmtFechaCorta = (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
+      return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+    };
+    const aniosDesde = (iso) => {
+      if (!iso) return 0;
+      const d = new Date(iso + 'T12:00:00'), hoy = new Date();
+      let a = hoy.getFullYear() - d.getFullYear();
+      if (hoy < new Date(hoy.getFullYear(), d.getMonth(), d.getDate())) a -= 1;
+      return Math.max(0, a);
+    };
+
+    // 3. Setup PDF
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, H = 297, margen = 18, ancho = W - margen * 2;
+
+    const COLOR_TEXT    = [26, 26, 26];
+    const COLOR_MUTED   = [95, 94, 90];
+    const COLOR_BORDER  = [211, 209, 199];
+    const COLOR_GREEN   = [15, 110, 86];   // turquesa Adorno
+    const COLOR_GREEN_LT = [240, 253, 244]; // verde clarito p/ box neto
+    const COLOR_SOFT    = [248, 250, 252];
+
+    const forumOk = await _loadForumFont(doc);
+
+    // 4. HEADER — Logo "Claudia Adorno" en Forum (con fallback a helvetica bold)
+    doc.setTextColor(...COLOR_TEXT);
+    if (forumOk) {
+      doc.setFont(_forumFontName, 'normal');
+      doc.setFontSize(34);
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(26);
+    }
+    doc.text('Claudia Adorno', margen, 26);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('Recibo de haberes · Art. 138 LCT', margen, 31);
+
+    // Datos empresa (derecha)
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('CLAUDIA ADORNO SRL', W - margen, 18, { align: 'right' });
+    doc.text('CUIT 30-70967311-0', W - margen, 22, { align: 'right' });
+    doc.text('Buenos Aires, Argentina', W - margen, 26, { align: 'right' });
+
+    // Línea divisoria turquesa
+    doc.setDrawColor(...COLOR_GREEN);
+    doc.setLineWidth(0.7);
+    doc.line(margen, 36, W - margen, 36);
+
+    // 5. PERÍODO + NETO (banner principal)
+    let y = 46;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('PERÍODO LIQUIDADO', margen, y);
+    doc.text('NETO A COBRAR', W - margen, y, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(...COLOR_TEXT);
+    doc.text(labelMes(liq.periodo), margen, y + 8);
+    doc.setTextColor(...COLOR_GREEN);
+    doc.text(fmt(liq.recibo_neto), W - margen, y + 8, { align: 'right' });
+
+    // 6. BOX EMPLEADA
+    y = 62;
+    doc.setFillColor(...COLOR_SOFT);
+    doc.setDrawColor(...COLOR_BORDER);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margen, y, ancho, 36, 2, 2, 'FD');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('EMPLEADA', margen + 4, y + 5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(...COLOR_TEXT);
+    doc.text(emp?.nombre_completo || `${emp?.apellido||''}, ${emp?.nombre||''}`, margen + 4, y + 11);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...COLOR_MUTED);
+    const subInfo = [];
+    if (emp?.cuil) subInfo.push(`CUIL ${emp.cuil}`);
+    if (emp?.dni)  subInfo.push(`DNI ${emp.dni}`);
+    if (emp?.legajo) subInfo.push(`Legajo ${emp.legajo}`);
+    doc.text(subInfo.join(' · '), margen + 4, y + 16);
+
+    // Fila inferior: categoría, antigüedad, local, ingreso, OS
+    const colX1 = margen + 4, colX2 = margen + 65, colX3 = margen + 125;
+    doc.setFontSize(7.5);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('CATEGORÍA',  colX1, y + 24);
+    doc.text('ANTIGÜEDAD', colX2, y + 24);
+    doc.text('LOCAL',      colX3, y + 24);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLOR_TEXT);
+    doc.text(cat?.nombre || (emp?.fuera_convenio ? 'Fuera de convenio' : '—'), colX1, y + 29);
+    doc.text(`${aniosDesde(emp?.fecha_ingreso)} años`, colX2, y + 29);
+    doc.text((emp?.local || '').toUpperCase(), colX3, y + 29);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('INGRESO',     colX1, y + 33);
+    doc.text('OBRA SOCIAL', colX2, y + 33);
+    doc.text('DÍAS LIQUIDADOS', colX3, y + 33);
+    // Una sub-línea ya queda apretado — la ponemos en el mismo y+33 con alineación
+    // Voy a achicar y poner los datos a la derecha del label
+    // (modifico: en realidad los datos quedaron en y+29 y los labels en y+33, intercambio)
+
+    // 7. TABLA DEVENGADO
+    y = 105;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('DEVENGADO', margen, y);
+    doc.text('R = Remunerativo · NR = No remunerativo', W - margen, y, { align: 'right' });
+    doc.setDrawColor(...COLOR_BORDER);
+    doc.setLineWidth(0.3);
+    doc.line(margen, y + 1.5, W - margen, y + 1.5);
+
+    y += 6;
+    const conceptosDevengados = (conceptos || []).filter(c => !c.es_descuento);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLOR_TEXT);
+
+    let totalRem = 0, totalNR = 0;
+    for (const c of conceptosDevengados) {
+      const desc = c.nombre || '';
+      const pct  = c.porcentaje != null && c.porcentaje > 0 ? ` (${fmtPct(c.porcentaje)})` : '';
+      const importe = Number(c.importe || 0);
+      const flagRem = c.remunerativo ? 'R' : 'NR';
+      if (c.remunerativo) totalRem += importe; else totalNR += importe;
+
+      doc.text(desc + pct, margen, y);
+      doc.text(fmt(importe), W - margen - 14, y, { align: 'right' });
+      doc.setTextColor(...COLOR_MUTED);
+      doc.setFontSize(8);
+      doc.text(flagRem, W - margen, y, { align: 'right' });
+      doc.setTextColor(...COLOR_TEXT);
+      doc.setFontSize(9);
+      y += 4.5;
+      if (y > H - 80) { doc.addPage(); y = 22; }
+    }
+    // Total bruto
+    const totalBruto = totalRem + totalNR;
+    doc.setDrawColor(...COLOR_BORDER);
+    doc.line(margen, y, W - margen, y);
+    y += 4.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('Total bruto', margen, y);
+    doc.text(fmt(totalBruto), W - margen, y, { align: 'right' });
+
+    // 8. TABLA DESCUENTOS
+    y += 9;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('DESCUENTOS', margen, y);
+    doc.line(margen, y + 1.5, W - margen, y + 1.5);
+    y += 6;
+
+    const descuentos = (conceptos || []).filter(c => c.es_descuento);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLOR_TEXT);
+    let totalDesc = 0;
+    for (const c of descuentos) {
+      const desc = c.nombre || '';
+      const pct  = c.porcentaje != null && c.porcentaje > 0 ? ` (${fmtPct(c.porcentaje)})` : '';
+      const importe = Number(c.importe || 0);
+      totalDesc += importe;
+      doc.text(desc + pct, margen, y);
+      doc.text(fmtNeg(importe), W - margen, y, { align: 'right' });
+      y += 4.5;
+      if (y > H - 60) { doc.addPage(); y = 22; }
+    }
+    doc.line(margen, y, W - margen, y);
+    y += 4.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('Total descuentos', margen, y);
+    doc.text(fmtNeg(totalDesc), W - margen, y, { align: 'right' });
+
+    // 9. BANNER NETO A COBRAR
+    y += 9;
+    doc.setFillColor(...COLOR_GREEN_LT);
+    doc.setDrawColor(...COLOR_GREEN);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(margen, y, ancho, 14, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...COLOR_GREEN);
+    doc.text('Neto a cobrar', margen + 5, y + 9);
+    doc.setFontSize(16);
+    doc.text(fmt(liq.recibo_neto), W - margen - 5, y + 9.5, { align: 'right' });
+
+    // 10. FIRMAS (al pie de la página, no flotante)
+    const yFirma = Math.min(H - 35, y + 35);
+    doc.setDrawColor(...COLOR_BORDER);
+    doc.setLineWidth(0.3);
+    const mitad = W / 2;
+    doc.line(margen + 10, yFirma, mitad - 10, yFirma);
+    doc.line(mitad + 10, yFirma, W - margen - 10, yFirma);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('Recibí conforme', (margen + 10 + mitad - 10) / 2, yFirma + 4, { align: 'center' });
+    doc.text('Firma empleado/a', (margen + 10 + mitad - 10) / 2, yFirma + 8, { align: 'center' });
+    doc.text('Por Claudia Adorno SRL', (mitad + 10 + W - margen - 10) / 2, yFirma + 4, { align: 'center' });
+    doc.text('Firma y sello', (mitad + 10 + W - margen - 10) / 2, yFirma + 8, { align: 'center' });
+
+    // 11. Footer chiquito con fecha de emisión
+    doc.setFontSize(7);
+    doc.setTextColor(...COLOR_MUTED);
+    const ahora = new Date().toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    doc.text(`Emitido el ${ahora} · Liquidación #${liq.id}`, W / 2, H - 10, { align: 'center' });
+
+    // 12. Descargar
+    const apellido = (emp?.apellido || 'empleada').toUpperCase().replace(/\s+/g, '_');
+    const periodoSafe = liq.periodo ? liq.periodo.slice(0, 7) : 'periodo';
+    const fileName = `Recibo_${apellido}_${periodoSafe}.pdf`;
+    doc.save(fileName);
+
+    // 13. Registrar el evento en la base
+    await sb.from('rrhh_liquidacion').update({ pdf_generado_at: new Date().toISOString() }).eq('id', liqId);
+    toast('Recibo descargado ✓', 'success');
+  } catch (e) {
+    console.error(e);
+    toast('Error al generar el PDF: ' + e.message, 'error');
+  }
+}
+
+
 async function renderLiquidaciones() {
   // Período por defecto: mes actual
   if (!liqState.periodo) {
@@ -8688,6 +8986,7 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
                 <td style="padding:8px;white-space:nowrap;">
                   <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
+                  <button class="btn small" onclick="generarPDFRecibo(${l.id})" title="Descargar recibo PDF">📄</button>
                   ${isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
                 </td>
               </tr>`;
