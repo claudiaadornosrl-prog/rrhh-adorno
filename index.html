@@ -10413,17 +10413,19 @@ async function renderPagosMes() {
     return '<div class="card"><div class="card-body">No hay empleadas activas.</div></div>';
   }
 
-  // 2) Cuotas pendientes del mes (préstamos y adelantos)
-  //    Adelantos = préstamos 1 cuota CFT 0% con cuota del mes
-  //    Préstamos normales = el resto
+  // 2) Cuotas pendientes con mes_descuento <= periodo actual
+  //    Esto incluye atrasadas (cuotas viejas no aplicadas) — para verlas como
+  //    "este mes" hay que descontarlas. Si querés evitarlo, usá el botón 📌
+  //    en cada préstamo del panel Préstamos para marcar cuotas históricas.
   const { data: cuotasMes } = await sb.from('rrhh_prestamo_cuota')
-    .select('prestamo_id, monto_capital, monto_interes, prestamo:rrhh_prestamo!inner(empleado_id, estado, cuotas_totales, tasa_mensual, capital, fecha_otorgamiento)')
+    .select('prestamo_id, monto_capital, monto_interes, mes_descuento, prestamo:rrhh_prestamo!inner(empleado_id, estado, cuotas_totales, tasa_mensual, capital, fecha_otorgamiento)')
     .eq('estado', 'pendiente')
-    .eq('mes_descuento', periodoFull);
+    .lte('mes_descuento', periodoFull);
 
   // Index por empleado
   const adelantosPorEmp = {};
   const prestamosPorEmp = {};
+  const atrasadasPorEmp = {};   // cantidad de cuotas con mes < periodo actual
   (cuotasMes || []).forEach(c => {
     const pr = c.prestamo;
     if (!pr || pr.estado !== 'activo') return;
@@ -10434,6 +10436,10 @@ async function renderPagosMes() {
       adelantosPorEmp[empId] = (adelantosPorEmp[empId] || 0) + cap;
     } else {
       prestamosPorEmp[empId] = (prestamosPorEmp[empId] || 0) + cap;
+    }
+    // Atrasada si su mes_descuento es estrictamente menor al actual
+    if (c.mes_descuento && c.mes_descuento < periodoFull) {
+      atrasadasPorEmp[empId] = (atrasadasPorEmp[empId] || 0) + 1;
     }
   });
 
@@ -10547,6 +10553,7 @@ async function renderPagosMes() {
                 ${transferido ? `<span style="color:#16a34a;">✓ Transferido ${new Date(pag.transferido_at).toLocaleDateString('es-AR')}</span>` :
                   neto > 0 ? `<button class="btn small" onclick="marcarTransferido(${e.id})">✓ Marcar pagado</button>` :
                   '<span style="color:var(--muted);">Cargá el neto del recibo</span>'}
+                ${(atrasadasPorEmp[e.id]||0) > 0 ? `<div style="color:#dc2626;font-size:11px;margin-top:4px;" title="Hay cuotas de préstamos con mes_descuento de meses anteriores no marcadas como pagadas. Andá a Préstamos y usá 📌 para marcarlas históricas.">⚠ ${atrasadasPorEmp[e.id]} cuota(s) atrasada(s) sumando</div>` : ''}
                 ${!e.cbu ? '<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠ Sin CBU en legajo</div>' : ''}
               </td>
             </tr>`;
@@ -11857,6 +11864,7 @@ async function renderPrestamos() {
       <button class="btn primary" onclick="prestamoAbrirNuevo()">📤 Crear préstamo</button>
       <button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;margin-left:8px;" onclick="adelantoAbrirNuevo()">💵 Nuevo adelanto</button>
       <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;margin-left:8px;" onclick="exportarAdelantosGalicia()" title="Descargar Excel con todos los adelantos del mes para subir a Galicia Office">📊 Exportar Galicia adelantos</button>
+      <button class="btn" style="background:#6366f1;color:white;border-color:#6366f1;margin-left:8px;" onclick="activarPropuestasBulk()" title="Activar todas las propuestas pendientes (las que cargaste con 'Esperar confirmación' tildado pero ya están acordadas)">🔓 Activar propuestas</button>
     </div>
 
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
@@ -12832,6 +12840,48 @@ async function aprobarAdelantoSueldo(solicitudId) {
 // ─────────────────────────────────────────────────────────────────────
 // Admin: exportar Excel Galicia de adelantos del mes en curso
 // ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// Admin: activar TODAS las propuestas pendientes (bulk)
+// Útil cuando se cargaron préstamos históricos con el checkbox tildado
+// por error pero en realidad están acordados y deben pasar directo a activo.
+// ─────────────────────────────────────────────────────────────────────
+async function activarPropuestasBulk() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  const { data: props, error } = await sb.from('rrhh_prestamo')
+    .select('id, capital, cuotas_totales, mes_primer_descuento, empleado:rrhh_empleados(nombre_completo)')
+    .eq('estado', 'propuesto');
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (!props || props.length === 0) {
+    toast('No hay propuestas pendientes', 'info'); return;
+  }
+
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const lista = props.map(p =>
+    `  · ${p.empleado?.nombre_completo || '#' + p.id}: ${fmt(p.capital)} en ${p.cuotas_totales} cuotas`
+  ).join('\n');
+
+  if (!confirm(`Hay ${props.length} propuestas pendientes:\n\n${lista}\n\n¿Activarlas todas?\n\n⚠ Se van a marcar como ACTIVAS y empezar a descontar en la próxima liquidación. La empleada NO va a recibir push de "aceptación" (no pasa por su workflow).`)) return;
+
+  // 1) Activar préstamos
+  const ids = props.map(p => p.id);
+  const { error: e1 } = await sb.from('rrhh_prestamo').update({
+    estado: 'activo',
+    aceptado_at: new Date().toISOString(),
+  }).in('id', ids);
+  if (e1) { toast('Error activando préstamos: ' + e1.message, 'error'); return; }
+
+  // 2) Activar cuotas: propuesta -> pendiente
+  const { error: e2 } = await sb.from('rrhh_prestamo_cuota').update({
+    estado: 'pendiente',
+  }).in('prestamo_id', ids).eq('estado', 'propuesta');
+  if (e2) { toast('Cuotas: ' + e2.message, 'warning'); }
+
+  toast(`✓ ${props.length} préstamos activados`, 'success');
+  await auditLog('activar_propuestas_bulk', 'rrhh_prestamo', null, 'cantidad', null, String(props.length));
+  switchTab('prestamos');
+}
+
 async function exportarAdelantosGalicia() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   try {
