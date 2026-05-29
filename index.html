@@ -681,7 +681,9 @@ async function renderPage(tabId) {
   main.innerHTML = '<div class="spinner"></div>';
   try {
     const html = await fn();
-    main.innerHTML = html;
+    // Algunas funciones (renderAumentos/Prestamos/RetirosMercaderia) escriben directamente
+    // en main.innerHTML y devuelven undefined. Si pasa eso, no pisamos lo que ya pintaron.
+    if (html != null) main.innerHTML = html;
     // Hooks post-render por tab
     if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
   } catch (e) {
