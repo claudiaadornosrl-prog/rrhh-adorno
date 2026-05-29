@@ -451,6 +451,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
 'use strict';
@@ -8953,6 +8954,95 @@ async function marcarReciboEnviado(liqId) {
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  Exportar transferencias en formato Galicia Office (xlsx)
+//  Genera el archivo idéntico al que el portal de Galicia acepta:
+//    Fila 1: headers (Nombre, NroCuenta | CBU, Fecha de Acred., Importe, Estado, Email, Observaciones)
+//    Fila 2+: una empleada por fila
+//  Solo incluye empleadas con liquidación + CBU/Cta cargado.
+// ═══════════════════════════════════════════════════════════════════
+async function exportarGaliciaXLSX(local, periodo) {
+  try {
+    if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
+
+    // Cargar liquidaciones del período + datos de empleada (incluido cbu)
+    let q = sb.from('rrhh_liquidacion')
+      .select('id, periodo, recibo_neto, prestamo_capital, local, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, cuil, cbu)')
+      .eq('periodo', periodo + '-01');
+    if (local && local !== 'todos') q = q.eq('local', local);
+    const { data: liqs, error } = await q;
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'warning'); return; }
+
+    // Armar filas
+    const fmtNombre = (e) => {
+      if (!e) return '';
+      const ape = (e.apellido || '').toUpperCase();
+      const nom = (e.nombre   || '').toUpperCase();
+      return `${ape}, ${nom}`.trim();
+    };
+    // Fecha de acreditación: último día hábil del mes del período, ajustable en el portal si hace falta
+    const [py, pm] = periodo.split('-').map(Number);
+    const ultDia = new Date(py, pm, 0); // día 0 del mes siguiente = último día del mes
+    const fechaAcred = `${String(ultDia.getDate()).padStart(2,'0')}/${String(ultDia.getMonth()+1).padStart(2,'0')}/${ultDia.getFullYear()}`;
+
+    const filas = [];
+    const sinCuenta = [];
+    let totalImporte = 0;
+    for (const l of liqs) {
+      const e = l.empleado;
+      if (!e) continue;
+      const aAcreditar = (+l.recibo_neto || 0) - (+l.prestamo_capital || 0);
+      if (aAcreditar <= 0) continue;
+      if (!e.cbu) { sinCuenta.push(fmtNombre(e)); continue; }
+      filas.push({
+        'Nombre': fmtNombre(e),
+        'NroCuenta | CBU': e.cbu,
+        'Fecha de Acred.': fechaAcred,
+        'Importe': Math.round(aAcreditar),
+        'Estado': '',
+        'Email': '',
+        'Observaciones': '',
+      });
+      totalImporte += aAcreditar;
+    }
+
+    if (filas.length === 0) {
+      toast('Ninguna empleada con CBU cargado y monto > 0', 'error');
+      return;
+    }
+
+    // Avisar las que quedan afuera (sin CBU)
+    if (sinCuenta.length > 0) {
+      const lista = sinCuenta.join('\n  • ');
+      if (!confirm(`⚠ ${sinCuenta.length} empleada(s) sin CBU/cuenta cargada quedan fuera del archivo:\n\n  • ${lista}\n\nCargalas en su legajo (campo CBU) o continuá igual.\n\n¿Generar el archivo con las ${filas.length} restantes?`)) return;
+    }
+
+    // Armar el workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(filas, {
+      header: ['Nombre','NroCuenta | CBU','Fecha de Acred.','Importe','Estado','Email','Observaciones']
+    });
+    // Anchos de columna razonables
+    ws['!cols'] = [
+      { wch: 32 }, { wch: 22 }, { wch: 14 }, { wch: 14 },
+      { wch: 12 }, { wch: 18 }, { wch: 30 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
+
+    // Nombre del archivo
+    const localTxt = (local && local !== 'todos') ? local : 'Adorno';
+    const fileName = `Pagos ${localTxt} ${periodo}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+
+    toast(`✓ ${filas.length} pagos exportados — total ${'$' + Math.round(totalImporte).toLocaleString('es-AR')}`, 'success');
+  } catch(e) {
+    console.error(e);
+    toast('Error al exportar: ' + e.message, 'error');
+  }
+}
+
 async function renderLiquidaciones() {
   // Período por defecto: mes actual
   if (!liqState.periodo) {
@@ -9039,6 +9129,7 @@ async function renderLiquidaciones() {
           ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
         `}
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
+        ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
       </div>
     </div>
@@ -10898,7 +10989,7 @@ const salaryWorkflow = (() => {
       if (error) throw new Error('Error insert conceptos: ' + error.message);
     }
 
-        return { liquidacion_id: liqId, recibo: reciboFinal, totales_negro: { fijo, comision, premio, viaticos, extras, total_negro_esperado, ajuste_blanco, efectivo }, puntos_mes, cobraPremio };
+            return { liquidacion_id: liqId, recibo: reciboFinal, totales_negro: { fijo, comision, premio, viaticos, extras, total_negro_esperado, ajuste_blanco, efectivo }, puntos_mes, cobraPremio };
   }
 
   /**
