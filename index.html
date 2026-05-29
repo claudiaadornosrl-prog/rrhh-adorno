@@ -1395,6 +1395,41 @@ function toast(msg, kind = '') {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 
+// ════════════════════════════════════════════════════════════
+// Helpers de input de dinero — muestran "$150.000" mientras se tipea
+// ════════════════════════════════════════════════════════════
+function fmtMoneyInput(s) {
+  const num = String(s||'').replace(/[^\d]/g, '');
+  if (!num) return '';
+  return '$' + num.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function parseMoneyInput(elem) {
+  if (!elem) return 0;
+  return Number(String(elem.value || '').replace(/[^\d]/g, '')) || 0;
+}
+
+function wireMoneyInput(elem) {
+  if (!elem || elem._wiredMoney) return;
+  elem._wiredMoney = true;
+  // Inicializar formato si ya hay valor
+  if (elem.value) elem.value = fmtMoneyInput(elem.value);
+  elem.addEventListener('input', (e) => {
+    const cursorPos = e.target.selectionStart;
+    const oldLen = e.target.value.length;
+    e.target.value = fmtMoneyInput(e.target.value);
+    const newLen = e.target.value.length;
+    const delta = newLen - oldLen;
+    const newPos = Math.max(1, cursorPos + delta);
+    try { e.target.setSelectionRange(newPos, newPos); } catch(_) {}
+  });
+}
+
+function wireAllMoneyInputs(scope) {
+  const root = scope || document;
+  root.querySelectorAll('[data-money]').forEach(wireMoneyInput);
+}
+
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -4496,7 +4531,7 @@ function abrirRefinanciarPrestamo(prestamoId, saldoActual) {
     <div class="form-grid">
       <div class="form-row full">
         <label>¿Cuánto capital adicional necesitás?</label>
-        <input type="number" id="refi-capital" min="1" step="1000" placeholder="100000">
+        <input type="text" inputmode="numeric" id="refi-capital" data-money placeholder="$100.000">
       </div>
       <div class="form-row full">
         <label>¿En cuántas cuotas total querés pagar la nueva deuda?</label>
@@ -4513,10 +4548,11 @@ function abrirRefinanciarPrestamo(prestamoId, saldoActual) {
     </div>
   `;
   openModal(html, '520px');
+  setTimeout(() => wireAllMoneyInputs(document.getElementById('global-modal')), 0);
 }
 
 async function enviarSolicitudRefinanciacion(prestamoId) {
-  const cap = Number(document.getElementById('refi-capital').value);
+  const cap = parseMoneyInput(document.getElementById('refi-capital'));
   const cuot = Number(document.getElementById('refi-cuotas').value);
   const motivo = (document.getElementById('refi-motivo').value || '').trim() || null;
   if (!(cap > 0)) { toast('Capital adicional debe ser > 0', 'error'); return; }
@@ -11154,7 +11190,7 @@ const prestamoEngine = (() => {
   return { cuotaFrancesa, armarPlan, sumarMeses };
 })();
 
-let prestamoState = { filtro: 'activos' };
+let prestamoState = { filtro: 'todos' };
 
 async function renderPrestamos() {
   const cont = document.getElementById('main');
@@ -11188,14 +11224,41 @@ async function renderPrestamos() {
   // Para cada préstamo activo, calcular saldo y cuotas pagadas
   const prestamoIds = (prestamos||[]).map(p => p.id);
   let cuotasResumen = {};
+
+  // Período actual (mes en curso) en formato YYYY-MM-01
+  const _hoy = new Date();
+  const _periodoActual = `${_hoy.getFullYear()}-${String(_hoy.getMonth()+1).padStart(2,'0')}-01`;
+
   if (prestamoIds.length > 0) {
     const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
-      .select('prestamo_id, estado, monto_capital')
+      .select('prestamo_id, estado, monto_capital, monto_interes, mes_descuento')
       .in('prestamo_id', prestamoIds);
     (cuotas||[]).forEach(c => {
-      const r = cuotasResumen[c.prestamo_id] = cuotasResumen[c.prestamo_id] || { pagadas: 0, pendientes: 0, saldo: 0 };
+      const r = cuotasResumen[c.prestamo_id] = cuotasResumen[c.prestamo_id] || {
+        pagadas: 0, pendientes: 0, saldo: 0, esteMesCap: 0, esteMesInt: 0
+      };
       if (c.estado === 'aplicada') r.pagadas += 1;
-      else if (c.estado === 'pendiente') { r.pendientes += 1; r.saldo += Number(c.monto_capital||0); }
+      else if (c.estado === 'pendiente') {
+        r.pendientes += 1;
+        r.saldo += Number(c.monto_capital||0);
+        // ¿Es del mes actual (o anterior pendiente)?
+        if (c.mes_descuento && c.mes_descuento <= _periodoActual) {
+          r.esteMesCap += Number(c.monto_capital||0);
+          r.esteMesInt += Number(c.monto_interes||0);
+        }
+      }
+    });
+  }
+
+  // Ordenar préstamos: activos primero, luego propuestos, después resto.
+  // Solo aplicar el orden cuando estamos en filtro 'todos' (sino ya viene filtrado).
+  const ordenEstados = { activo: 0, propuesto: 1, pagado: 2, cancelado_anticipado: 3, rechazado: 4, refinanciado: 5 };
+  if (filtro === 'todos') {
+    (prestamos || []).sort((a, b) => {
+      const oa = ordenEstados[a.estado] ?? 9;
+      const ob = ordenEstados[b.estado] ?? 9;
+      if (oa !== ob) return oa - ob;
+      return new Date(b.otorgado_at || b.fecha_otorgamiento || 0) - new Date(a.otorgado_at || a.fecha_otorgamiento || 0);
     });
   }
 
@@ -11299,6 +11362,7 @@ async function renderPrestamos() {
           <th style="padding:8px;text-align:right;">Capital</th>
           <th style="padding:8px;text-align:right;">Tasa</th>
           <th style="padding:8px;text-align:right;">Cuota</th>
+          <th style="padding:8px;text-align:right;" title="Capital + interés a descontar este mes">Este mes</th>
           <th style="padding:8px;text-align:right;">Progreso</th>
           <th style="padding:8px;text-align:right;">Saldo</th>
           <th style="padding:8px;">Estado</th>
@@ -11308,6 +11372,8 @@ async function renderPrestamos() {
           ${prestamos.map(p => {
             const r = cuotasResumen[p.id] || { pagadas: 0, pendientes: p.cuotas_totales, saldo: p.capital };
             const pctProg = Math.round(100 * r.pagadas / p.cuotas_totales);
+            const esteMesTotal = (r.esteMesCap||0) + (r.esteMesInt||0);
+            const tieneEsteMes = esteMesTotal > 0;
             return `<tr style="border-top:1px solid var(--border);">
               <td style="padding:8px;font-weight:600;">${escapeHtml((p.empleado?.apellido||'') + ', ' + (p.empleado?.nombre||''))}</td>
               <td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(p.empleado?.local||'')}</td>
@@ -11315,6 +11381,7 @@ async function renderPrestamos() {
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmt(p.capital)}</td>
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmtPct(p.tasa_mensual)}</td>
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmt(p.cuota_monto)}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;${tieneEsteMes ? 'background:#fef3c7;font-weight:600;color:#854d0e;' : 'color:var(--muted);'}" title="${tieneEsteMes ? `Cap: ${fmt(r.esteMesCap)} · Int: ${fmt(r.esteMesInt)}` : 'Sin cuotas que se descuenten este mes'}">${tieneEsteMes ? fmt(esteMesTotal) : '—'}</td>
               <td style="padding:8px;text-align:right;">
                 <div style="font-size:11px;color:var(--muted);">${r.pagadas}/${p.cuotas_totales}</div>
                 <div style="width:80px;height:6px;background:#e5e7eb;border-radius:3px;margin:2px 0 0 auto;overflow:hidden;">
@@ -11359,7 +11426,7 @@ async function prestamoAbrirNuevo() {
       <div class="form-row"><label>Fecha otorgamiento</label><input type="date" id="pr-fecha" value="${hoy}"></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
-      <div class="form-row"><label>Capital</label><input type="number" id="pr-capital" placeholder="300000" min="1" step="any"></div>
+      <div class="form-row"><label>Capital</label><input type="text" inputmode="numeric" id="pr-capital" data-money placeholder="$300.000"></div>
       <div class="form-row"><label>CFT anual %</label><input type="number" id="pr-tasa" placeholder="60" min="0" max="500" step="0.1"></div>
       <div class="form-row"><label>Cuotas</label><input type="number" id="pr-cuotas" placeholder="6" min="1" max="60" step="1"></div>
       <div class="form-row"><label>Primer descuento (mes)</label><input type="month" id="pr-mes" value="${proxIso.slice(0,7)}"></div>
@@ -11398,6 +11465,7 @@ async function prestamoAbrirNuevo() {
     </div>
   `;
   openModal(html, '720px');
+  setTimeout(() => wireAllMoneyInputs(document.getElementById('global-modal')), 0);
 }
 
 async function adelantoAbrirNuevo() {
@@ -11428,7 +11496,7 @@ async function adelantoAbrirNuevo() {
 }
 
 function prestamoCalcularPreview() {
-  const capital = Number(document.getElementById('pr-capital').value);
+  const capital = parseMoneyInput(document.getElementById('pr-capital'));
   const tasaPct = Number(document.getElementById('pr-tasa').value || 0);
   const cuotas  = Number(document.getElementById('pr-cuotas').value);
   const mesIni  = document.getElementById('pr-mes').value; // YYYY-MM
@@ -11474,10 +11542,10 @@ function prestamoCalcularPreview() {
     <div style="background:#fef9c3;border:1px solid #fde68a;padding:10px 12px;border-radius:6px;margin:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span style="font-size:12px;color:#854d0e;"><strong>✏️ Ajustar manualmente</strong> (para redondear):</span>
       <label style="font-size:12px;color:#854d0e;">Capital/cuota:
-        <input type="number" id="pr-ajuste-cap" value="${capLineal}" step="1000" style="width:110px;padding:4px 8px;border:1px solid #fcd34d;border-radius:4px;font-family:monospace;">
+        <input type="text" inputmode="numeric" id="pr-ajuste-cap" data-money value="${capLineal}" style="width:130px;padding:4px 8px;border:1px solid #fcd34d;border-radius:4px;font-family:monospace;">
       </label>
       <label style="font-size:12px;color:#854d0e;">Interés/cuota:
-        <input type="number" id="pr-ajuste-int" value="${intLineal}" step="1000" style="width:110px;padding:4px 8px;border:1px solid #fcd34d;border-radius:4px;font-family:monospace;">
+        <input type="text" inputmode="numeric" id="pr-ajuste-int" data-money value="${intLineal}" style="width:130px;padding:4px 8px;border:1px solid #fcd34d;border-radius:4px;font-family:monospace;">
       </label>
       <button class="btn small" onclick="prestamoAjustarManual()">🔄 Recalcular</button>
       <button class="btn small" onclick="prestamoCalcularPreview()" title="Volver al cálculo del sistema francés">↺ Restablecer</button>
@@ -11508,10 +11576,12 @@ function prestamoCalcularPreview() {
     </table>
     </div>
   `;
+  // Re-wire money inputs nuevos (capital/interés ajuste)
+  setTimeout(() => wireAllMoneyInputs(document.getElementById('pr-preview-body')), 0);
 }
 
 function prestamoCompararCuotas() {
-  const capital = Number(document.getElementById('pr-capital').value);
+  const capital = parseMoneyInput(document.getElementById('pr-capital'));
   const cftPct = Number(document.getElementById('pr-tasa').value || 0);
   if (!capital || capital <= 0) { toast('Cargá capital primero', 'error'); return; }
   // CFT anual → mensual compuesta
@@ -11575,13 +11645,13 @@ function prestamoAjustarManual() {
   const intInput = document.getElementById('pr-ajuste-int');
   if (!capInput || !intInput) { toast('Calculá el plan primero', 'error'); return; }
 
-  const capCuota = Number(capInput.value);
-  const intCuota = Number(intInput.value);
+  const capCuota = parseMoneyInput(capInput);
+  const intCuota = parseMoneyInput(intInput);
   if (!(capCuota > 0)) { toast('Capital por cuota inválido', 'error'); return; }
   if (!(intCuota >= 0)) { toast('Interés por cuota inválido', 'error'); return; }
 
   const cuotas = Number(document.getElementById('pr-cuotas').value);
-  const capital = Number(document.getElementById('pr-capital').value);
+  const capital = parseMoneyInput(document.getElementById('pr-capital'));
   const mesIni  = document.getElementById('pr-mes').value;
 
   const cuotaTotal = capCuota + intCuota;
@@ -11641,7 +11711,7 @@ async function prestamoCrear() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const empId   = parseInt(document.getElementById('pr-emp').value);
   const fecha   = document.getElementById('pr-fecha').value;
-  const capital = Number(document.getElementById('pr-capital').value);
+  const capital = parseMoneyInput(document.getElementById('pr-capital'));
   const tasaPct = Number(document.getElementById('pr-tasa').value || 0);
   const cuotas  = Number(document.getElementById('pr-cuotas').value);
   const mesIni  = document.getElementById('pr-mes').value;
@@ -11921,7 +11991,7 @@ async function prestamoEditarPropuesta(prestamoId) {
   // Bloquear cambio de empleada (al editar la propuesta sigue siendo para la misma)
   if (empSel) empSel.disabled = true;
   document.getElementById('pr-fecha').value = p.fecha_otorgamiento;
-  document.getElementById('pr-capital').value = Number(p.capital);
+  document.getElementById('pr-capital').value = fmtMoneyInput(p.capital);
   // Tasa: guardamos mensual, mostramos CFT
   const tasaMensual = Number(p.tasa_mensual || 0);
   const cftAprox = (Math.pow(1 + tasaMensual, 12) - 1) * 100;
@@ -12057,7 +12127,7 @@ async function abrirCrearPropuestaRefinanciacion(solicitudId) {
   // Precargar
   document.getElementById('pr-emp').value = String(s.empleado_id);
   document.getElementById('pr-emp').disabled = true;
-  document.getElementById('pr-capital').value = capitalNuevo;
+  document.getElementById('pr-capital').value = fmtMoneyInput(capitalNuevo);
   document.getElementById('pr-cuotas').value = s.cuotas_solicitadas || 12;
   document.getElementById('pr-notas').value = `Refinanciación del préstamo #${s.prestamo_id} (saldo $${Math.round(saldoViejo).toLocaleString('es-AR')} + nuevo $${Number(s.capital_adicional).toLocaleString('es-AR')})`;
 
@@ -12148,6 +12218,18 @@ async function liqHistoricoEmpleada(empleadoId) {
     </div>
   `;
   openModal(html, '95vw');
+}
+
+function closeModal() {
+  const m = document.getElementById('global-modal');
+  if (m) m.remove();
+  // Limpiar también estado de edición/refi de préstamo si quedó colgado
+  if (typeof window !== 'undefined') {
+    window._prestamoEditandoId = null;
+    window._prestamoRefiSolicitudId = null;
+    window._prestamoPlanActual = null;
+    window._prestamoPlanInputs = null;
+  }
 }
 
 function openModal(html, maxWidth) {
@@ -12771,20 +12853,4 @@ const salaryWorkflow = (() => {
     const lista = Object.values(uniq);
 
     const ok = [], errores = [];
-    for (const e of lista) {
-      try {
-        const r = await liquidarEmpleada(e.id, periodo, inputsPorEmpleado[e.id] || {});
-        ok.push({ empleado: e, resultado: r });
-      } catch (err) {
-        errores.push({ empleado: e, error: err.message });
-      }
-    }
-    return { ok, errores };
-  }
-
-  return { liquidarEmpleada, liquidarMes, calcularPuntosMes };
-})();
-
-</script>
-</body>
-</html>
+    for (const e of
