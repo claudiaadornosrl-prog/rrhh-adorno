@@ -1324,6 +1324,18 @@ function limpiarLactancia() {
   renderModalBody();
 }
 
+function agregarHijo() {
+  if (!Array.isArray(empModalState.formData.hijos)) empModalState.formData.hijos = [];
+  empModalState.formData.hijos.push({ nombre: '' });
+  renderModalBody();
+}
+
+function quitarHijo(idx) {
+  if (!Array.isArray(empModalState.formData.hijos)) return;
+  empModalState.formData.hijos.splice(idx, 1);
+  renderModalBody();
+}
+
 async function getCategorias() {
   if (CACHE_CATEGORIAS) return CACHE_CATEGORIAS;
   const { data } = await sb.from('rrhh_categorias_cct').select('id, codigo, nombre, sueldo_basico, activa').order('nombre');
@@ -1831,6 +1843,30 @@ async function renderTabDatos() {
       </div>
     </div>
 
+    <div class="section-title">Familia</div>
+    <div class="form-grid">
+      <div class="form-row full ${!editing?'readonly':''}">
+        <label>Nombre del cónyuge / pareja</label>
+        <input type="text" data-field="conyuge_nombre" value="${escapeHtml(d.conyuge_nombre||'')}" ${!editing?'disabled':''} placeholder="—">
+      </div>
+      <div class="form-row full">
+        <label style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Hijos/as</span>
+          ${editing ? `<button type="button" class="btn small" style="font-size:11px;padding:3px 10px;" onclick="agregarHijo()">+ Agregar hijo/a</button>` : ''}
+        </label>
+        <div id="hijos-list" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+          ${(Array.isArray(d.hijos)?d.hijos:[]).length === 0 ? `<div style="font-size:12px;color:var(--muted);padding:6px 2px;">${editing ? 'Sin hijos cargados. Tocá "+ Agregar hijo/a" si querés sumar uno.' : 'Sin hijos cargados.'}</div>` : ''}
+          ${(Array.isArray(d.hijos)?d.hijos:[]).map((h, idx) => `
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input type="text" placeholder="Nombre" value="${escapeHtml(h.nombre||'')}" data-hijo-idx="${idx}" data-hijo-campo="nombre" ${!editing?'disabled':''} style="flex:2;">
+              <input type="date" value="${h.fecha_nacimiento||''}" data-hijo-idx="${idx}" data-hijo-campo="fecha_nacimiento" ${!editing?'disabled':''} style="flex:1;" title="Fecha de nacimiento (opcional)">
+              ${editing ? `<button type="button" class="btn small" style="padding:4px 8px;color:#dc2626;" onclick="quitarHijo(${idx})" title="Quitar">✕</button>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+
     <div class="section-title">Pago</div>
     <div class="form-grid">
       <div class="form-row ${!editing?'readonly':''}">
@@ -1862,6 +1898,22 @@ async function renderTabDatos() {
       empModalState.formData[e.target.dataset.field] = val;
       // Re-render si cambió el estado a baja (para mostrar campos)
       if (e.target.dataset.field === 'estado') renderModalBody();
+    });
+  });
+
+  // Wire inputs de hijos (data-hijo-idx / data-hijo-campo)
+  body.querySelectorAll('[data-hijo-idx]').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const idx = parseInt(e.target.dataset.hijoIdx, 10);
+      const campo = e.target.dataset.hijoCampo;
+      const val = e.target.value || '';
+      if (!Array.isArray(empModalState.formData.hijos)) empModalState.formData.hijos = [];
+      if (!empModalState.formData.hijos[idx]) empModalState.formData.hijos[idx] = {};
+      if (campo === 'fecha_nacimiento' && val === '') {
+        delete empModalState.formData.hijos[idx].fecha_nacimiento;
+      } else {
+        empModalState.formData.hijos[idx][campo] = val;
+      }
     });
   });
 
@@ -2575,6 +2627,13 @@ async function saveEmpleado() {
     estado: d.estado || 'activo',
     cbu: d.cbu || null,
     banco: d.banco || null,
+    conyuge_nombre: d.conyuge_nombre?.trim() || null,
+    hijos: Array.isArray(d.hijos)
+      ? d.hijos.filter(h => h && (h.nombre||'').trim()).map(h => ({
+          nombre: h.nombre.trim(),
+          ...(h.fecha_nacimiento ? { fecha_nacimiento: h.fecha_nacimiento } : {})
+        }))
+      : [],
   };
 
   const saveBtn = document.getElementById('emp-modal-save');
@@ -3873,11 +3932,62 @@ async function anularVacacionAprobada(id) {
 }
 
 async function renderMisFichadas() {
-  const año = new Date().getFullYear();
-  const mes = String(new Date().getMonth() + 1).padStart(2, '0');
+  const hoy = new Date();
+  const año = hoy.getFullYear();
+  const mes = String(hoy.getMonth() + 1).padStart(2, '0');
   const periodo = `${año}-${mes}`;
-  const { data: resumen } = await sb.from('rrhh_asistencias')
-    .select('*').eq('empleado_id', session.empleado_id).eq('periodo', periodo).maybeSingle();
+  const desde = `${periodo}-01`;
+  const hasta = `${año}-${mes}-${String(new Date(año, hoy.getMonth()+1, 0).getDate()).padStart(2,'0')}`;
+
+  const [resumenRes, detalleRes] = await Promise.all([
+    sb.from('rrhh_asistencias')
+      .select('*').eq('empleado_id', session.empleado_id).eq('periodo', periodo).maybeSingle(),
+    sb.from('rrhh_asistencias_detalle')
+      .select('fecha, estado, turno_inicio, turno_fin, entrada_real, salida_real, minutos_tarde, minutos_extra, observacion')
+      .eq('empleado_id', session.empleado_id)
+      .gte('fecha', desde).lte('fecha', hasta)
+      .order('fecha', { ascending: false })
+  ]);
+  const resumen = resumenRes.data;
+  const detalle = detalleRes.data || [];
+
+  const labelEstado = {
+    'puntual':       { txt: 'Puntual',      bg: '#d1fae5', fg: '#065f46' },
+    'tarde':         { txt: 'Tarde',        bg: '#fef3c7', fg: '#92400e' },
+    'horas_extras':  { txt: 'Horas extras', bg: '#dbeafe', fg: '#1e40af' },
+    'ausente':       { txt: 'Ausente',      bg: '#fee2e2', fg: '#991b1b' },
+    'vacaciones':    { txt: 'Vacaciones',   bg: '#ddd6fe', fg: '#5b21b6' },
+    'licencia':      { txt: 'Licencia',     bg: '#e0f2fe', fg: '#075985' },
+    'franco':        { txt: 'Franco',       bg: '#f3f4f6', fg: '#374151' },
+    'permiso':       { txt: 'Permiso',      bg: '#fef3c7', fg: '#92400e' },
+  };
+  const fmtFechaCorta = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso + 'T12:00:00');
+    return d.toLocaleDateString('es-AR', { weekday:'short', day:'2-digit', month:'short' });
+  };
+  const fmtHora = (h) => h ? String(h).slice(0,5) : '—';
+  const fmtMin = (m) => {
+    if (!m) return '—';
+    const abs = Math.abs(m);
+    const hh = Math.floor(abs / 60), mm = abs % 60;
+    return (hh > 0 ? `${hh}h ` : '') + `${mm}m`;
+  };
+
+  const filasHTML = detalle.map(d => {
+    const lab = labelEstado[d.estado] || { txt: d.estado || '—', bg:'#f3f4f6', fg:'#374151' };
+    const turno = (d.turno_inicio || d.turno_fin) ? (fmtHora(d.turno_inicio)+'–'+fmtHora(d.turno_fin)) : '—';
+    return '<tr style="border-top:1px solid var(--border);">'
+      + '<td style="padding:8px;font-family:monospace;text-transform:capitalize;">' + fmtFechaCorta(d.fecha) + '</td>'
+      + '<td style="padding:8px;"><span style="background:' + lab.bg + ';color:' + lab.fg + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">' + lab.txt + '</span></td>'
+      + '<td style="padding:8px;font-family:monospace;font-size:12px;color:var(--muted);">' + turno + '</td>'
+      + '<td style="padding:8px;font-family:monospace;color:' + (d.entrada_real ? '#15803d' : '#9ca3af') + ';">' + fmtHora(d.entrada_real) + '</td>'
+      + '<td style="padding:8px;font-family:monospace;color:' + (d.salida_real ? '#15803d' : '#9ca3af') + ';">' + fmtHora(d.salida_real) + '</td>'
+      + '<td style="padding:8px;text-align:right;font-family:monospace;color:' + ((d.minutos_tarde||0) > 0 ? '#dc2626' : '#9ca3af') + ';">' + fmtMin(d.minutos_tarde) + '</td>'
+      + '<td style="padding:8px;text-align:right;font-family:monospace;color:' + ((d.minutos_extra||0) > 0 ? '#0891b2' : '#9ca3af') + ';">' + fmtMin(d.minutos_extra) + '</td>'
+      + '<td style="padding:8px;font-size:12px;color:var(--muted);">' + escapeHtml(d.observacion||'') + '</td>'
+      + '</tr>';
+  }).join('');
 
   return `
     <div class="page-header">
@@ -3887,20 +3997,47 @@ async function renderMisFichadas() {
 
     ${resumen ? `
       <div class="metrics-grid">
-        <div class="metric-card accent"><div class="label">Días trabajados</div><div class="value">${resumen.dias_trabajados}</div></div>
-        <div class="metric-card"><div class="label">Ausencias</div><div class="value">${resumen.dias_ausente}</div></div>
-        <div class="metric-card warn"><div class="label">Llegadas tarde</div><div class="value">${resumen.llegadas_tarde}</div><div class="hint">${resumen.minutos_tarde_total} min acumulados</div></div>
-        <div class="metric-card"><div class="label">Horas extras</div><div class="value">${resumen.horas_extras}</div></div>
+        <div class="metric-card accent"><div class="label">Días trabajados</div><div class="value">${resumen.dias_trabajados||0}</div></div>
+        <div class="metric-card"><div class="label">Ausencias</div><div class="value">${resumen.dias_ausente||0}</div></div>
+        <div class="metric-card warn"><div class="label">Llegadas tarde</div><div class="value">${resumen.llegadas_tarde||0}</div><div class="hint">${fmtMin(resumen.minutos_tarde_total||0)} acumulados</div></div>
+        <div class="metric-card"><div class="label">Horas extras</div><div class="value">${fmtMin(resumen.minutos_extras_total||resumen.horas_extras||0)}</div></div>
       </div>
     ` : `
-      <div class="card">
-        <div class="placeholder">
-          <div class="icon">🕐</div>
-          <h3>Sin datos cargados para este mes</h3>
-          <p>El reporte de asistencias se procesa cada principio de mes.</p>
+      <div class="card" style="background:#fef9c3;border-color:#fde68a;margin-bottom:14px;">
+        <div style="padding:10px 14px;font-size:13px;color:#854d0e;">
+          ⏳ El resumen mensual todavía no se procesó. Te mostramos las fichadas día por día abajo.
         </div>
       </div>
     `}
+
+    <div class="card" style="margin-top:14px;overflow-x:auto;">
+      <div class="section-title">Detalle día por día</div>
+      ${detalle.length === 0 ? `
+        <div class="placeholder" style="padding:24px;">
+          <div class="icon">🕐</div>
+          <h3>Sin fichadas registradas todavía</h3>
+          <p style="font-size:13px;">Cuando se sincronicen tus fichadas del reloj biométrico, las vas a ver acá.</p>
+        </div>
+      ` : `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f9fafb;text-align:left;">
+              <th style="padding:8px;">Fecha</th>
+              <th style="padding:8px;">Estado</th>
+              <th style="padding:8px;">Turno</th>
+              <th style="padding:8px;">Entrada</th>
+              <th style="padding:8px;">Salida</th>
+              <th style="padding:8px;text-align:right;">Tarde</th>
+              <th style="padding:8px;text-align:right;">Extra</th>
+              <th style="padding:8px;">Obs.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filasHTML}
+          </tbody>
+        </table>
+      `}
+    </div>
   `;
 }
 
