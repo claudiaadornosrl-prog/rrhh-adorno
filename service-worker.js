@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v27-planilla-completa';
+const CACHE_VERSION = 'rrhh-v28-planilla-sac-adelantos';
 const ASSETS = [
   './',
   './index.html',

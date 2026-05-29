@@ -10906,13 +10906,67 @@ async function renderLiquidaciones() {
 
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
-  let totalRecibo=0, totalNegro=0, totalEfectivo=0, totalBanco=0, totalPrestamoCap=0;
+  // ─── Separar Adelantos (1 cuota tasa 0) vs Préstamos largos ───
+  const empIdsLiq = [...new Set((liqs||[]).map(l => l.empleado_id))];
+  const adelantosPorEmpLiq = {}, prestamosPorEmpLiq = {};
+  if (empIdsLiq.length > 0) {
+    const { data: pAct } = await sb.from('rrhh_prestamo')
+      .select('id, empleado_id, estado, cuotas_totales, tasa_mensual')
+      .in('empleado_id', empIdsLiq);
+    const pMap = {};
+    (pAct || []).forEach(p => { pMap[p.id] = p; });
+    const idsP = (pAct || []).map(p => p.id);
+    if (idsP.length > 0) {
+      const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+        .select('prestamo_id, monto_capital, mes_descuento, estado')
+        .eq('mes_descuento', periodo + '-01')
+        .in('prestamo_id', idsP);
+      (cs || []).forEach(c => {
+        const pr = pMap[c.prestamo_id]; if (!pr) return;
+        const cap = Number(c.monto_capital || 0);
+        const esAdel = pr.cuotas_totales === 1 && Number(pr.tasa_mensual||0) === 0;
+        if (esAdel) adelantosPorEmpLiq[pr.empleado_id] = (adelantosPorEmpLiq[pr.empleado_id]||0) + cap;
+        else        prestamosPorEmpLiq[pr.empleado_id] = (prestamosPorEmpLiq[pr.empleado_id]||0) + cap;
+      });
+    }
+  }
+
+  // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto del
+  //     semestre / 12 × meses trabajados del semestre.
+  const mesNumero = parseInt(periodo.split('-')[1], 10);
+  const esMesSAC = mesNumero === 6 || mesNumero === 12;
+  const sacPorEmp = {};
+  if (esMesSAC && empIdsLiq.length > 0) {
+    const ay = periodo.split('-')[0];
+    const semStart = mesNumero === 6 ? `${ay}-01-01` : `${ay}-07-01`;
+    const semEnd   = mesNumero === 6 ? `${ay}-06-30` : `${ay}-12-31`;
+    const { data: liqsSem } = await sb.from('rrhh_liquidacion')
+      .select('empleado_id, total_negro, periodo')
+      .in('empleado_id', empIdsLiq)
+      .gte('periodo', semStart).lte('periodo', semEnd);
+    const mejor = {}, mesesT = {};
+    (liqsSem || []).forEach(l => {
+      const v = Number(l.total_negro || 0);
+      if (!mejor[l.empleado_id] || v > mejor[l.empleado_id]) mejor[l.empleado_id] = v;
+      mesesT[l.empleado_id] = (mesesT[l.empleado_id] || 0) + 1;
+    });
+    Object.entries(mejor).forEach(([eid, v]) => {
+      sacPorEmp[eid] = (v / 12) * Math.min(6, mesesT[eid] || 0);
+    });
+  }
+
+  let totalRecibo=0, totalNegro=0, totalEfectivo=0, totalBanco=0, totalPrestamoCap=0, totalAdelantos=0, totalSAC=0;
   (liqs||[]).forEach(l => {
+    const adel = adelantosPorEmpLiq[l.empleado_id] || 0;
+    const pres = prestamosPorEmpLiq[l.empleado_id] || 0;
+    const sac  = sacPorEmp[l.empleado_id] || 0;
     totalRecibo    += +l.recibo_neto||0;
-    totalNegro     += +l.total_negro||0;
+    totalNegro     += (+l.total_negro||0) + sac;
     totalEfectivo  += +l.efectivo||0;
-    totalPrestamoCap += +l.prestamo_capital||0;
-    totalBanco     += (+l.recibo_neto||0) - (+l.prestamo_capital||0);
+    totalPrestamoCap += pres;
+    totalAdelantos += adel;
+    totalSAC       += sac;
+    totalBanco     += (+l.recibo_neto||0) - pres - adel;
   });
 
   return `
@@ -10980,16 +11034,18 @@ async function renderLiquidaciones() {
               <th style="padding:8px;">Pts</th>
               <th style="padding:8px;">Fijo</th>
               <th style="padding:8px;">Comisión</th>
-              <th style="padding:8px;">Premio</th>
+              <th style="padding:8px;">Premios</th>
               <th style="padding:8px;">Viáticos</th>
               <th style="padding:8px;">Extras</th>
               <th style="padding:8px;">Feriado</th>
-              <th style="padding:8px;background:#eef2ff;">Total esp.</th>
+              ${esMesSAC ? '<th style="padding:8px;" title="SAC = mejor bruto del semestre / 12 × meses trabajados">SAC</th>' : ''}
+              <th style="padding:8px;background:#eef2ff;" title="Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}">Total</th>
               <th style="padding:8px;background:#fef3c7;" title="Neto del recibo CCT (lo que dice el recibo legal)">Recibo</th>
-              <th style="padding:8px;" title="Capital de cuota de préstamo descontado del banco">Préstamo</th>
-              <th style="padding:8px;background:#dcfce7;" title="Lo que efectivamente se transfiere por banco (Recibo − Préstamo cap.)">A acreditar</th>
-              <th style="padding:8px;">Merc.</th>
-              <th style="padding:8px;">Ajuste</th>
+              <th style="padding:8px;" title="Capital de cuota de préstamo descontado del banco">Préstamos</th>
+              <th style="padding:8px;" title="Adelantos del mes (préstamos 1 cuota tasa 0%)">Adelantos</th>
+              <th style="padding:8px;background:#dcfce7;" title="Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)">Total</th>
+              <th style="padding:8px;">Mercadería</th>
+              <th style="padding:8px;">Ajustes</th>
               <th style="padding:8px;background:#fde2e8;">Efectivo</th>
               <th style="padding:8px;">Detalle</th>
             </tr>
@@ -10999,6 +11055,11 @@ async function renderLiquidaciones() {
               const e = l.empleado;
               const cat = e?.categoria?.nombre || '';
               const premioOk = l.premio_cobra;
+              const adel = adelantosPorEmpLiq[l.empleado_id] || 0;
+              const pres = prestamosPorEmpLiq[l.empleado_id] || 0;
+              const sac  = sacPorEmp[l.empleado_id] || 0;
+              const totalConSAC = (+l.total_negro || 0) + sac;
+              const totalBancoFila = (+l.recibo_neto || 0) - pres - adel;
               return `<tr style="border-top:1px solid var(--border);text-align:right;">
                 <td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${escapeHtml(e?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e?.nombre || '').split(' ')[0])}</span></td>
                 ${local === 'todos' ? `<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` : ''}
@@ -11011,10 +11072,12 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;font-family:monospace;">${fmt(l.viaticos)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.extras)}</td>
                 <td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
-                <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
+                ${esMesSAC ? `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};" title="${sac>0?'SAC auto = mejor bruto semestre / 12 × meses trabajados':'Sin SAC (sin liquidaciones previas en el semestre)'}">${sac>0?fmt(sac):'—'}</td>` : ''}
+                <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(totalConSAC)}</td>
                 <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo">${fmt(l.recibo_neto)}</td>
-                <td style="padding:8px;font-family:monospace;color:${(+l.prestamo_capital)>0?'#d97706':'var(--muted)'};" title="${(+l.prestamo_capital)>0?'Capital del préstamo descontado del banco':'Sin préstamo activo este mes'}">${(+l.prestamo_capital)>0?'−'+fmt(l.prestamo_capital):'—'}</td>
-                <td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada">${fmt((+l.recibo_neto||0) - (+l.prestamo_capital||0))}</td>
+                <td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+fmt(pres):'—'}</td>
+                <td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+fmt(adel):'—'}</td>
+                <td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)">${fmt(totalBancoFila)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.ajuste)}</td>
                 <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
