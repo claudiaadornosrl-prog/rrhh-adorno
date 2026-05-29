@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v12-prestamo-edit-borrar';
+const CACHE_VERSION = 'rrhh-v13-prestamo-refi-adelanto';
 const ASSETS = [
   './',
   './index.html',

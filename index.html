@@ -4390,11 +4390,15 @@ async function renderMisPrestamos() {
         return `
         <div class="card" style="margin-bottom:14px;">
           <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px;">
-            <div>
+            <div style="flex:1;min-width:240px;">
               <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Préstamo · otorgado ${fmtFecha(p.fecha_otorgamiento)}</div>
               <div style="font-size:18px;font-weight:600;">${fmt(p.capital)} en ${p.cuotas_totales} cuotas de ${fmt(p.cuota_monto)}</div>
               <div style="font-size:13px;color:var(--muted);margin-top:4px;">${pagadas} pagadas · ${pendientes.length} pendientes · saldo capital ${fmt(saldo)}</div>
               ${p.notas ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic;">"${escapeHtml(p.notas)}"</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+              <button class="btn small" style="background:#0891b2;color:white;border:none;" onclick="abrirRefinanciarPrestamo(${p.id}, ${saldo})">💸 Refinanciar</button>
+              <button class="btn small" style="background:#16a34a;color:white;border:none;" onclick="abrirAdelantarCuotas(${p.id}, ${pendientes.length})">⚡ Adelantar cuotas</button>
             </div>
           </div>
           <details style="margin-top:14px;">
@@ -4476,6 +4480,136 @@ async function _buscarAdminIdParaPush() {
       .select('empleado_id').eq('rol', 'admin').eq('activo', true).limit(1).maybeSingle();
     return data?.empleado_id || null;
   } catch (_) { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Self-service: solicitar refinanciación
+// ─────────────────────────────────────────────────────────────────────
+function abrirRefinanciarPrestamo(prestamoId, saldoActual) {
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const html = `
+    <h3 style="margin:0 0 6px;">💸 Solicitar refinanciación</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+      Saldo actual del préstamo: <strong>${fmt(saldoActual)}</strong>.<br>
+      Si admin aprueba, te va a generar una propuesta nueva por <strong>saldo + capital adicional</strong>.
+    </div>
+    <div class="form-grid">
+      <div class="form-row full">
+        <label>¿Cuánto capital adicional necesitás?</label>
+        <input type="number" id="refi-capital" min="1" step="1000" placeholder="100000">
+      </div>
+      <div class="form-row full">
+        <label>¿En cuántas cuotas total querés pagar la nueva deuda?</label>
+        <input type="number" id="refi-cuotas" min="1" max="60" step="1" placeholder="12">
+      </div>
+      <div class="form-row full">
+        <label>Motivo (opcional)</label>
+        <input type="text" id="refi-motivo" placeholder="Ej: cubrir gastos médicos, vencimiento tarjeta…">
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" onclick="enviarSolicitudRefinanciacion(${prestamoId})">📩 Enviar solicitud</button>
+    </div>
+  `;
+  openModal(html, '520px');
+}
+
+async function enviarSolicitudRefinanciacion(prestamoId) {
+  const cap = Number(document.getElementById('refi-capital').value);
+  const cuot = Number(document.getElementById('refi-cuotas').value);
+  const motivo = (document.getElementById('refi-motivo').value || '').trim() || null;
+  if (!(cap > 0)) { toast('Capital adicional debe ser > 0', 'error'); return; }
+  if (!(cuot > 0)) { toast('Cuotas debe ser > 0', 'error'); return; }
+  try {
+    const { data, error } = await sb.rpc('rrhh_solicitar_refinanciacion', {
+      p_prestamo_id: prestamoId, p_capital_adicional: cap, p_cuotas: cuot, p_motivo: motivo
+    });
+    if (error) throw error;
+    toast('Solicitud enviada · te avisamos cuando la resolvamos ✓', 'success');
+    // Push al admin
+    try {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          'Solicitud de refinanciación 💸',
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} pide $${cap.toLocaleString('es-AR')} adicionales en ${cuot} cuotas.`,
+          { url: './#prestamos', tag: 'solic-prestamo-' + data?.solicitud_id }
+        );
+      }
+    } catch(_) {}
+    closeModal();
+    switchTab('mis-prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Self-service: solicitar adelantar cuotas
+// ─────────────────────────────────────────────────────────────────────
+function abrirAdelantarCuotas(prestamoId, pendientesCount) {
+  const hoy = new Date();
+  hoy.setMonth(hoy.getMonth() + 1, 1);
+  const nextIso = hoy.toISOString().slice(0,7);
+  const html = `
+    <h3 style="margin:0 0 6px;">⚡ Solicitar adelantar cuotas</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+      Tenés <strong>${pendientesCount}</strong> cuotas pendientes.<br>
+      Las últimas N cuotas se van a juntar en el mes que elijas. El préstamo va a terminar antes.
+    </div>
+    <div class="form-grid">
+      <div class="form-row full">
+        <label>¿Cuántas cuotas querés adelantar?</label>
+        <input type="number" id="adel-cuotas" min="1" max="${pendientesCount}" step="1" placeholder="2">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Si querés cancelar todo el préstamo, poné ${pendientesCount}.</div>
+      </div>
+      <div class="form-row full">
+        <label>¿En qué mes querés que se descuenten?</label>
+        <input type="month" id="adel-mes" value="${nextIso}">
+      </div>
+      <div class="form-row full">
+        <label>Motivo (opcional)</label>
+        <input type="text" id="adel-motivo" placeholder="Ej: aguinaldo, vacaciones…">
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" onclick="enviarSolicitudAdelanto(${prestamoId})">📩 Enviar solicitud</button>
+    </div>
+  `;
+  openModal(html, '520px');
+}
+
+async function enviarSolicitudAdelanto(prestamoId) {
+  const cuot = Number(document.getElementById('adel-cuotas').value);
+  const mes = document.getElementById('adel-mes').value;
+  const motivo = (document.getElementById('adel-motivo').value || '').trim() || null;
+  if (!(cuot > 0)) { toast('Cuotas a adelantar debe ser > 0', 'error'); return; }
+  if (!mes) { toast('Elegí el mes de descuento', 'error'); return; }
+  try {
+    const { data, error } = await sb.rpc('rrhh_solicitar_adelantar_cuotas', {
+      p_prestamo_id: prestamoId, p_cuotas: cuot, p_mes_descuento: mes + '-01', p_motivo: motivo
+    });
+    if (error) throw error;
+    toast('Solicitud enviada · te avisamos cuando la resolvamos ✓', 'success');
+    try {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          'Solicitud de adelanto ⚡',
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} pide adelantar ${cuot} cuotas en ${mes}.`,
+          { url: './#prestamos', tag: 'solic-prestamo-' + data?.solicitud_id }
+        );
+      }
+    } catch(_) {}
+    closeModal();
+    switchTab('mis-prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
 }
 
 async function renderMisCertificados() {
@@ -11029,6 +11163,12 @@ async function renderPrestamos() {
     return;
   }
 
+  // Cargar solicitudes pendientes (refinanciación + adelanto)
+  const { data: solicitudes } = await sb.from('rrhh_prestamo_solicitud')
+    .select('*, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local), prestamo:rrhh_prestamo(id, capital, cuota_monto, cuotas_totales)')
+    .eq('estado', 'pendiente')
+    .order('solicitado_at', { ascending: false });
+
   // Cargar préstamos según filtro
   const filtro = prestamoState.filtro || 'activos';
   let q = sb.from('rrhh_prestamo')
@@ -11067,11 +11207,68 @@ async function renderPrestamos() {
     return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${etiquetas[e]||e}</span>`;
   };
 
+  // Helpers de formato para solicitudes
+  const fmt2 = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const labelMesShort = (iso) => {
+    if (!iso) return '';
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+  };
+
+  const solicHTML = (solicitudes || []).length === 0 ? '' : `
+    <div class="card" style="background:#fef9c3;border:2px solid #fde68a;margin-bottom:14px;">
+      <div class="section-title" style="margin-top:0;color:#854d0e;">📩 Solicitudes pendientes (${solicitudes.length})</div>
+      ${solicitudes.map(s => {
+        const empNom = s.empleado?.nombre_completo || '?';
+        const pres = s.prestamo;
+        if (s.tipo === 'refinanciacion') {
+          return `
+            <div style="background:white;padding:12px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+              <div style="flex:1;min-width:260px;">
+                <div style="font-size:13px;color:#854d0e;font-weight:600;">💸 ${escapeHtml(empNom)} pide refinanciar</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+                  Préstamo #${s.prestamo_id} (capital original ${fmt2(pres?.capital)}, cuota ${fmt2(pres?.cuota_monto)})<br>
+                  Pide <strong>${fmt2(s.capital_adicional)}</strong> adicionales · en <strong>${s.cuotas_solicitadas}</strong> cuotas total
+                </div>
+                ${s.motivo ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;">"${escapeHtml(s.motivo)}"</div>` : ''}
+                <div style="font-size:11px;color:var(--muted);margin-top:6px;">Enviada: ${new Date(s.solicitado_at).toLocaleString('es-AR')}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+                <button class="btn small primary" onclick="abrirCrearPropuestaRefinanciacion(${s.id})">📝 Crear propuesta</button>
+                <button class="btn small" style="color:#dc2626;" onclick="rechazarSolicitudPrestamo(${s.id})">❌ Rechazar</button>
+              </div>
+            </div>
+          `;
+        } else if (s.tipo === 'adelantar_cuotas') {
+          return `
+            <div style="background:white;padding:12px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+              <div style="flex:1;min-width:260px;">
+                <div style="font-size:13px;color:#854d0e;font-weight:600;">⚡ ${escapeHtml(empNom)} pide adelantar cuotas</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+                  Préstamo #${s.prestamo_id} (cuota ${fmt2(pres?.cuota_monto)})<br>
+                  Adelantar <strong>${s.cuotas_a_adelantar}</strong> cuotas · descontar en <strong>${labelMesShort(s.mes_descuento)}</strong>
+                </div>
+                ${s.motivo ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;">"${escapeHtml(s.motivo)}"</div>` : ''}
+                <div style="font-size:11px;color:var(--muted);margin-top:6px;">Enviada: ${new Date(s.solicitado_at).toLocaleString('es-AR')}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+                <button class="btn small primary" style="background:#16a34a;border-color:#16a34a;" onclick="aplicarAdelantoSolicitud(${s.id})">✅ Aprobar</button>
+                <button class="btn small" style="color:#dc2626;" onclick="rechazarSolicitudPrestamo(${s.id})">❌ Rechazar</button>
+              </div>
+            </div>
+          `;
+        }
+        return '';
+      }).join('')}
+    </div>
+  `;
+
   cont.innerHTML = `
     <div class="page-header">
       <h2>Préstamos a empleadas</h2>
       <div class="subtitle">Sistema francés · capital → banco · interés → efectivo. Solo el admin gestiona.</div>
     </div>
+    ${solicHTML}
 
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <h3 style="margin:0 0 12px;">➕ Otorgar nuevo préstamo</h3>
@@ -11520,8 +11717,20 @@ async function prestamoCrear() {
   } else {
     toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
   }
+
+  // Si es propuesta de refinanciación, vincular con la solicitud
+  if (window._prestamoRefiSolicitudId && esperarConf && !editandoId) {
+    try {
+      await sb.rpc('rrhh_vincular_refinanciacion', {
+        p_solicitud_id: window._prestamoRefiSolicitudId,
+        p_prestamo_nuevo_id: pres.id,
+      });
+    } catch (e) { console.warn('vincular refi failed', e); }
+  }
+
   // Limpiar estado de edición
   window._prestamoEditandoId = null;
+  window._prestamoRefiSolicitudId = null;
   // 🔔 Push a la empleada (mensaje según el caso) — solo si NO estamos editando
   const mesIniTxt = (() => {
     const [y, m] = mesIni.split('-').map(Number);
@@ -11729,6 +11938,111 @@ async function prestamoBorrarPropuesta(prestamoId) {
   await auditLog('borrar_propuesta_prestamo', 'rrhh_prestamo', prestamoId, null, null, null);
   toast('Propuesta borrada ✓', 'success');
   switchTab('prestamos');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin: rechazar solicitud (refi o adelanto)
+// ─────────────────────────────────────────────────────────────────────
+async function rechazarSolicitudPrestamo(solicitudId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const motivo = prompt('Motivo del rechazo (opcional):');
+  if (motivo === null) return;
+  try {
+    const { data: s } = await sb.from('rrhh_prestamo_solicitud')
+      .select('empleado_id, tipo').eq('id', solicitudId).single();
+    const { error } = await sb.rpc('rrhh_rechazar_solicitud_prestamo', {
+      p_solicitud_id: solicitudId, p_motivo: motivo || null
+    });
+    if (error) throw error;
+    toast('Solicitud rechazada', 'info');
+    // Push a la empleada
+    if (s?.empleado_id) {
+      const txt = s.tipo === 'refinanciacion'
+        ? 'Tu solicitud de refinanciación no fue aprobada'
+        : 'Tu solicitud de adelanto de cuotas no fue aprobada';
+      enviarPush(
+        s.empleado_id,
+        txt,
+        motivo ? `Motivo: ${motivo}` : 'Hablalo con admin si querés revisarlo.',
+        { url: './#mis-prestamos', tag: 'solic-prestamo-' + solicitudId }
+      );
+    }
+    switchTab('prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin: aprobar adelanto de cuotas
+// ─────────────────────────────────────────────────────────────────────
+async function aplicarAdelantoSolicitud(solicitudId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Aprobar este adelanto?\n\nLas últimas N cuotas pendientes se van a mover al mes elegido.')) return;
+  try {
+    const { data: s } = await sb.from('rrhh_prestamo_solicitud')
+      .select('empleado_id, cuotas_a_adelantar, mes_descuento, prestamo_id').eq('id', solicitudId).single();
+    const { error } = await sb.rpc('rrhh_aplicar_adelanto_cuotas', { p_solicitud_id: solicitudId });
+    if (error) throw error;
+    toast('Adelanto aplicado ✓', 'success');
+    if (s?.empleado_id) {
+      enviarPush(
+        s.empleado_id,
+        'Adelanto aplicado ⚡',
+        `Movimos ${s.cuotas_a_adelantar} cuotas al mes ${s.mes_descuento.slice(0,7)}. Tu préstamo termina antes.`,
+        { url: './#mis-prestamos', tag: 'solic-prestamo-' + solicitudId }
+      );
+    }
+    switchTab('prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin: crear propuesta de refinanciación
+// Abre el form de nuevo préstamo precargado con (saldo viejo + capital adicional)
+// y al guardarlo, lo vincula con la solicitud para que cuando la empleada lo
+// acepte, el viejo automáticamente se refinancie.
+// ─────────────────────────────────────────────────────────────────────
+async function abrirCrearPropuestaRefinanciacion(solicitudId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  // Traer la solicitud completa + saldo del préstamo viejo
+  const { data: s, error: e1 } = await sb.from('rrhh_prestamo_solicitud')
+    .select('*, empleado:rrhh_empleados(id, apellido, nombre, local)')
+    .eq('id', solicitudId).single();
+  if (e1 || !s) { toast('No se pudo cargar la solicitud', 'error'); return; }
+
+  const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+    .select('monto_capital, estado').eq('prestamo_id', s.prestamo_id);
+  const saldoViejo = (cs || [])
+    .filter(c => c.estado === 'pendiente')
+    .reduce((a, c) => a + Number(c.monto_capital || 0), 0);
+
+  const capitalNuevo = saldoViejo + Number(s.capital_adicional || 0);
+
+  // Abrir el form de nuevo préstamo
+  await prestamoAbrirNuevo();
+  await new Promise(r => setTimeout(r, 50));
+
+  // Precargar
+  document.getElementById('pr-emp').value = String(s.empleado_id);
+  document.getElementById('pr-emp').disabled = true;
+  document.getElementById('pr-capital').value = capitalNuevo;
+  document.getElementById('pr-cuotas').value = s.cuotas_solicitadas || 12;
+  document.getElementById('pr-notas').value = `Refinanciación del préstamo #${s.prestamo_id} (saldo $${Math.round(saldoViejo).toLocaleString('es-AR')} + nuevo $${Number(s.capital_adicional).toLocaleString('es-AR')})`;
+
+  // Marcar que estamos creando refi (para que prestamoCrear lo vincule)
+  window._prestamoRefiSolicitudId = solicitudId;
+
+  // Cambiar título y botón
+  const titulo = document.querySelector('#global-modal h3');
+  if (titulo) titulo.innerHTML = '💸 Crear propuesta de refinanciación';
+  const btnCrear = document.querySelector('#global-modal button.btn.primary');
+  if (btnCrear) btnCrear.innerHTML = '📩 Enviar propuesta';
+
+  toast('Configurá CFT y cuotas, después calculá y enviá', 'info');
 }
 
 
