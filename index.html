@@ -11291,7 +11291,114 @@ const prestamoEngine = (() => {
   return { cuotaFrancesa, armarPlan, sumarMeses };
 })();
 
-let prestamoState = { filtro: 'todos' };
+let prestamoState = {
+  filtro: 'todos',
+  q: '',                  // texto búsqueda empleada
+  local: '',              // filtro local
+  sortBy: 'fecha',        // 'fecha' | 'capital' | 'cuota' | 'estemes' | 'empleada'
+  sortDir: 'desc',        // 'asc' | 'desc'
+};
+
+function _prestamoToggleSort(col) {
+  if (prestamoState.sortBy === col) {
+    prestamoState.sortDir = prestamoState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    prestamoState.sortBy = col;
+    prestamoState.sortDir = 'desc';
+  }
+  switchTab('prestamos');
+}
+
+function _prestamoSetQ(v) { prestamoState.q = v; switchTab('prestamos'); }
+function _prestamoSetLocal(v) { prestamoState.local = v; switchTab('prestamos'); }
+
+// Tabla de topes según antigüedad (en sueldos del promedio)
+function _toleranciaPrestamoPorAntig(meses) {
+  if (meses < 6)  return { permite: false, maxSueldos: 0, etiqueta: 'menos de 6 meses' };
+  if (meses < 24) return { permite: true,  maxSueldos: 1, etiqueta: '6m a 2 años' };
+  if (meses < 48) return { permite: true,  maxSueldos: 2, etiqueta: '2 a 4 años' };
+  return                   { permite: true,  maxSueldos: 3, etiqueta: 'más de 4 años' };
+}
+
+// Promedio de los últimos N recibos netos (sin SAC) de una empleada
+async function _promedioSueldosUltimosN(empleadoId, n) {
+  const { data } = await sb.from('rrhh_liquidacion')
+    .select('recibo_neto, periodo')
+    .eq('empleado_id', empleadoId)
+    .order('periodo', { ascending: false })
+    .limit(n + 2);  // 2 extras por si filtramos algún SAC
+  // Filtrar SAC: en Argentina se paga junio y diciembre
+  const sinSac = (data || []).filter(d => {
+    const mes = parseInt((d.periodo || '').slice(5, 7), 10);
+    return mes !== 6 && mes !== 12;
+  }).slice(0, n);
+  if (sinSac.length === 0) return null;
+  const suma = sinSac.reduce((a, d) => a + Number(d.recibo_neto || 0), 0);
+  return suma / sinSac.length;
+}
+
+// Valida topes de préstamo según política Adorno:
+//   - Tope cuotas: 12 (validado afuera)
+//   - Antigüedad: <6m no, 6m-2a 1 sueldo, 2-4a 2 sueldos, >4a 3 sueldos
+//   - Cuota total no puede superar 30% del promedio
+async function _validarTopesPrestamo(empleadoId, capital, cuotas, tasaPctAnual) {
+  const warnings = [];
+  let ok = true;
+
+  // 1. Antigüedad
+  const { data: emp } = await sb.from('rrhh_empleados')
+    .select('fecha_ingreso, nombre_completo').eq('id', empleadoId).single();
+  if (!emp) return { ok: true, warnings: [] };
+
+  let mesesAntig = 0;
+  if (emp.fecha_ingreso) {
+    const ing = new Date(emp.fecha_ingreso + 'T12:00:00');
+    const hoy = new Date();
+    mesesAntig = (hoy.getFullYear() - ing.getFullYear()) * 12 + (hoy.getMonth() - ing.getMonth());
+  }
+
+  const reglaAntig = _toleranciaPrestamoPorAntig(mesesAntig);
+  if (!reglaAntig.permite) {
+    warnings.push(`✗ Antigüedad: ${reglaAntig.etiqueta} → política Adorno NO permite otorgar préstamos a empleadas con menos de 6 meses`);
+    ok = false;
+  }
+
+  // 2. Promedio últimos 3 sueldos (sin SAC) — necesario para tope monto y cuota
+  const promedio = await _promedioSueldosUltimosN(empleadoId, 3);
+  if (promedio === null) {
+    warnings.push(`⚠ No hay liquidaciones previas cargadas para ${emp.nombre_completo} — no se puede validar el tope automáticamente.`);
+    return { ok: warnings.length === 0, warnings };
+  }
+
+  // Tope de monto: hasta N sueldos según antigüedad
+  const topeMonto = reglaAntig.maxSueldos * promedio;
+  if (capital > topeMonto) {
+    warnings.push(`✗ Monto $${Math.round(capital).toLocaleString('es-AR')} supera el tope de ${reglaAntig.maxSueldos} sueldo${reglaAntig.maxSueldos>1?'s':''} ($${Math.round(topeMonto).toLocaleString('es-AR')}) para antigüedad ${reglaAntig.etiqueta}`);
+    ok = false;
+  }
+
+  // 3. Cuota total mensual no puede superar 30% del promedio
+  const tasaMensual = Math.pow(1 + tasaPctAnual/100, 1/12) - 1;
+  let cuotaMonto;
+  try {
+    cuotaMonto = prestamoEngine.cuotaFrancesa(capital, tasaMensual, cuotas);
+  } catch(_) { cuotaMonto = capital / cuotas; }
+
+  const tope30 = promedio * 0.30;
+  if (cuotaMonto > tope30) {
+    warnings.push(`✗ Cuota mensual estimada $${Math.round(cuotaMonto).toLocaleString('es-AR')} supera el 30% del promedio de sueldo ($${Math.round(tope30).toLocaleString('es-AR')})`);
+    ok = false;
+  }
+
+  // Info de contexto siempre
+  warnings.push(`────`);
+  warnings.push(`Antigüedad: ${Math.floor(mesesAntig/12)} años ${mesesAntig%12} meses (${reglaAntig.etiqueta})`);
+  warnings.push(`Promedio últimos 3 recibos netos: $${Math.round(promedio).toLocaleString('es-AR')}`);
+  warnings.push(`Tope monto: $${Math.round(topeMonto).toLocaleString('es-AR')} (${reglaAntig.maxSueldos} sueldos)`);
+  warnings.push(`Tope cuota mensual (30%): $${Math.round(tope30).toLocaleString('es-AR')}`);
+
+  return { ok, warnings };
+}
 
 async function renderPrestamos() {
   const cont = document.getElementById('main');
@@ -11299,6 +11406,11 @@ async function renderPrestamos() {
     cont.innerHTML = '<div class="card"><div class="card-body">Solo el admin puede gestionar préstamos.</div></div>';
     return;
   }
+
+  // Cargar lista de empleados para el filtro
+  const { data: empleadosTodos } = await sb.from('rrhh_empleados')
+    .select('id, apellido, nombre, local').eq('estado', 'activo').order('apellido');
+  const localesUnicos = [...new Set((empleadosTodos || []).map(e => e.local).filter(Boolean))].sort();
 
   // Cargar solicitudes pendientes (refinanciación + adelanto)
   const { data: solicitudes } = await sb.from('rrhh_prestamo_solicitud')
@@ -11351,17 +11463,43 @@ async function renderPrestamos() {
     });
   }
 
-  // Ordenar préstamos: activos primero, luego propuestos, después resto.
-  // Solo aplicar el orden cuando estamos en filtro 'todos' (sino ya viene filtrado).
+  // Filtros locales (empleada y local)
+  const _q = (prestamoState.q || '').toLowerCase().trim();
+  let prestamosFiltrados = (prestamos || []).filter(p => {
+    if (prestamoState.local && p.empleado?.local !== prestamoState.local) return false;
+    if (_q) {
+      const nom = ((p.empleado?.apellido||'') + ' ' + (p.empleado?.nombre||'')).toLowerCase();
+      if (!nom.includes(_q)) return false;
+    }
+    return true;
+  });
+
+  // Ordenamiento por columna
+  const sortBy = prestamoState.sortBy || 'fecha';
+  const dir = prestamoState.sortDir === 'asc' ? 1 : -1;
   const ordenEstados = { activo: 0, propuesto: 1, pagado: 2, cancelado_anticipado: 3, rechazado: 4, refinanciado: 5 };
-  if (filtro === 'todos') {
-    (prestamos || []).sort((a, b) => {
+
+  // Cuando estamos en filtro=todos y sort por fecha, mantener agrupado por estado
+  if (filtro === 'todos' && sortBy === 'fecha') {
+    prestamosFiltrados.sort((a, b) => {
       const oa = ordenEstados[a.estado] ?? 9;
       const ob = ordenEstados[b.estado] ?? 9;
       if (oa !== ob) return oa - ob;
-      return new Date(b.otorgado_at || b.fecha_otorgamiento || 0) - new Date(a.otorgado_at || a.fecha_otorgamiento || 0);
+      return (new Date(b.otorgado_at || b.fecha_otorgamiento || 0) - new Date(a.otorgado_at || a.fecha_otorgamiento || 0)) * (dir === 1 ? -1 : 1);
+    });
+  } else {
+    prestamosFiltrados.sort((a, b) => {
+      const ra = cuotasResumen[a.id] || {};
+      const rb = cuotasResumen[b.id] || {};
+      if (sortBy === 'capital')  return ((+a.capital||0) - (+b.capital||0)) * dir;
+      if (sortBy === 'cuota')    return ((+a.cuota_monto||0) - (+b.cuota_monto||0)) * dir;
+      if (sortBy === 'estemes')  return (((ra.esteMesCap||0)+(ra.esteMesInt||0)) - ((rb.esteMesCap||0)+(rb.esteMesInt||0))) * dir;
+      if (sortBy === 'empleada') return ((a.empleado?.apellido||'').localeCompare(b.empleado?.apellido||'')) * dir;
+      // fecha por default
+      return (new Date(a.otorgado_at || a.fecha_otorgamiento || 0) - new Date(b.otorgado_at || b.fecha_otorgamiento || 0)) * dir;
     });
   }
+  const prestamos_view = prestamosFiltrados;
 
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const fmtPct = (t) => (Number(t||0) * 100).toFixed(2) + '%';
@@ -11456,47 +11594,56 @@ async function renderPrestamos() {
       <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;margin-left:8px;" onclick="exportarAdelantosGalicia()" title="Descargar Excel con todos los adelantos del mes para subir a Galicia Office">📊 Exportar Galicia adelantos</button>
     </div>
 
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-      <span style="font-size:13px;color:var(--muted);">Filtrar:</span>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--muted);">Estado:</span>
       <select onchange="prestamoState.filtro=this.value; switchTab('prestamos');" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+        <option value="todos"      ${filtro==='todos'?'selected':''}>Todos</option>
         <option value="propuestos" ${filtro==='propuestos'?'selected':''}>📩 Propuestos</option>
         <option value="activos"    ${filtro==='activos'?'selected':''}>Activos</option>
         <option value="pagados"    ${filtro==='pagados'?'selected':''}>Pagados</option>
         <option value="cancelados" ${filtro==='cancelados'?'selected':''}>Cancelados</option>
         <option value="rechazados" ${filtro==='rechazados'?'selected':''}>Rechazados</option>
-        <option value="todos"      ${filtro==='todos'?'selected':''}>Todos</option>
       </select>
+      <span style="font-size:13px;color:var(--muted);margin-left:6px;">Local:</span>
+      <select onchange="_prestamoSetLocal(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
+        <option value="">Todos</option>
+        ${localesUnicos.map(l => `<option value="${escapeHtml(l)}" ${prestamoState.local===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
+      </select>
+      <input type="search" placeholder="🔍 Buscar empleada…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
+      ${(prestamoState.q || prestamoState.local) ? `<button class="btn small" onclick="_prestamoSetQ(''); _prestamoSetLocal(''); switchTab('prestamos');">↺ Limpiar</button>` : ''}
     </div>
 
     <div class="card">
-      <div class="section-title">${(prestamos||[]).length} préstamo${(prestamos||[]).length===1?'':'s'} ${filtro}</div>
-      ${(prestamos||[]).length === 0 ? `<div style="padding:14px;color:var(--muted);">Sin préstamos para mostrar.</div>` : `
+      <div class="section-title">${prestamos_view.length} préstamo${prestamos_view.length===1?'':'s'} ${filtro}${prestamoState.local? ' · '+prestamoState.local: ''}${prestamoState.q? ' · "'+escapeHtml(prestamoState.q)+'"': ''}</div>
+      ${prestamos_view.length === 0 ? `<div style="padding:14px;color:var(--muted);">Sin préstamos para mostrar.</div>` : `
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;">Empleada</th>
+          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('empleada')" title="Ordenar por empleada">Empleada${sortBy==='empleada'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;">Local</th>
-          <th style="padding:8px;">Otorgado</th>
-          <th style="padding:8px;text-align:right;">Capital</th>
-          <th style="padding:8px;text-align:right;">Tasa</th>
-          <th style="padding:8px;text-align:right;">Cuota</th>
-          <th style="padding:8px;text-align:right;" title="Capital + interés a descontar este mes">Este mes</th>
+          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('fecha')" title="Ordenar por fecha">Otorgado${sortBy==='fecha'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('capital')" title="Ordenar por capital">Capital${sortBy==='capital'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;text-align:right;" title="CFT anual (compuesta)">CFT anual</th>
+          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('cuota')" title="Ordenar por cuota">Cuota${sortBy==='cuota'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('estemes')" title="Ordenar por cap+int a descontar este mes">Este mes${sortBy==='estemes'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;text-align:right;">Progreso</th>
           <th style="padding:8px;text-align:right;">Saldo</th>
           <th style="padding:8px;">Estado</th>
           <th style="padding:8px;text-align:right;">Acción</th>
         </tr></thead>
         <tbody>
-          ${prestamos.map(p => {
+          ${prestamos_view.map(p => {
             const r = cuotasResumen[p.id] || { pagadas: 0, pendientes: p.cuotas_totales, saldo: p.capital };
             const pctProg = Math.round(100 * r.pagadas / p.cuotas_totales);
             const esteMesTotal = (r.esteMesCap||0) + (r.esteMesInt||0);
             const tieneEsteMes = esteMesTotal > 0;
+            // CFT anual = (1 + tasa_mensual)^12 - 1
+            const cftAnual = (Math.pow(1 + Number(p.tasa_mensual||0), 12) - 1) * 100;
             return `<tr style="border-top:1px solid var(--border);">
               <td style="padding:8px;font-weight:600;">${escapeHtml((p.empleado?.apellido||'') + ', ' + (p.empleado?.nombre||''))}</td>
               <td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(p.empleado?.local||'')}</td>
               <td style="padding:8px;font-family:monospace;font-size:12px;">${fmtFecha(p.fecha_otorgamiento)}</td>
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmt(p.capital)}</td>
-              <td style="padding:8px;text-align:right;font-family:monospace;">${fmtPct(p.tasa_mensual)}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;" title="Mensual: ${fmtPct(p.tasa_mensual)}">${cftAnual.toFixed(1)}%</td>
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmt(p.cuota_monto)}</td>
               <td style="padding:8px;text-align:right;font-family:monospace;${tieneEsteMes ? 'background:#fef3c7;font-weight:600;color:#854d0e;' : 'color:var(--muted);'}" title="${tieneEsteMes ? `Cap: ${fmt(r.esteMesCap)} · Int: ${fmt(r.esteMesInt)}` : 'Sin cuotas que se descuenten este mes'}">${tieneEsteMes ? fmt(esteMesTotal) : '—'}</td>
               <td style="padding:8px;text-align:right;">
@@ -11545,7 +11692,7 @@ async function prestamoAbrirNuevo() {
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="form-row"><label>Capital</label><input type="text" inputmode="numeric" id="pr-capital" data-money placeholder="$300.000"></div>
       <div class="form-row"><label>CFT anual %</label><input type="number" id="pr-tasa" placeholder="60" min="0" max="500" step="0.1"></div>
-      <div class="form-row"><label>Cuotas</label><input type="number" id="pr-cuotas" placeholder="6" min="1" max="60" step="1"></div>
+      <div class="form-row"><label>Cuotas (max 12)</label><input type="number" id="pr-cuotas" placeholder="6" min="1" max="12" step="1"></div>
       <div class="form-row"><label>Primer descuento (mes)</label><input type="month" id="pr-mes" value="${proxIso.slice(0,7)}"></div>
     </div>
     <div class="form-row" style="margin-bottom:10px;">
@@ -11558,6 +11705,14 @@ async function prestamoAbrirNuevo() {
         <strong>Esperar confirmación de la empleada</strong><br>
         <span style="font-size:11px;color:#6366f1;">Tildado: queda como propuesta y la empleada lo acepta/rechaza desde su app. Destildado: queda activo directo (para préstamos ya acordados verbalmente o históricos).</span>
       </label>
+    </div>
+
+    <div id="pr-topes-info" style="background:#f0fdf4;border:1px solid #86efac;padding:10px 12px;border-radius:8px;margin-bottom:10px;font-size:12px;color:#166534;display:none;line-height:1.5;">
+      <!-- se rellena con verTopesPrestamo() -->
+    </div>
+
+    <div style="text-align:right;margin-bottom:6px;">
+      <button class="btn small" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="verTopesPrestamo()" title="Calcular topes para esta empleada según su antigüedad y promedio de sueldos">📋 Ver topes para esta empleada</button>
     </div>
 
     <div id="pr-preview" style="background:#f9fafb;padding:12px;border-radius:8px;margin:14px 0;display:none;">
@@ -11610,6 +11765,47 @@ async function adelantoAbrirNuevo() {
   if (btnCrear) btnCrear.innerHTML = '💾 Otorgar adelanto';
 
   toast('Cargá empleada y monto. Cuotas=1, CFT=0%, mes actual.', 'info');
+}
+
+async function verTopesPrestamo() {
+  const empId = parseInt(document.getElementById('pr-emp').value);
+  if (!empId) { toast('Elegí una empleada primero', 'error'); return; }
+  const div = document.getElementById('pr-topes-info');
+  div.style.display = 'block';
+  div.innerHTML = 'Calculando…';
+
+  const { data: emp } = await sb.from('rrhh_empleados')
+    .select('fecha_ingreso, nombre_completo').eq('id', empId).single();
+  if (!emp) { div.innerHTML = '<span style="color:#dc2626;">No se encontró la empleada</span>'; return; }
+
+  let mesesAntig = 0;
+  if (emp.fecha_ingreso) {
+    const ing = new Date(emp.fecha_ingreso + 'T12:00:00');
+    const hoy = new Date();
+    mesesAntig = (hoy.getFullYear() - ing.getFullYear()) * 12 + (hoy.getMonth() - ing.getMonth());
+  }
+  const regla = _toleranciaPrestamoPorAntig(mesesAntig);
+  const promedio = await _promedioSueldosUltimosN(empId, 3);
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+
+  let html = `<strong>📋 Topes para ${emp.nombre_completo}</strong><br>`;
+  html += `Antigüedad: <strong>${Math.floor(mesesAntig/12)} años ${mesesAntig%12} meses</strong> (${regla.etiqueta})<br>`;
+  if (!regla.permite) {
+    html += `<span style="color:#dc2626;">✗ Política Adorno: NO se otorgan préstamos con menos de 6 meses de antigüedad.</span>`;
+    div.style.background = '#fee2e2'; div.style.borderColor = '#fca5a5'; div.style.color = '#7f1d1d';
+  } else if (promedio === null) {
+    html += `<span style="color:#854d0e;">⚠ No hay liquidaciones previas cargadas. No se puede calcular el tope monto/cuota automáticamente.</span>`;
+    div.style.background = '#fef9c3'; div.style.borderColor = '#fde68a'; div.style.color = '#854d0e';
+  } else {
+    const topeMonto = regla.maxSueldos * promedio;
+    const topeCuota = promedio * 0.30;
+    html += `Promedio últimos 3 recibos (sin SAC): <strong>${fmt(promedio)}</strong><br>`;
+    html += `Tope monto máximo: <strong>${fmt(topeMonto)}</strong> (${regla.maxSueldos} sueldo${regla.maxSueldos>1?'s':''})<br>`;
+    html += `Tope cuota mensual (30%): <strong>${fmt(topeCuota)}</strong><br>`;
+    html += `Tope cuotas: <strong>12</strong>`;
+    div.style.background = '#f0fdf4'; div.style.borderColor = '#86efac'; div.style.color = '#166534';
+  }
+  div.innerHTML = html;
 }
 
 function prestamoCalcularPreview() {
@@ -11838,7 +12034,18 @@ async function prestamoCrear() {
   if (!fecha)   { toast('Falta la fecha de otorgamiento', 'error'); return; }
   if (!capital || capital <= 0) { toast('Capital inválido', 'error'); return; }
   if (!cuotas || cuotas <= 0)   { toast('Cuotas inválidas', 'error'); return; }
+  if (cuotas > 12) { toast('Tope de cuotas: máximo 12', 'error'); return; }
   if (!mesIni)  { toast('Mes del primer descuento requerido', 'error'); return; }
+
+  // Validación de topes (no aplica a adelantos = 1 cuota 0% ni a edición de propuestas existentes)
+  const editandoIdAux = window._prestamoEditandoId || null;
+  const esAdelantoSimple = cuotas === 1 && tasaPct === 0;
+  if (!editandoIdAux && !esAdelantoSimple) {
+    const validacion = await _validarTopesPrestamo(empId, capital, cuotas, tasaPct);
+    if (!validacion.ok) {
+      if (!confirm(`⚠ Atención topes:\n\n${validacion.warnings.join('\n')}\n\n¿Otorgar igual? (los topes son orientativos, vos decidís)`)) return;
+    }
+  }
 
   // Lookup del nombre de la empleada para los mensajes (best effort)
   let empNombre = '';
@@ -13033,4 +13240,20 @@ const salaryWorkflow = (() => {
     const lista = Object.values(uniq);
 
     const ok = [], errores = [];
-    for (const e of
+    for (const e of lista) {
+      try {
+        const r = await liquidarEmpleada(e.id, periodo, inputsPorEmpleado[e.id] || {});
+        ok.push({ empleado: e, resultado: r });
+      } catch (err) {
+        errores.push({ empleado: e, error: err.message });
+      }
+    }
+    return { ok, errores };
+  }
+
+  return { liquidarEmpleada, liquidarMes, calcularPuntosMes };
+})();
+
+</script>
+</body>
+</html>
