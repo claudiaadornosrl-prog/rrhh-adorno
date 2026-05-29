@@ -6941,6 +6941,17 @@ async function aprobarPermiso(id) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('aprobar_permiso', 'rrhh_permisos_puntuales', id, 'estado', 'pendiente', 'aprobado');
   toast('Permiso aprobado ✓', 'success');
+  // 🔔 Push a la vendedora
+  if (perm.empleado_id) {
+    const fechaTxt = perm.fecha ? new Date(perm.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long' }) : '';
+    const detalle = descontar ? ` (se descuentan ${minutos} min del banco)` : ' (sin descuento de banco)';
+    enviarPush(
+      perm.empleado_id,
+      'Permiso aprobado ✓',
+      `Tu permiso ${fechaTxt ? 'del ' + fechaTxt : ''} fue aprobado${detalle}.`,
+      { url: './#mis-permisos', tag: 'permiso-' + id }
+    );
+  }
   listarPermisos();
   actualizarBadgePermisos();
 }
@@ -6948,6 +6959,8 @@ async function aprobarPermiso(id) {
 async function rechazarPermiso(id) {
   const motivo = prompt('Motivo del rechazo (opcional):');
   if (motivo === null) return;
+  // Cargar el permiso para tener empleado_id y fecha
+  const { data: perm } = await sb.from('rrhh_permisos_puntuales').select('empleado_id, fecha').eq('id', id).single();
   const { error } = await sb.from('rrhh_permisos_puntuales').update({
     estado: 'rechazado',
     revisado_por: session.email,
@@ -6957,6 +6970,16 @@ async function rechazarPermiso(id) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('rechazar_permiso', 'rrhh_permisos_puntuales', id, 'estado', 'pendiente', 'rechazado');
   toast('Permiso rechazado', 'info');
+  // 🔔 Push a la vendedora
+  if (perm && perm.empleado_id) {
+    const fechaTxt = perm.fecha ? new Date(perm.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long' }) : '';
+    enviarPush(
+      perm.empleado_id,
+      'Permiso no aprobado',
+      `Tu permiso ${fechaTxt ? 'del ' + fechaTxt : ''} no fue aprobado.${motivo ? ' Motivo: ' + motivo : ''}`,
+      { url: './#mis-permisos', tag: 'permiso-' + id }
+    );
+  }
   listarPermisos();
   actualizarBadgePermisos();
 }
@@ -9393,6 +9416,23 @@ async function marcarReciboEnviado(liqId) {
   }).eq('id', liqId);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Marcado como enviado ✓', 'success');
+  // 🔔 Push a la empleada — recibo listo para firmar
+  const { data: liq } = await sb.from('rrhh_liquidacion').select('empleado_id, periodo').eq('id', liqId).single();
+  if (liq && liq.empleado_id) {
+    const periodo = (liq.periodo || '').slice(0, 7);
+    const mesTxt = (() => {
+      const [y, m] = periodo.split('-').map(Number);
+      if (!y || !m) return '';
+      const txt = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+      return txt.charAt(0).toUpperCase() + txt.slice(1);
+    })();
+    enviarPush(
+      liq.empleado_id,
+      'Recibo listo para firmar ✏️',
+      `Te llegó al mail el recibo de ${mesTxt}. Por favor firmalo y respondé con el PDF.`,
+      { url: './#mis-recibos', tag: 'recibo-' + liqId }
+    );
+  }
   switchTab('liquidaciones');
 }
 
@@ -11048,6 +11088,17 @@ async function prestamoCrear() {
   }
 
   toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
+  // 🔔 Push a la empleada
+  const mesIniTxt = (() => {
+    const [y, m] = mesIni.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+  })();
+  enviarPush(
+    empId,
+    'Préstamo otorgado ✓',
+    `Te otorgamos un préstamo de $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas de $${plan.cuota_monto.toLocaleString('es-AR')}. Primera cuota: ${mesIniTxt}.`,
+    { url: './#mi-banco', tag: 'prestamo-' + pres.id }
+  );
   closeModal();
   switchTab('prestamos');
 }
@@ -11146,6 +11197,16 @@ async function prestamoCancelar(prestamoId) {
   if (e2) { toast('Préstamo cancelado pero falló marcar cuotas: ' + e2.message, 'warning'); return; }
 
   toast('Préstamo cancelado anticipadamente', 'success');
+  // 🔔 Push a la empleada — averiguar el empleado_id
+  const { data: prest } = await sb.from('rrhh_prestamo').select('empleado_id').eq('id', prestamoId).single();
+  if (prest && prest.empleado_id) {
+    enviarPush(
+      prest.empleado_id,
+      'Préstamo finalizado',
+      `Tu préstamo #${prestamoId} fue cancelado. Motivo: ${motivo.trim()}.`,
+      { url: './#mi-banco', tag: 'prestamo-' + prestamoId }
+    );
+  }
   switchTab('prestamos');
 }
 

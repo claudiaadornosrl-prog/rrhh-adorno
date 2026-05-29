@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v6-push-turnos';
+const CACHE_VERSION = 'rrhh-v7-push-empleadas-full';
 const ASSETS = [
   './',
   './index.html',
