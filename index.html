@@ -404,6 +404,7 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
         <span class="name" id="user-name">—</span>
         <span class="role" id="user-role">—</span>
       </div>
+      <button class="logout-btn" id="install-btn" title="Instalar como app" style="display:none;margin-right:6px;">⬇ Instalar</button>
       <button class="logout-btn" id="logout-btn">Salir</button>
     </div>
   </header>
@@ -455,6 +456,53 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 
 <script>
 'use strict';
+
+// ════════════════════════════════════════════════════════════
+// PWA · Service worker + botón Instalar
+// ════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js')
+      .catch(err => console.warn('[SW] error al registrar:', err));
+  });
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (window.matchMedia('(display-mode: standalone)').matches) return;
+  const btn = document.getElementById('install-btn');
+  if (btn) btn.style.display = '';
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('install-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') btn.style.display = 'none';
+      deferredInstallPrompt = null;
+    } else {
+      const ua = navigator.userAgent;
+      const isIOS = /iPhone|iPad|iPod/.test(ua);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+      if (isIOS && isSafari) {
+        alert('Para instalar en iPhone/iPad:\n\n1. Tocá el botón Compartir (cuadrado con flecha hacia arriba)\n2. Elegí "Agregar a pantalla de inicio"\n3. Confirmá tocando "Agregar"');
+      } else {
+        alert('Tu navegador todavía no ofrece la instalación. Si estás en Chrome o Edge, fijate en la barra de direcciones — debería aparecer un ícono de instalar.');
+      }
+    }
+  });
+});
+
+window.addEventListener('appinstalled', () => {
+  const btn = document.getElementById('install-btn');
+  if (btn) btn.style.display = 'none';
+  deferredInstallPrompt = null;
+});
 
 // ════════════════════════════════════════════════════════════
 // CONFIG
@@ -10967,7 +11015,7 @@ const salaryWorkflow = (() => {
         const { data: restantes } = await sb.from('rrhh_prestamo_cuota')
           .select('id', { count: 'exact', head: true })
           .eq('prestamo_id', pid).eq('estado', 'pendiente');
-        // restantes es null pero el count viene en el head; usar otra query si hay 0
+                // restantes es null pero el count viene en el head; usar otra query si hay 0
         const { count: pendCount } = await sb.from('rrhh_prestamo_cuota')
           .select('id', { count: 'exact', head: true })
           .eq('prestamo_id', pid).eq('estado', 'pendiente');
