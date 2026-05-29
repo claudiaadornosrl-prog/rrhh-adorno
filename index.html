@@ -8862,6 +8862,96 @@ async function generarPDFRecibo(liqId) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Workflow firma: descarga PDF + abre Gmail con asunto pre-armado
+//  La empleada firma a mano (o desde su Drive) y reenvía por mail.
+//  El script 11_procesar_recibos_firmados.py lo procesa automáticamente.
+// ═══════════════════════════════════════════════════════════════════
+async function enviarReciboFirma(liqId) {
+  try {
+    // 1. Levantar datos de la liquidación + empleada
+    const { data: liq, error } = await sb.from('rrhh_liquidacion')
+      .select('id, periodo, recibo_neto, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, email)')
+      .eq('id', liqId).single();
+    if (error || !liq) { toast('No se pudo cargar la liquidación', 'error'); return; }
+    const emp = liq.empleado;
+    if (!emp) { toast('Liquidación sin empleada asociada', 'error'); return; }
+
+    // 2. Asunto + cuerpo del mail
+    const periodo = (liq.periodo || '').slice(0, 7);
+    const labelMes = (() => {
+      const [y, m] = periodo.split('-').map(Number);
+      const mes = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+      return mes.charAt(0).toUpperCase() + mes.slice(1);
+    })();
+    const codigo = 'REC-' + String(liq.id).padStart(5, '0');
+    const apellido = (emp.apellido || '').toUpperCase();
+    const subject = `RECIBO ${periodo} ${apellido} ${codigo}`;
+    const body = [
+      `Hola ${emp.nombre || ''},`,
+      '',
+      `Te adjunto el recibo de haberes correspondiente a ${labelMes}.`,
+      '',
+      'Para confirmar la recepción, por favor:',
+      '  1. Imprimilo, firmalo y escaneá la versión firmada (o firmalo digitalmente).',
+      `  2. Respondé este mismo mail con el PDF firmado adjunto.`,
+      '',
+      `Importante: mantené el código ${codigo} en el subject del mail de respuesta.`,
+      '',
+      'Cualquier consulta, avisame.',
+      '',
+      'Saludos,',
+      'Juan Pablo · Claudia Adorno SRL',
+    ].join('\n');
+
+    // 3. Descargar el PDF (sin marcar pdf_enviado_at todavía — eso se marca cuando confirme el envío)
+    await generarPDFRecibo(liqId);
+
+    // 4. Mostrar modal con la info del mail + botones
+    const mailTo = emp.email || '';
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(mailTo)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const html = `
+      <h3 style="margin:0 0 14px;">📧 Enviar recibo a ${escapeHtml(emp.nombre_completo || '')}</h3>
+      <div style="background:#f9fafb;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;">
+        <div><strong>Período:</strong> ${escapeHtml(labelMes)}</div>
+        <div><strong>Código:</strong> <code>${codigo}</code></div>
+        <div><strong>Para:</strong> ${mailTo ? escapeHtml(mailTo) : '<span style="color:#dc2626;">⚠ Sin email cargado en el legajo</span>'}</div>
+        <div><strong>Asunto:</strong> ${escapeHtml(subject)}</div>
+      </div>
+
+      <div style="background:#eef2ff;padding:10px 12px;border-radius:6px;font-size:12px;color:#3730a3;margin-bottom:14px;">
+        <strong>Cómo seguir:</strong>
+        <ol style="margin:4px 0 0 18px;padding:0;">
+          <li>Cliquéa <strong>Abrir Gmail</strong> abajo.</li>
+          <li>Arrastrá el PDF descargado al draft.</li>
+          <li>Revisá / completá el destinatario y envialo.</li>
+          <li>Volvé acá y cliquéa <strong>Marcar como enviado</strong>.</li>
+        </ol>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <a class="btn primary" href="${gmailUrl}" target="_blank" rel="noopener" style="text-decoration:none;">📨 Abrir Gmail</a>
+        <button class="btn" style="background:#16a34a;color:white;" onclick="marcarReciboEnviado(${liqId}); closeModal();">✓ Marcar como enviado</button>
+      </div>
+    `;
+    openModal(html, '600px');
+  } catch (e) {
+    console.error(e);
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function marcarReciboEnviado(liqId) {
+  const { error } = await sb.from('rrhh_liquidacion').update({
+    pdf_enviado_at: new Date().toISOString(),
+    pdf_enviado_por: session.user?.email || 'admin',
+  }).eq('id', liqId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Marcado como enviado ✓', 'success');
+  switchTab('liquidaciones');
+}
+
 
 async function renderLiquidaciones() {
   // Período por defecto: mes actual
@@ -9008,6 +9098,10 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;white-space:nowrap;">
                   <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
                   <button class="btn small" onclick="generarPDFRecibo(${l.id})" title="Descargar recibo PDF">📄</button>
+                  ${isAdmin ? `<button class="btn small" onclick="enviarReciboFirma(${l.id})" title="Enviar para firmar por mail">📧</button>` : ''}
+                  ${l.pdf_firmado_at
+                      ? '<span title="PDF firmado recibido" style="color:#16a34a;font-size:14px;margin-left:4px;">✓</span>'
+                      : (l.pdf_enviado_at ? '<span title="Enviado — esperando firma" style="color:#d97706;font-size:14px;margin-left:4px;">⏳</span>' : '')}
                   ${isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
                 </td>
               </tr>`;
@@ -10694,7 +10788,7 @@ const salaryWorkflow = (() => {
     }
     // Usar reciboFinal (con básico ajustado si doble_blanco, sino el original)
 
-    // ── Cuotas de préstamo del mes (capital sale del banco, interés del efectivo) ──
+        // ── Cuotas de préstamo del mes (capital sale del banco, interés del efectivo) ──
     const { data: cuotasPendientes } = await sb.from('rrhh_prestamo_cuota')
       .select('id, monto_capital, monto_interes, prestamo_id, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
       .eq('estado', 'pendiente')
