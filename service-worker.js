@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v22-pagos-atrasadas';
+const CACHE_VERSION = 'rrhh-v23-pagos-fix-join';
 const ASSETS = [
   './',
   './index.html',
