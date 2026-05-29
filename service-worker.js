@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v17-adelanto-sueldo';
+const CACHE_VERSION = 'rrhh-v19-fix-truncamiento-login';
 const ASSETS = [
   './',
   './index.html',
