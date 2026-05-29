@@ -11273,6 +11273,7 @@ async function renderPrestamos() {
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <h3 style="margin:0 0 12px;">➕ Otorgar nuevo préstamo</h3>
       <button class="btn primary" onclick="prestamoAbrirNuevo()">📤 Crear préstamo</button>
+      <button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;margin-left:8px;" onclick="adelantoAbrirNuevo()">💵 Nuevo adelanto</button>
     </div>
 
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
@@ -11397,6 +11398,33 @@ async function prestamoAbrirNuevo() {
     </div>
   `;
   openModal(html, '720px');
+}
+
+async function adelantoAbrirNuevo() {
+  // Atajo: un adelanto es un préstamo a 1 cuota con CFT 0%
+  // Esto abre el form de préstamo y precarga los valores típicos
+  await prestamoAbrirNuevo();
+  await new Promise(r => setTimeout(r, 50));
+
+  // Precargar defaults de adelanto
+  const hoy = new Date();
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('pr-tasa').value = 0;
+  document.getElementById('pr-cuotas').value = 1;
+  document.getElementById('pr-mes').value = mesActual;
+  document.getElementById('pr-notas').placeholder = 'Ej: adelanto sueldo mayo';
+
+  // Adelantos típicamente NO requieren confirmación de empleada
+  const chk = document.getElementById('pr-esperar-confirmacion');
+  if (chk) chk.checked = false;
+
+  // Cambiar el título y el botón
+  const titulo = document.querySelector('#global-modal h3');
+  if (titulo) titulo.innerHTML = '💵 Nuevo adelanto';
+  const btnCrear = document.querySelector('#global-modal button.btn.primary');
+  if (btnCrear) btnCrear.innerHTML = '💾 Otorgar adelanto';
+
+  toast('Cargá empleada y monto. Cuotas=1, CFT=0%, mes actual.', 'info');
 }
 
 function prestamoCalcularPreview() {
