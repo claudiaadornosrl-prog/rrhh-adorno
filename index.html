@@ -657,6 +657,7 @@ const NAV = {
     { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
     { id: 'sueldos',     label: 'Sueldos',       icon: '💰', section: 'Personal' },
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
+    { id: 'pagos-mes',   label: 'Pagos del mes', icon: '💰', section: 'Personal' },
     { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
     { id: 'prestamos',   label: 'Préstamos',     icon: '💵', section: 'Personal' },
@@ -834,6 +835,7 @@ async function renderPage(tabId) {
     'empleados':       renderEmpleados,
     'sueldos':         renderSueldosAdmin,
     'liquidaciones':   renderLiquidaciones,
+    'pagos-mes':       renderPagosMes,
     'retiros':         renderRetirosMercaderia,
     'aumentos':        renderAumentos,
     'prestamos':       renderPrestamos,
@@ -10384,6 +10386,269 @@ async function exportarGaliciaXLSX(local, periodo) {
   } catch(e) {
     console.error(e);
     toast('Error al exportar: ' + e.message, 'error');
+  }
+}
+
+let pagosMesState = { periodo: '' };  // YYYY-MM
+
+async function renderPagosMes() {
+  if (session.rol !== 'admin') {
+    return '<div class="card"><div class="card-body">Solo el admin puede ver Pagos del mes.</div></div>';
+  }
+
+  // Período por defecto: mes actual
+  if (!pagosMesState.periodo) {
+    const hoy = new Date();
+    pagosMesState.periodo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  }
+  const periodo = pagosMesState.periodo;
+  const periodoFull = periodo + '-01';
+
+  // 1) Empleadas activas
+  const { data: empleados } = await sb.from('rrhh_empleados')
+    .select('id, apellido, nombre, nombre_completo, local, cbu, cuil')
+    .eq('estado', 'activo').order('local').order('apellido');
+
+  if (!empleados || empleados.length === 0) {
+    return '<div class="card"><div class="card-body">No hay empleadas activas.</div></div>';
+  }
+
+  // 2) Cuotas pendientes del mes (préstamos y adelantos)
+  //    Adelantos = préstamos 1 cuota CFT 0% con cuota del mes
+  //    Préstamos normales = el resto
+  const { data: cuotasMes } = await sb.from('rrhh_prestamo_cuota')
+    .select('prestamo_id, monto_capital, monto_interes, prestamo:rrhh_prestamo!inner(empleado_id, estado, cuotas_totales, tasa_mensual, capital, fecha_otorgamiento)')
+    .eq('estado', 'pendiente')
+    .eq('mes_descuento', periodoFull);
+
+  // Index por empleado
+  const adelantosPorEmp = {};
+  const prestamosPorEmp = {};
+  (cuotasMes || []).forEach(c => {
+    const pr = c.prestamo;
+    if (!pr || pr.estado !== 'activo') return;
+    const empId = pr.empleado_id;
+    const cap = Number(c.monto_capital || 0);
+    const esAdelanto = pr.cuotas_totales === 1 && Number(pr.tasa_mensual||0) === 0;
+    if (esAdelanto) {
+      adelantosPorEmp[empId] = (adelantosPorEmp[empId] || 0) + cap;
+    } else {
+      prestamosPorEmp[empId] = (prestamosPorEmp[empId] || 0) + cap;
+    }
+  });
+
+  // 3) Pagos blancos ya cargados para este período
+  const { data: pagosCargados } = await sb.from('rrhh_pagos_blanco')
+    .select('empleado_id, neto_cct, notas, transferido_at')
+    .eq('periodo', periodoFull);
+  const pagosMap = {};
+  (pagosCargados || []).forEach(p => { pagosMap[p.empleado_id] = p; });
+
+  // 4) Render
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+
+  // Calcular totales (para los que ya tienen neto cargado)
+  let totalNeto = 0, totalAdel = 0, totalPres = 0, totalTransf = 0;
+  empleados.forEach(e => {
+    const pag = pagosMap[e.id];
+    const neto = Number(pag?.neto_cct || 0);
+    const adel = adelantosPorEmp[e.id] || 0;
+    const pres = prestamosPorEmp[e.id] || 0;
+    if (neto > 0) {
+      totalNeto += neto;
+      totalAdel += adel;
+      totalPres += pres;
+      totalTransf += (neto - adel - pres);
+    }
+  });
+
+  // Selector de meses (3 hacia atrás, mes actual, 1 adelante)
+  const opcionesPeriodo = [];
+  const hoy = new Date();
+  for (let i = -3; i <= 1; i++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() + i, 1);
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    opcionesPeriodo.push(iso);
+  }
+
+  return `
+    <div class="page-header">
+      <h2>💰 Pagos del mes</h2>
+      <div class="subtitle">Calculá cuánto transferir hoy = recibo neto blanco − adelantos − cuotas préstamos</div>
+    </div>
+
+    <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px;margin-bottom:14px;">
+      <label style="font-size:13px;color:var(--muted);">Período:</label>
+      <select onchange="pagosMesState.periodo=this.value; switchTab('pagos-mes');" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);font-weight:600;">
+        ${opcionesPeriodo.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${p}</option>`).join('')}
+      </select>
+      <div style="flex:1;"></div>
+      <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="exportarPagosGalicia()">📊 Exportar Galicia (a transferir)</button>
+    </div>
+
+    <div class="card" style="margin-bottom:14px;background:#f0fdf4;border:1px solid #86efac;">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:12px;">
+        <div>
+          <div style="font-size:11px;color:#166534;text-transform:uppercase;letter-spacing:0.5px;">Total Netos CCT</div>
+          <div style="font-size:20px;font-weight:600;color:#166534;font-family:monospace;">${fmt(totalNeto)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#854d0e;text-transform:uppercase;letter-spacing:0.5px;">Adelantos del mes</div>
+          <div style="font-size:20px;font-weight:600;color:#854d0e;font-family:monospace;">−${fmt(totalAdel)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#9333ea;text-transform:uppercase;letter-spacing:0.5px;">Cuotas préstamos</div>
+          <div style="font-size:20px;font-weight:600;color:#9333ea;font-family:monospace;">−${fmt(totalPres)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#0f6e56;text-transform:uppercase;letter-spacing:0.5px;">A transferir hoy</div>
+          <div style="font-size:22px;font-weight:700;color:#0f6e56;font-family:monospace;">${fmt(totalTransf)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">${empleados.length} empleadas activas</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:8px;">Empleada</th>
+            <th style="padding:8px;">Local</th>
+            <th style="padding:8px;text-align:right;" title="Neto del recibo CCT (cargás del PDF de MEMOSOFT)">Neto CCT</th>
+            <th style="padding:8px;text-align:right;" title="Adelantos del mes (préstamos 1 cuota 0%)">Adelantos</th>
+            <th style="padding:8px;text-align:right;" title="Cuotas de préstamos pendientes en este mes">Préstamos</th>
+            <th style="padding:8px;text-align:right;background:#dcfce7;" title="Neto - adelantos - préstamos">A transferir</th>
+            <th style="padding:8px;">Notas / Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${empleados.map(e => {
+            const pag = pagosMap[e.id];
+            const neto = Number(pag?.neto_cct || 0);
+            const adel = adelantosPorEmp[e.id] || 0;
+            const pres = prestamosPorEmp[e.id] || 0;
+            const transf = neto > 0 ? (neto - adel - pres) : 0;
+            const transferido = !!pag?.transferido_at;
+            return `<tr style="border-top:1px solid var(--border);${transferido?'background:#f0fdf4;':''}">
+              <td style="padding:8px;font-weight:600;">${escapeHtml(e.nombre_completo || '')}</td>
+              <td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(e.local || '')}</td>
+              <td style="padding:8px;text-align:right;">
+                <input type="text" inputmode="numeric" data-money
+                       data-emp="${e.id}"
+                       value="${neto > 0 ? fmtMoneyInput(neto) : ''}"
+                       onblur="guardarNetoPago(${e.id}, this.value)"
+                       placeholder="$0"
+                       style="width:130px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${neto > 0 ? 'background:#f0fdf4;' : ''}">
+              </td>
+              <td style="padding:8px;text-align:right;font-family:monospace;color:${adel>0?'#d97706':'var(--muted)'};">${adel>0?'−'+fmt(adel):'—'}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;color:${pres>0?'#9333ea':'var(--muted)'};">${pres>0?'−'+fmt(pres):'—'}</td>
+              <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;background:${neto>0?(transferido?'#bbf7d0':'#dcfce7'):'transparent'};color:#0f6e56;">${neto>0?fmt(transf):'—'}</td>
+              <td style="padding:8px;font-size:12px;">
+                ${transferido ? `<span style="color:#16a34a;">✓ Transferido ${new Date(pag.transferido_at).toLocaleDateString('es-AR')}</span>` :
+                  neto > 0 ? `<button class="btn small" onclick="marcarTransferido(${e.id})">✓ Marcar pagado</button>` :
+                  '<span style="color:var(--muted);">Cargá el neto del recibo</span>'}
+                ${!e.cbu ? '<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠ Sin CBU en legajo</div>' : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function guardarNetoPago(empleadoId, valor) {
+  const neto = parseMoneyInput({ value: valor });
+  const periodo = pagosMesState.periodo + '-01';
+  try {
+    if (!(neto > 0)) {
+      // Si lo dejaron en 0, borrar la fila
+      await sb.from('rrhh_pagos_blanco').delete().eq('empleado_id', empleadoId).eq('periodo', periodo);
+      switchTab('pagos-mes');
+      return;
+    }
+    await sb.from('rrhh_pagos_blanco').upsert({
+      empleado_id: empleadoId,
+      periodo,
+      neto_cct: neto,
+      cargado_por: session.user?.email || 'admin',
+      cargado_at: new Date().toISOString(),
+    }, { onConflict: 'empleado_id,periodo' });
+    switchTab('pagos-mes');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function marcarTransferido(empleadoId) {
+  const periodo = pagosMesState.periodo + '-01';
+  try {
+    await sb.from('rrhh_pagos_blanco').update({
+      transferido_at: new Date().toISOString(),
+    }).eq('empleado_id', empleadoId).eq('periodo', periodo);
+    toast('Marcado como transferido ✓', 'success');
+    switchTab('pagos-mes');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function exportarPagosGalicia() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const periodo = pagosMesState.periodo + '-01';
+  try {
+    // Traer empleados, pagos cargados y cuotas del mes
+    const [empRes, pagRes, cuotRes] = await Promise.all([
+      sb.from('rrhh_empleados').select('id, apellido, nombre, nombre_completo, cbu, cuil').eq('estado','activo'),
+      sb.from('rrhh_pagos_blanco').select('empleado_id, neto_cct').eq('periodo', periodo),
+      sb.from('rrhh_prestamo_cuota')
+        .select('monto_capital, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
+        .eq('estado','pendiente').eq('mes_descuento', periodo),
+    ]);
+    const empMap = {}; (empRes.data||[]).forEach(e => empMap[e.id] = e);
+    const pagoPorEmp = {}; (pagRes.data||[]).forEach(p => pagoPorEmp[p.empleado_id] = Number(p.neto_cct||0));
+    const descPorEmp = {};
+    (cuotRes.data||[]).forEach(c => {
+      const pr = c.prestamo;
+      if (!pr || pr.estado !== 'activo') return;
+      descPorEmp[pr.empleado_id] = (descPorEmp[pr.empleado_id] || 0) + Number(c.monto_capital||0);
+    });
+
+    const filas = [];
+    let totalSinCbu = 0;
+    for (const [empIdStr, neto] of Object.entries(pagoPorEmp)) {
+      const empId = parseInt(empIdStr, 10);
+      const e = empMap[empId];
+      if (!e) continue;
+      const desc = descPorEmp[empId] || 0;
+      const transf = neto - desc;
+      if (transf <= 0) continue;
+      if (!e.cbu || e.cbu.length < 22) totalSinCbu++;
+      filas.push({
+        'CBU':           e.cbu || '',
+        'CUIL':          e.cuil || '',
+        'Apellido y Nombre': (e.apellido || '') + ', ' + (e.nombre || ''),
+        'Importe':       transf,
+        'Concepto':      'HABERES',
+        'Referencia':    'Sueldo ' + pagosMesState.periodo,
+      });
+    }
+    if (filas.length === 0) { toast('No hay pagos cargados', 'info'); return; }
+
+    const ws = XLSX.utils.json_to_sheet(filas);
+    ws['!cols'] = [{wch:25},{wch:14},{wch:32},{wch:14},{wch:12},{wch:22}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
+    const nombre = `Pagos_Galicia_${pagosMesState.periodo}.xlsx`;
+    XLSX.writeFile(wb, nombre);
+
+    if (totalSinCbu > 0) {
+      toast(`⚠ ${totalSinCbu} empleadas sin CBU válido — revisalas en su legajo`, 'warning');
+    } else {
+      toast(`Excel descargado ✓ · ${filas.length} pagos`, 'success');
+    }
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
   }
 }
 
