@@ -10424,10 +10424,11 @@ async function renderPagosMes() {
 
   let cuotasMes = [];
   if (idsActivos.length > 0) {
+    // Traemos TODAS las cuotas con mes_descuento = periodo actual
+    // (sin importar si están 'pendiente' o 'aplicada' — el filtro es la fecha)
     const { data: cs } = await sb.from('rrhh_prestamo_cuota')
-      .select('prestamo_id, monto_capital, monto_interes, mes_descuento')
-      .eq('estado', 'pendiente')
-      .lte('mes_descuento', periodoFull)
+      .select('prestamo_id, monto_capital, monto_interes, mes_descuento, estado')
+      .eq('mes_descuento', periodoFull)
       .in('prestamo_id', idsActivos);
     cuotasMes = cs || [];
   }
@@ -10435,7 +10436,6 @@ async function renderPagosMes() {
   // Index por empleado
   const adelantosPorEmp = {};
   const prestamosPorEmp = {};
-  const atrasadasPorEmp = {};   // cantidad de cuotas con mes < periodo actual
   cuotasMes.forEach(c => {
     const pr = prestamoMap[c.prestamo_id];
     if (!pr) return;
@@ -10446,10 +10446,6 @@ async function renderPagosMes() {
       adelantosPorEmp[empId] = (adelantosPorEmp[empId] || 0) + cap;
     } else {
       prestamosPorEmp[empId] = (prestamosPorEmp[empId] || 0) + cap;
-    }
-    // Atrasada si su mes_descuento es estrictamente menor al actual
-    if (c.mes_descuento && c.mes_descuento < periodoFull) {
-      atrasadasPorEmp[empId] = (atrasadasPorEmp[empId] || 0) + 1;
     }
   });
 
@@ -10563,7 +10559,6 @@ async function renderPagosMes() {
                 ${transferido ? `<span style="color:#16a34a;">✓ Transferido ${new Date(pag.transferido_at).toLocaleDateString('es-AR')}</span>` :
                   neto > 0 ? `<button class="btn small" onclick="marcarTransferido(${e.id})">✓ Marcar pagado</button>` :
                   '<span style="color:var(--muted);">Cargá el neto del recibo</span>'}
-                ${(atrasadasPorEmp[e.id]||0) > 0 ? `<div style="color:#dc2626;font-size:11px;margin-top:4px;" title="Hay cuotas de préstamos con mes_descuento de meses anteriores no marcadas como pagadas. Andá a Préstamos y usá 📌 para marcarlas históricas.">⚠ ${atrasadasPorEmp[e.id]} cuota(s) atrasada(s) sumando</div>` : ''}
                 ${!e.cbu ? '<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠ Sin CBU en legajo</div>' : ''}
               </td>
             </tr>`;
@@ -10628,10 +10623,10 @@ async function exportarPagosGalicia() {
     const presIds = (presRes.data||[]).map(p => p.id);
     const descPorEmp = {};
     if (presIds.length > 0) {
+      // Mismo criterio que renderPagosMes: cuotas del mes, sin importar estado
       const { data: cs } = await sb.from('rrhh_prestamo_cuota')
         .select('prestamo_id, monto_capital')
-        .eq('estado','pendiente')
-        .lte('mes_descuento', periodo)
+        .eq('mes_descuento', periodo)
         .in('prestamo_id', presIds);
       (cs || []).forEach(c => {
         const empId = empPorPres[c.prestamo_id];
