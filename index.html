@@ -10739,6 +10739,126 @@ async function exportarPagosGalicia() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Exportar TODA la planilla del mes (para pasarle a la secretaria)
+// ─────────────────────────────────────────────────────────────────────
+async function exportarPlanillaCompleta() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const periodo = pagosMesState.periodo + '-01';
+  try {
+    const [empRes, pagRes, catRes, parRes, presRes] = await Promise.all([
+      sb.from('rrhh_empleados')
+        .select('id, apellido, nombre, nombre_completo, local, cbu, cuil, fecha_ingreso, categoria_cct_id')
+        .eq('estado','activo').order('local').order('apellido'),
+      sb.from('rrhh_pagos_blanco')
+        .select('empleado_id, neto_cct, transferido_at').eq('periodo', periodo),
+      sb.from('rrhh_categorias_cct').select('id, nombre, sueldo_basico'),
+      sb.from('rrhh_paritaria_sumas_nr')
+        .select('*').lte('vigente_desde', periodo)
+        .order('vigente_desde', { ascending: false }).limit(1),
+      sb.from('rrhh_prestamo')
+        .select('id, empleado_id, cuotas_totales, tasa_mensual').eq('estado','activo'),
+    ]);
+
+    const empleados = empRes.data || [];
+    const catMap = {}; (catRes.data||[]).forEach(c => catMap[c.id] = c);
+    const paritaria = parRes.data?.[0] || null;
+    const pagosMap = {}; (pagRes.data||[]).forEach(p => pagosMap[p.empleado_id] = p);
+
+    // Cuotas del mes
+    const presIds = (presRes.data||[]).map(p => p.id);
+    const presMap = {}; (presRes.data||[]).forEach(p => presMap[p.id] = p);
+    const adelantosPorEmp = {}, prestamosPorEmp = {};
+    if (presIds.length > 0) {
+      const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+        .select('prestamo_id, monto_capital')
+        .eq('mes_descuento', periodo).in('prestamo_id', presIds);
+      (cs || []).forEach(c => {
+        const pr = presMap[c.prestamo_id];
+        if (!pr) return;
+        const cap = Number(c.monto_capital||0);
+        const esAdel = pr.cuotas_totales === 1 && Number(pr.tasa_mensual||0) === 0;
+        if (esAdel) adelantosPorEmp[pr.empleado_id] = (adelantosPorEmp[pr.empleado_id]||0) + cap;
+        else        prestamosPorEmp[pr.empleado_id] = (prestamosPorEmp[pr.empleado_id]||0) + cap;
+      });
+    }
+
+    // Calcular netos
+    const filas = empleados.map(e => {
+      const pag = pagosMap[e.id];
+      const netoOverride = Number(pag?.neto_cct || 0);
+      let netoCalc = 0;
+      if (paritaria) {
+        const cat = catMap[e.categoria_cct_id];
+        if (cat?.sueldo_basico) {
+          try {
+            const recibo = salaryEngine.calcularReciboCCT({
+              basico_escala: Number(cat.sueldo_basico),
+              fecha_ingreso: e.fecha_ingreso,
+              periodo: pagosMesState.periodo,
+              dias_trabajados: 30,
+              obra_social_codigo: '',
+              suma_fija_nr: Number(paritaria.suma_fija_nr),
+              recompos_nr: Number(paritaria.recompos_nr),
+              fuera_convenio: false,
+            });
+            netoCalc = Number(recibo.totales.neto || 0);
+          } catch (_) {}
+        }
+      }
+      const neto = netoOverride > 0 ? netoOverride : netoCalc;
+      const adel = adelantosPorEmp[e.id] || 0;
+      const pres = prestamosPorEmp[e.id] || 0;
+      const transf = Math.max(0, neto - adel - pres);
+      return {
+        'Empleada':            e.nombre_completo || '',
+        'Local':               e.local || '',
+        'CUIL':                e.cuil || '',
+        'CBU':                 e.cbu || '',
+        'Categoría':           catMap[e.categoria_cct_id]?.nombre || '',
+        'Neto CCT':            Math.round(neto),
+        'Origen neto':         netoOverride > 0 ? 'manual' : 'auto',
+        'Adelantos del mes':   Math.round(adel),
+        'Cuotas préstamos':    Math.round(pres),
+        'A transferir':        Math.round(transf),
+        'Status':              pag?.transferido_at ? 'Transferido ' + new Date(pag.transferido_at).toLocaleDateString('es-AR') : (neto > 0 ? 'Pendiente de transferir' : 'Sin neto'),
+      };
+    });
+
+    // Fila de totales
+    const totalNeto = filas.reduce((a,f) => a + f['Neto CCT'], 0);
+    const totalAdel = filas.reduce((a,f) => a + f['Adelantos del mes'], 0);
+    const totalPres = filas.reduce((a,f) => a + f['Cuotas préstamos'], 0);
+    const totalTransf = filas.reduce((a,f) => a + f['A transferir'], 0);
+    filas.push({
+      'Empleada': 'TOTAL',
+      'Local': '',
+      'CUIL': '',
+      'CBU': '',
+      'Categoría': '',
+      'Neto CCT': totalNeto,
+      'Origen neto': '',
+      'Adelantos del mes': totalAdel,
+      'Cuotas préstamos': totalPres,
+      'A transferir': totalTransf,
+      'Status': '',
+    });
+
+    const ws = XLSX.utils.json_to_sheet(filas);
+    ws['!cols'] = [
+      {wch:30},{wch:12},{wch:14},{wch:25},{wch:18},{wch:14},{wch:11},{wch:16},{wch:16},{wch:16},{wch:24},
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Planilla ' + pagosMesState.periodo);
+    const nombre = `Planilla_Sueldos_${pagosMesState.periodo}.xlsx`;
+    XLSX.writeFile(wb, nombre);
+
+    toast(`Planilla descargada ✓ · ${empleados.length} empleadas`, 'success');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
 async function renderLiquidaciones() {
   // Período por defecto: mes actual
   if (!liqState.periodo) {
