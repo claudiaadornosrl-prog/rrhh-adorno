@@ -11127,6 +11127,10 @@ async function renderPrestamos() {
               <td style="padding:8px;">${estadoChip(p.estado)}</td>
               <td style="padding:8px;text-align:right;">
                 <button class="btn small" onclick="prestamoAbrirDetalle(${p.id})" title="Ver detalle">📝</button>
+                ${p.estado === 'propuesto' ? `
+                  <button class="btn small" onclick="prestamoEditarPropuesta(${p.id})" title="Editar propuesta" style="color:#6366f1;">✏️</button>
+                  <button class="btn small" onclick="prestamoBorrarPropuesta(${p.id})" title="Borrar propuesta" style="color:#dc2626;">🗑️</button>
+                ` : ''}
                 ${p.estado === 'activo' ? `<button class="btn small" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>` : ''}
               </td>
             </tr>`;
@@ -11448,26 +11452,49 @@ async function prestamoCrear() {
 
   if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la empleada en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}?\n\nCFT ${tasaPct}% anual (mensual ${(tasa*100).toFixed(2)}%)${ajustado}\n\nEsta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
 
+  // ¿Estamos editando una propuesta existente?
+  const editandoId = window._prestamoEditandoId || null;
+
   // ¿Es propuesta o activo directo?
   const esperarConf = document.getElementById('pr-esperar-confirmacion')?.checked ?? true;
   const estadoInicialPres = esperarConf ? 'propuesto' : 'activo';
   const estadoInicialCuota = esperarConf ? 'propuesta' : 'pendiente';
 
-  // 1. Crear cabecera
-  const { data: pres, error: e1 } = await sb.from('rrhh_prestamo').insert({
-    empleado_id: empId,
-    fecha_otorgamiento: fecha,
-    capital,
-    tasa_mensual: tasa,
-    cuotas_totales: cuotas,
-    cuota_monto: plan.cuota_monto,
-    mes_primer_descuento: mesIni + '-01',
-    estado: estadoInicialPres,
-    otorgado_por: session.user?.email || 'admin',
-    propuesto_por: esperarConf ? (session.user?.email || 'admin') : null,
-    notas,
-  }).select('id').single();
-  if (e1) { toast('Error creando préstamo: ' + e1.message, 'error'); return; }
+  let pres;
+  if (editandoId) {
+    // UPDATE: editar propuesta existente
+    const { data: upd, error: eU } = await sb.from('rrhh_prestamo').update({
+      fecha_otorgamiento: fecha,
+      capital,
+      tasa_mensual: tasa,
+      cuotas_totales: cuotas,
+      cuota_monto: plan.cuota_monto,
+      mes_primer_descuento: mesIni + '-01',
+      estado: estadoInicialPres,
+      notas,
+    }).eq('id', editandoId).eq('estado', 'propuesto').select('id').single();
+    if (eU) { toast('Error actualizando: ' + eU.message, 'error'); return; }
+    pres = upd;
+    // Borrar cuotas viejas (propuesta) para regenerarlas
+    await sb.from('rrhh_prestamo_cuota').delete().eq('prestamo_id', editandoId).eq('estado', 'propuesta');
+  } else {
+    // 1. Crear cabecera nueva
+    const { data: ins, error: e1 } = await sb.from('rrhh_prestamo').insert({
+      empleado_id: empId,
+      fecha_otorgamiento: fecha,
+      capital,
+      tasa_mensual: tasa,
+      cuotas_totales: cuotas,
+      cuota_monto: plan.cuota_monto,
+      mes_primer_descuento: mesIni + '-01',
+      estado: estadoInicialPres,
+      otorgado_por: session.user?.email || 'admin',
+      propuesto_por: esperarConf ? (session.user?.email || 'admin') : null,
+      notas,
+    }).select('id').single();
+    if (e1) { toast('Error creando préstamo: ' + e1.message, 'error'); return; }
+    pres = ins;
+  }
 
   // 2. Insertar las N cuotas del plan
   const filasCuotas = plan.plan.map(c => ({
@@ -11486,17 +11513,28 @@ async function prestamoCrear() {
     return;
   }
 
-  if (esperarConf) {
+  if (editandoId) {
+    toast(`✓ Propuesta #${pres.id} actualizada`, 'success');
+  } else if (esperarConf) {
     toast(`✓ Propuesta #${pres.id} creada · esperando que ${empNombre || 'la empleada'} confirme`, 'success');
   } else {
     toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
   }
-  // 🔔 Push a la empleada (mensaje según el caso)
+  // Limpiar estado de edición
+  window._prestamoEditandoId = null;
+  // 🔔 Push a la empleada (mensaje según el caso) — solo si NO estamos editando
   const mesIniTxt = (() => {
     const [y, m] = mesIni.split('-').map(Number);
     return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
   })();
-  if (esperarConf) {
+  if (editandoId) {
+    enviarPush(
+      empId,
+      'Propuesta modificada',
+      `Actualizamos la propuesta: $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas de $${plan.cuota_monto.toLocaleString('es-AR')}. Revisala en "Mis préstamos".`,
+      { url: './#mis-prestamos', tag: 'prestamo-' + pres.id }
+    );
+  } else if (esperarConf) {
     enviarPush(
       empId,
       'Te proponemos un préstamo 📩',
@@ -11619,6 +11657,77 @@ async function prestamoCancelar(prestamoId) {
       { url: './#mi-banco', tag: 'prestamo-' + prestamoId }
     );
   }
+  switchTab('prestamos');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Editar una propuesta que NO está aceptada todavía
+// ─────────────────────────────────────────────────────────────────────
+async function prestamoEditarPropuesta(prestamoId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  // Traer datos del préstamo
+  const { data: p, error } = await sb.from('rrhh_prestamo')
+    .select('*, empleado:rrhh_empleados(id, apellido, nombre, local)')
+    .eq('id', prestamoId).single();
+  if (error || !p) { toast('No se pudo cargar la propuesta', 'error'); return; }
+  if (p.estado !== 'propuesto') { toast('Solo se puede editar una propuesta no aceptada', 'error'); return; }
+
+  // Re-abrir el form con los datos precargados, y guardar el ID a editar
+  await prestamoAbrirNuevo();
+  // Esperar un tick para que el modal esté en DOM
+  await new Promise(r => setTimeout(r, 50));
+
+  // Precargar valores
+  const empSel = document.getElementById('pr-emp');
+  if (empSel) empSel.value = String(p.empleado_id);
+  // Bloquear cambio de empleada (al editar la propuesta sigue siendo para la misma)
+  if (empSel) empSel.disabled = true;
+  document.getElementById('pr-fecha').value = p.fecha_otorgamiento;
+  document.getElementById('pr-capital').value = Number(p.capital);
+  // Tasa: guardamos mensual, mostramos CFT
+  const tasaMensual = Number(p.tasa_mensual || 0);
+  const cftAprox = (Math.pow(1 + tasaMensual, 12) - 1) * 100;
+  document.getElementById('pr-tasa').value = cftAprox.toFixed(1);
+  document.getElementById('pr-cuotas').value = p.cuotas_totales;
+  document.getElementById('pr-mes').value = (p.mes_primer_descuento || '').slice(0, 7);
+  document.getElementById('pr-notas').value = p.notas || '';
+
+  // Marcar que estamos editando (para que el botón Crear se comporte como Update)
+  window._prestamoEditandoId = prestamoId;
+
+  // Cambiar el título del modal y el texto del botón
+  const titulo = document.querySelector('#global-modal h3');
+  if (titulo) titulo.innerHTML = '✏️ Editar propuesta de préstamo';
+  const btnCrear = document.querySelector('#global-modal button.btn.primary');
+  if (btnCrear) btnCrear.innerHTML = '💾 Guardar cambios';
+
+  toast('Editando propuesta #' + prestamoId, 'info');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Borrar una propuesta (solo si todavía no fue aceptada)
+// ─────────────────────────────────────────────────────────────────────
+async function prestamoBorrarPropuesta(prestamoId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  const { data: p } = await sb.from('rrhh_prestamo')
+    .select('id, estado, empleado_id, capital, cuotas_totales')
+    .eq('id', prestamoId).single();
+  if (!p) { toast('Propuesta no encontrada', 'error'); return; }
+  if (p.estado !== 'propuesto') { toast('Solo se puede borrar una propuesta no aceptada', 'error'); return; }
+
+  if (!confirm(`¿Borrar la propuesta #${prestamoId} (capital $${Number(p.capital).toLocaleString('es-AR')} en ${p.cuotas_totales} cuotas)?\n\nSi la empleada todavía no la vio, no se va a enterar. Si ya la vio en su app, le va a desaparecer.`)) return;
+
+  // Borrar cuotas primero (FK)
+  const { error: e1 } = await sb.from('rrhh_prestamo_cuota').delete().eq('prestamo_id', prestamoId);
+  if (e1) { toast('Error borrando cuotas: ' + e1.message, 'error'); return; }
+  // Borrar el préstamo
+  const { error: e2 } = await sb.from('rrhh_prestamo').delete().eq('id', prestamoId);
+  if (e2) { toast('Error: ' + e2.message, 'error'); return; }
+
+  await auditLog('borrar_propuesta_prestamo', 'rrhh_prestamo', prestamoId, null, null, null);
+  toast('Propuesta borrada ✓', 'success');
   switchTab('prestamos');
 }
 
