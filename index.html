@@ -10404,20 +10404,32 @@ async function renderPagosMes() {
   const periodo = pagosMesState.periodo;
   const periodoFull = periodo + '-01';
 
-  // 1) Empleadas activas + su categoría CCT (para calcular neto blanco)
-  const { data: empleados } = await sb.from('rrhh_empleados')
-    .select('id, apellido, nombre, nombre_completo, local, cbu, cuil, fecha_ingreso, obra_social_codigo, fuera_convenio, categoria:rrhh_categorias_cct(sueldo_basico)')
+  // 1) Empleadas activas (sin JOIN para evitar problemas con RLS)
+  const { data: empleados, error: errEmp } = await sb.from('rrhh_empleados')
+    .select('id, apellido, nombre, nombre_completo, local, cbu, cuil, fecha_ingreso, categoria_cct_id')
     .eq('estado', 'activo').order('local').order('apellido');
+  if (errEmp) {
+    return `<div class="card"><div class="card-body" style="color:#b91c1c">Error empleados: ${escapeHtml(errEmp.message)}</div></div>`;
+  }
+
+  if (!empleados || empleados.length === 0) {
+    return '<div class="card"><div class="card-body">No hay empleadas activas.</div></div>';
+  }
+
+  // Cargar categorías CCT en query separada
+  const catIds = [...new Set(empleados.map(e => e.categoria_cct_id).filter(Boolean))];
+  const catMap = {};
+  if (catIds.length > 0) {
+    const { data: cats } = await sb.from('rrhh_categorias_cct')
+      .select('id, nombre, sueldo_basico').in('id', catIds);
+    (cats || []).forEach(c => { catMap[c.id] = c; });
+  }
 
   // Paritaria vigente del período
   const { data: paritariaArr } = await sb.from('rrhh_paritaria_sumas_nr')
     .select('*').lte('vigente_desde', periodoFull)
     .order('vigente_desde', { ascending: false }).limit(1);
   const paritaria = paritariaArr?.[0] || null;
-
-  if (!empleados || empleados.length === 0) {
-    return '<div class="card"><div class="card-body">No hay empleadas activas.</div></div>';
-  }
 
   // 2) Cuotas pendientes con mes_descuento <= periodo actual
   //    Hacemos 2 queries separadas (sin join) para evitar problemas de RLS con !inner.
@@ -10467,17 +10479,18 @@ async function renderPagosMes() {
   const netosCalculados = {};
   if (paritaria) {
     empleados.forEach(e => {
-      if (!e.categoria?.sueldo_basico) return;
+      const cat = catMap[e.categoria_cct_id];
+      if (!cat?.sueldo_basico) return;
       try {
         const recibo = salaryEngine.calcularReciboCCT({
-          basico_escala:  Number(e.categoria.sueldo_basico),
+          basico_escala:  Number(cat.sueldo_basico),
           fecha_ingreso:  e.fecha_ingreso,
           periodo,
           dias_trabajados: 30,
-          obra_social_codigo: e.obra_social_codigo || '',
+          obra_social_codigo: '',
           suma_fija_nr:   Number(paritaria.suma_fija_nr),
           recompos_nr:    Number(paritaria.recompos_nr),
-          fuera_convenio: !!e.fuera_convenio,
+          fuera_convenio: false,
         });
         netosCalculados[e.id] = Number(recibo.totales.neto || 0);
       } catch (err) {

@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v25-pagos-auto-neto';
+const CACHE_VERSION = 'rrhh-v26-pagos-fix-empleados';
 const ASSETS = [
   './',
   './index.html',
