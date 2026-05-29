@@ -8999,8 +8999,14 @@ async function renderLiquidaciones() {
 
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
-  let totalRecibo=0, totalNegro=0, totalEfectivo=0;
-  (liqs||[]).forEach(l => { totalRecibo += +l.recibo_neto||0; totalNegro += +l.total_negro||0; totalEfectivo += +l.efectivo||0; });
+  let totalRecibo=0, totalNegro=0, totalEfectivo=0, totalBanco=0, totalPrestamoCap=0;
+  (liqs||[]).forEach(l => {
+    totalRecibo    += +l.recibo_neto||0;
+    totalNegro     += +l.total_negro||0;
+    totalEfectivo  += +l.efectivo||0;
+    totalPrestamoCap += +l.prestamo_capital||0;
+    totalBanco     += (+l.recibo_neto||0) - (+l.prestamo_capital||0);
+  });
 
   return `
     <div class="page-header">
@@ -9047,6 +9053,11 @@ async function renderLiquidaciones() {
       <div class="metrics-grid" style="margin-bottom:12px;">
         <div class="metric-card"><div class="label">Recibo neto (CCT)</div><div class="value">${fmt(totalRecibo)}</div></div>
         <div class="metric-card"><div class="label">Total a pagar</div><div class="value">${fmt(totalNegro)}</div></div>
+        <div class="metric-card" style="border-left:4px solid #16a34a;">
+          <div class="label">A acreditar en banco</div>
+          <div class="value">${fmt(totalBanco)}</div>
+          ${totalPrestamoCap > 0 ? `<div class="hint">Recibo ${fmt(totalRecibo)} − Préstamos ${fmt(totalPrestamoCap)}</div>` : ''}
+        </div>
         <div class="metric-card accent2"><div class="label">A pagar en efectivo</div><div class="value">${fmt(totalEfectivo)}</div></div>
       </div>
 
@@ -9066,7 +9077,9 @@ async function renderLiquidaciones() {
               <th style="padding:8px;">Extras</th>
               <th style="padding:8px;">Feriado</th>
               <th style="padding:8px;background:#eef2ff;">Total esp.</th>
-              <th style="padding:8px;background:#fef3c7;">Recibo</th>
+              <th style="padding:8px;background:#fef3c7;" title="Neto del recibo CCT (lo que dice el recibo legal)">Recibo</th>
+              <th style="padding:8px;" title="Capital de cuota de préstamo descontado del banco">Préstamo</th>
+              <th style="padding:8px;background:#dcfce7;" title="Lo que efectivamente se transfiere por banco (Recibo − Préstamo cap.)">A acreditar</th>
               <th style="padding:8px;">Merc.</th>
               <th style="padding:8px;">Ajuste</th>
               <th style="padding:8px;background:#fde2e8;">Efectivo</th>
@@ -9092,6 +9105,8 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
                 <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
                 <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo">${fmt(l.recibo_neto)}</td>
+                <td style="padding:8px;font-family:monospace;color:${(+l.prestamo_capital)>0?'#d97706':'var(--muted)'};" title="${(+l.prestamo_capital)>0?'Capital del préstamo descontado del banco':'Sin préstamo activo este mes'}">${(+l.prestamo_capital)>0?'−'+fmt(l.prestamo_capital):'—'}</td>
+                <td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada">${fmt((+l.recibo_neto||0) - (+l.prestamo_capital||0))}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.ajuste)}</td>
                 <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
@@ -10798,11 +10813,13 @@ const salaryWorkflow = (() => {
     );
     const prestamo_capital = cuotasEmp.reduce((a, c) => a + Number(c.monto_capital || 0), 0);
     const prestamo_interes = cuotasEmp.reduce((a, c) => a + Number(c.monto_interes || 0), 0);
-    // Capital → descontar del efectivo (sale del banco/total a transferir).
-    // Interés → también descontar del efectivo (no figura en el recibo blanco).
-    // Resultado neto: efectivo = max(0, total_negro - recibo - merc - ajuste - cap - int)
+    // Reparto correcto:
+    //   - CAPITAL del préstamo → se descuenta de la TRANSFERENCIA BANCARIA (el recibo legal
+    //     sigue diciendo "neto $X", pero a la empleada le acreditamos $X − capital).
+    //     No afecta al cálculo de efectivo.
+    //   - INTERÉS → se descuenta del EFECTIVO (no figura en el recibo blanco).
     if (configEmp.modo_liquidacion !== 'doble_blanco') {
-      efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste - prestamo_capital - prestamo_interes);
+      efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste - prestamo_interes);
     }
 
     // ── UPSERT en rrhh_liquidacion ──
@@ -10881,7 +10898,7 @@ const salaryWorkflow = (() => {
       if (error) throw new Error('Error insert conceptos: ' + error.message);
     }
 
-    return { liquidacion_id: liqId, recibo: reciboFinal, totales_negro: { fijo, comision, premio, viaticos, extras, total_negro_esperado, ajuste_blanco, efectivo }, puntos_mes, cobraPremio };
+        return { liquidacion_id: liqId, recibo: reciboFinal, totales_negro: { fijo, comision, premio, viaticos, extras, total_negro_esperado, ajuste_blanco, efectivo }, puntos_mes, cobraPremio };
   }
 
   /**
