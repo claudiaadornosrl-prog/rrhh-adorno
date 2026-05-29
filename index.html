@@ -10414,21 +10414,31 @@ async function renderPagosMes() {
   }
 
   // 2) Cuotas pendientes con mes_descuento <= periodo actual
-  //    Esto incluye atrasadas (cuotas viejas no aplicadas) — para verlas como
-  //    "este mes" hay que descontarlas. Si querés evitarlo, usá el botón 📌
-  //    en cada préstamo del panel Préstamos para marcar cuotas históricas.
-  const { data: cuotasMes } = await sb.from('rrhh_prestamo_cuota')
-    .select('prestamo_id, monto_capital, monto_interes, mes_descuento, prestamo:rrhh_prestamo!inner(empleado_id, estado, cuotas_totales, tasa_mensual, capital, fecha_otorgamiento)')
-    .eq('estado', 'pendiente')
-    .lte('mes_descuento', periodoFull);
+  //    Hacemos 2 queries separadas (sin join) para evitar problemas de RLS con !inner.
+  const { data: prestamosActivos } = await sb.from('rrhh_prestamo')
+    .select('id, empleado_id, estado, cuotas_totales, tasa_mensual, capital, fecha_otorgamiento')
+    .eq('estado', 'activo');
+  const prestamoMap = {};
+  (prestamosActivos || []).forEach(p => { prestamoMap[p.id] = p; });
+  const idsActivos = (prestamosActivos || []).map(p => p.id);
+
+  let cuotasMes = [];
+  if (idsActivos.length > 0) {
+    const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+      .select('prestamo_id, monto_capital, monto_interes, mes_descuento')
+      .eq('estado', 'pendiente')
+      .lte('mes_descuento', periodoFull)
+      .in('prestamo_id', idsActivos);
+    cuotasMes = cs || [];
+  }
 
   // Index por empleado
   const adelantosPorEmp = {};
   const prestamosPorEmp = {};
   const atrasadasPorEmp = {};   // cantidad de cuotas con mes < periodo actual
-  (cuotasMes || []).forEach(c => {
-    const pr = c.prestamo;
-    if (!pr || pr.estado !== 'activo') return;
+  cuotasMes.forEach(c => {
+    const pr = prestamoMap[c.prestamo_id];
+    if (!pr) return;
     const empId = pr.empleado_id;
     const cap = Number(c.monto_capital || 0);
     const esAdelanto = pr.cuotas_totales === 1 && Number(pr.tasa_mensual||0) === 0;
@@ -10605,21 +10615,30 @@ async function exportarPagosGalicia() {
   const periodo = pagosMesState.periodo + '-01';
   try {
     // Traer empleados, pagos cargados y cuotas del mes
-    const [empRes, pagRes, cuotRes] = await Promise.all([
+    const [empRes, pagRes, presRes] = await Promise.all([
       sb.from('rrhh_empleados').select('id, apellido, nombre, nombre_completo, cbu, cuil').eq('estado','activo'),
       sb.from('rrhh_pagos_blanco').select('empleado_id, neto_cct').eq('periodo', periodo),
-      sb.from('rrhh_prestamo_cuota')
-        .select('monto_capital, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
-        .eq('estado','pendiente').eq('mes_descuento', periodo),
+      sb.from('rrhh_prestamo').select('id, empleado_id').eq('estado','activo'),
     ]);
     const empMap = {}; (empRes.data||[]).forEach(e => empMap[e.id] = e);
     const pagoPorEmp = {}; (pagRes.data||[]).forEach(p => pagoPorEmp[p.empleado_id] = Number(p.neto_cct||0));
+
+    // Trae las cuotas pendientes <= periodo de todos los préstamos activos
+    const empPorPres = {}; (presRes.data||[]).forEach(p => empPorPres[p.id] = p.empleado_id);
+    const presIds = (presRes.data||[]).map(p => p.id);
     const descPorEmp = {};
-    (cuotRes.data||[]).forEach(c => {
-      const pr = c.prestamo;
-      if (!pr || pr.estado !== 'activo') return;
-      descPorEmp[pr.empleado_id] = (descPorEmp[pr.empleado_id] || 0) + Number(c.monto_capital||0);
-    });
+    if (presIds.length > 0) {
+      const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+        .select('prestamo_id, monto_capital')
+        .eq('estado','pendiente')
+        .lte('mes_descuento', periodo)
+        .in('prestamo_id', presIds);
+      (cs || []).forEach(c => {
+        const empId = empPorPres[c.prestamo_id];
+        if (!empId) return;
+        descPorEmp[empId] = (descPorEmp[empId] || 0) + Number(c.monto_capital||0);
+      });
+    }
 
     const filas = [];
     let totalSinCbu = 0;
