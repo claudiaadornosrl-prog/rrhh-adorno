@@ -13951,18 +13951,19 @@ async function generarLSDTxtAuto(periodo, localFilter) {
   const juris = [...new Set(rows.map(r => r.empleado?.jurisdiccion || 'NACION'))].sort();
   if (juris.length === 0) { toast('No se pudo determinar jurisdicción', 'error'); return; }
   if (juris.length === 1) {
-    // Una sola jurisdicción → 1 archivo, sin filtro extra
-    await generarLSDTxt(periodo, juris[0]);
+    // Una sola jurisdicción → 1 archivo con Nro liquidación 1
+    await generarLSDTxt(periodo, juris[0], 1);
   } else {
     toast(`Generando ${juris.length} archivos LSD (${juris.join(' + ')})…`, '');
     for (let i = 0; i < juris.length; i++) {
-      if (i > 0) await new Promise(r => setTimeout(r, 800));  // pausa entre descargas
-      await generarLSDTxt(periodo, juris[i]);
+      if (i > 0) await new Promise(r => setTimeout(r, 800));
+      // Nro 1 para la primera, Nro 2 para la segunda, etc.
+      await generarLSDTxt(periodo, juris[i], i + 1);
     }
   }
 }
 
-async function generarLSDTxt(periodo, jurisdiccionFiltro) {
+async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   try {
     const periodoFull = periodo + '-01';
@@ -13999,13 +14000,14 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro) {
     const lineas = [];
 
     // ─── Registro 01: cabecera ───
+    const nroLiq = Number(nroLiquidacion) || 1;
     const reg01 = ''
       + '01'                                       // tipo (2)
       + _lsdPadN(LSD_CUIT_EMPLEADOR, 11)           // CUIT (11)
       + 'SJ'                                       // identificación envío (2)
       + _lsdPadN(periodoAAMM, 6)                   // período (6)
       + 'M'                                        // tipo liquidación (1) mensual
-      + _lsdPadN(1, 5)                             // número liquidación (5)
+      + _lsdPadN(nroLiq, 5)                        // número liquidación (5)
       + '30'                                       // días base (2)
       + _lsdPadN(liqs.length, 6);                  // cantidad trabajadores (6)
     lineas.push(reg01);
