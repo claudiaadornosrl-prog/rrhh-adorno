@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v30-ganancias-banner';
+const CACHE_VERSION = 'rrhh-v31-ganancias-modal-fix';
 const ASSETS = [
   './',
   './index.html',
