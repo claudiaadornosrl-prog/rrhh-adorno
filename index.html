@@ -13948,6 +13948,10 @@ async function generarLSDTxtAuto(periodo, localFilter) {
   await generarLSDTxt(periodo, null, 1);
 }
 
+// Versión del generador LSD — incluida en el nombre del archivo para fácil verificación.
+// Bumpear este string en cada cambio funcional del generador.
+const LSD_GENERATOR_VERSION = 'v48';
+
 async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   try {
@@ -14152,7 +14156,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'LSD_Adorno_' + (jurisdiccionFiltro || 'TODOS') + '_' + periodoAAMM + '.txt';
+    a.download = 'LSD_Adorno_' + (jurisdiccionFiltro || 'TODOS') + '_' + periodoAAMM + '_' + LSD_GENERATOR_VERSION + '.txt';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
