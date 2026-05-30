@@ -11165,7 +11165,7 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
         ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#475569;color:white;border-color:#475569;" onclick="generarLSDTxt('${periodo}')" title="Generar archivo TXT del Libro de Sueldos Digital para subir a ARCA/AFIP">📄 LSD AFIP</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período. Si hay empleados de más de una jurisdicción (CABA + BsAs), descarga 2 archivos automáticamente.">📄 LSD AFIP</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
       </div>
     </div>
@@ -13936,19 +13936,54 @@ const _lsdFechaAAAAMMDD = (d) => {
   return dt.getFullYear() + String(dt.getMonth()+1).padStart(2,'0') + String(dt.getDate()).padStart(2,'0');
 };
 
-async function generarLSDTxt(periodo) {
+async function generarLSDTxtAuto(periodo, localFilter) {
+  // Detecta automáticamente qué jurisdicciones hay en las liquidaciones del período
+  // (filtrando por local si se especifica) y genera 1 archivo por cada una.
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  let q = sb.from('rrhh_liquidacion')
+    .select('empleado:rrhh_empleados!inner(jurisdiccion)')
+    .eq('periodo', periodo + '-01');
+  if (localFilter && localFilter !== 'todos') q = q.eq('local', localFilter);
+  const { data: rows, error } = await q;
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (!rows || rows.length === 0) { toast('No hay liquidaciones para ese período', 'warning'); return; }
+  // Jurisdicciones únicas presentes
+  const juris = [...new Set(rows.map(r => r.empleado?.jurisdiccion || 'NACION'))].sort();
+  if (juris.length === 0) { toast('No se pudo determinar jurisdicción', 'error'); return; }
+  if (juris.length === 1) {
+    // Una sola jurisdicción → 1 archivo, sin filtro extra
+    await generarLSDTxt(periodo, juris[0]);
+  } else {
+    toast(`Generando ${juris.length} archivos LSD (${juris.join(' + ')})…`, '');
+    for (let i = 0; i < juris.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 800));  // pausa entre descargas
+      await generarLSDTxt(periodo, juris[i]);
+    }
+  }
+}
+
+async function generarLSDTxt(periodo, jurisdiccionFiltro) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   try {
     const periodoFull = periodo + '-01';
     const periodoAAMM = periodo.replace('-','');  // AAAAMM
 
     // 1) Liquidaciones del período + empleados + conceptos
-    const { data: liqs, error } = await sb.from('rrhh_liquidacion')
+    let { data: liqs, error } = await sb.from('rrhh_liquidacion')
       .select('*, empleado:rrhh_empleados(*), conceptos:rrhh_liquidacion_concepto(*)')
       .eq('periodo', periodoFull)
       .order('empleado(apellido)');
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para ese período', 'warning'); return; }
+
+    // 1b) Filtrar por jurisdicción si corresponde
+    if (jurisdiccionFiltro) {
+      liqs = liqs.filter(l => (l.empleado?.jurisdiccion || 'NACION') === jurisdiccionFiltro);
+      if (liqs.length === 0) {
+        toast('No hay empleados con jurisdicción ' + jurisdiccionFiltro + ' en este período', 'warning');
+        return;
+      }
+    }
 
     // 2) Mapeo conceptos internos → AFIP
     const { data: mapeos } = await sb.from('rrhh_lsd_concepto_mapeo').select('codigo_interno, codigo_afip');
@@ -14088,7 +14123,7 @@ async function generarLSDTxt(periodo) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'LSD_Adorno_' + periodoAAMM + '.txt';
+    a.download = 'LSD_Adorno_' + (jurisdiccionFiltro || 'TODOS') + '_' + periodoAAMM + '.txt';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -14097,7 +14132,8 @@ async function generarLSDTxt(periodo) {
     // Loggear en rrhh_lsd_export_log (si la tabla existe, sino skip)
     try {
       await sb.from('rrhh_lsd_export_log').insert({
-        periodo: periodoFull, tipo: 'AFIP_LSD',
+        periodo: periodoFull,
+        tipo: 'AFIP_LSD' + (jurisdiccionFiltro ? '_' + jurisdiccionFiltro : ''),
         empleados_count: empleadosOK, lineas_count: lineas.length,
         errores: empleadosErr.length ? empleadosErr.join(' · ') : null
       });
