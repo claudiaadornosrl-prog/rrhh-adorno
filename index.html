@@ -13968,10 +13968,9 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       }
     }
 
-    // 2) Mapeo conceptos internos → AFIP
-    const { data: mapeos } = await sb.from('rrhh_lsd_concepto_mapeo').select('codigo_interno, codigo_afip');
-    const mapeoMap = {};
-    (mapeos || []).forEach(m => { mapeoMap[m.codigo_interno] = m.codigo_afip; });
+    // 2) Conceptos: usamos los códigos INTERNOS directamente (como MEMOSOFT).
+    //    ARCA no acepta los códigos AFIP genéricos — cada empleador carga sus propios
+    //    códigos en la sección "Conceptos" de LSD y solo esos pueden usarse en el TXT.
 
     // 3) Fecha de pago = último día hábil del mes (simplificación: último día calendario)
     const [py, pm] = periodo.split('-').map(Number);
@@ -14021,12 +14020,14 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       // ── Registros 03: conceptos ──
       const conceptos = (l.conceptos || []).sort((a,b) => (a.orden||0) - (b.orden||0));
       for (const c of conceptos) {
-        const codigoAfip = mapeoMap[c.codigo] || '';
-        if (!codigoAfip) continue;  // skip conceptos sin mapeo
+        const codInterno = String(c.codigo || '').trim();
+        if (!codInterno) continue;  // skip conceptos sin código
+        // Padding-LEFT con espacios (formato que usa el estudio en TXT real)
+        const codField = codInterno.padStart(10, ' ').slice(-10);
         const reg03 = ''
           + '03'                                       // tipo (2)
           + cuil                                       // CUIL (11)
-          + _lsdPadA(codigoAfip, 10)                   // código concepto AFIP (10)
+          + codField                                   // código concepto interno (10) — padding-left con espacios
           + _lsdPadN(Math.round(Number(c.unidades||0) * 100), 5)  // cantidad (3.2)
           + ' '                                        // unidad de medida (1)
           + _lsdPadIm(c.importe)                       // importe (15) sin punto
