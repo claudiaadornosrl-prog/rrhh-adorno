@@ -14091,7 +14091,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadN(0, 3)                               // horas trabajadas (3)
         + _lsdPadN(0, 5)                               // % aporte adicional SS (5)
         + _lsdPadN(0, 5)                               // % contribución diferencial (5)
-        + _lsdPadA(emp.os_codigo_afip || '126205', 6)  // código obra social (6) — default OSECAC
+        + '126205'                                     // código obra social (6) — TODAS las empleadas son OSECAC
         + _lsdPadN(0, 2)                               // adherentes OS (2)
         + _lsdPadIm(0)                                 // aporte adicional OS (15)
         + _lsdPadIm(0)                                 // contribución adicional OS (15)
@@ -14099,16 +14099,16 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(0)                                 // base diferencial contrib OS+FSR (15)
         + _lsdPadIm(0)                                 // base diferencial LRT (15)
         + _lsdPadIm(0)                                 // remuneración maternidad (15)
-        + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — bruto del recibo CCT
+        + _lsdPadIm(baseRem)                           // remuneración bruta (15) — ARCA usa esto para calcular aportes OS/PAMI/SIPA
         + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub)
         + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI/INSSJP)
         + _lsdPadIm(baseRem)                           // base imponible 3 (OS)
-        + _lsdPadIm(baseTotal)                         // base imponible 4 (LRT/ART aporte) = bruto
+        + _lsdPadIm(baseRem)                           // base imponible 4 (LRT/ART aporte) — ARCA pide solo remunerativo
         + _lsdPadIm(baseRem)                           // base imponible 5 (FNE)
         + _lsdPadIm(0)                                 // base imponible 6
         + _lsdPadIm(0)                                 // base imponible 7
-        + _lsdPadIm(baseTotal)                         // base imponible 8 (LRT/ART contrib emp) = bruto
-        + _lsdPadIm(baseTotal)                         // base imponible 9 (contrib total)
+        + _lsdPadIm(baseRem)                           // base imponible 8 (LRT/ART contrib emp)
+        + _lsdPadIm(baseTotal)                         // base imponible 9 (contrib total) = bruto rem+NR
         + _lsdPadIm(0)                                 // base diferencial aporte SS (15)
         + _lsdPadIm(0)                                 // base diferencial contrib SS (15)
         + _lsdPadIm(0)                                 // base imponible 10
