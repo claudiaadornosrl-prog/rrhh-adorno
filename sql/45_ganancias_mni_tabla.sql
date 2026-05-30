@@ -25,11 +25,13 @@ CREATE TABLE IF NOT EXISTS public.rrhh_ganancias_mni (
 
 ALTER TABLE public.rrhh_ganancias_mni ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS rrhh_gan_mni_select_all
+DROP POLICY IF EXISTS rrhh_gan_mni_select_all ON public.rrhh_ganancias_mni;
+CREATE POLICY rrhh_gan_mni_select_all
     ON public.rrhh_ganancias_mni FOR SELECT
     USING (auth.uid() IS NOT NULL);
 
-CREATE POLICY IF NOT EXISTS rrhh_gan_mni_admin_modify
+DROP POLICY IF EXISTS rrhh_gan_mni_admin_modify ON public.rrhh_ganancias_mni;
+CREATE POLICY rrhh_gan_mni_admin_modify
     ON public.rrhh_ganancias_mni FOR ALL
     USING (rrhh_is_admin());
 
