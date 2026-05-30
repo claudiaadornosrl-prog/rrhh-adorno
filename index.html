@@ -11165,6 +11165,7 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
         ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#475569;color:white;border-color:#475569;" onclick="generarLSDTxt('${periodo}')" title="Generar archivo TXT del Libro de Sueldos Digital para subir a ARCA/AFIP">📄 LSD AFIP</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
       </div>
     </div>
@@ -13909,6 +13910,207 @@ async function liqGuardarAjuste(liqId) {
   switchTab('liquidaciones');
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Libro de Sueldos Digital (LSD) — Generador del TXT para AFIP
+//  Normativa: RG 5250/2022. Diseño: longitud fija sin separadores.
+//  Estructura: registro '01' (cabecera) + por cada empleado: '02' + N×'03' + '04'
+// ═══════════════════════════════════════════════════════════════════════
+
+const LSD_CUIT_EMPLEADOR = '30709673110';  // Claudia Adorno SRL — sin guiones
+
+// Helpers de padding LSD
+const _lsdPadN = (v, n) => String(v == null ? 0 : v).replace(/\D/g,'').padStart(n, '0').slice(-n);
+const _lsdPadA = (v, n) => (String(v || '').padEnd(n, ' ')).slice(0, n);
+// Importes: 15 dígitos sin punto, últimos 2 son centavos. Ej: $1.500.250,75 → '000000150025075'
+const _lsdPadIm = (v) => {
+  const cents = Math.round(Math.abs(Number(v || 0)) * 100);
+  return String(cents).padStart(15, '0').slice(-15);
+};
+// Fecha AAAAMMDD desde string ISO o Date
+const _lsdFechaAAAAMMDD = (d) => {
+  if (!d) return '00000000';
+  const dt = (d instanceof Date) ? d : new Date(d + (String(d).length === 10 ? 'T12:00:00' : ''));
+  if (isNaN(dt)) return '00000000';
+  return dt.getFullYear() + String(dt.getMonth()+1).padStart(2,'0') + String(dt.getDate()).padStart(2,'0');
+};
+
+async function generarLSDTxt(periodo) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  try {
+    const periodoFull = periodo + '-01';
+    const periodoAAMM = periodo.replace('-','');  // AAAAMM
+
+    // 1) Liquidaciones del período + empleados + conceptos
+    const { data: liqs, error } = await sb.from('rrhh_liquidacion')
+      .select('*, empleado:rrhh_empleados(*), conceptos:rrhh_liquidacion_concepto(*)')
+      .eq('periodo', periodoFull)
+      .order('empleado(apellido)');
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para ese período', 'warning'); return; }
+
+    // 2) Mapeo conceptos internos → AFIP
+    const { data: mapeos } = await sb.from('rrhh_lsd_concepto_mapeo').select('codigo_interno, codigo_afip');
+    const mapeoMap = {};
+    (mapeos || []).forEach(m => { mapeoMap[m.codigo_interno] = m.codigo_afip; });
+
+    // 3) Fecha de pago = último día hábil del mes (simplificación: último día calendario)
+    const [py, pm] = periodo.split('-').map(Number);
+    const ultDia = new Date(py, pm, 0);  // día 0 del mes siguiente = último del mes
+    const fechaPagoAAAAMMDD = _lsdFechaAAAAMMDD(ultDia);
+    const fechaRubricaAAAAMMDD = fechaPagoAAAAMMDD;  // misma fecha por ahora
+
+    const lineas = [];
+
+    // ─── Registro 01: cabecera ───
+    const reg01 = ''
+      + '01'                                       // tipo (2)
+      + _lsdPadN(LSD_CUIT_EMPLEADOR, 11)           // CUIT (11)
+      + 'SJ'                                       // identificación envío (2)
+      + _lsdPadN(periodoAAMM, 6)                   // período (6)
+      + 'M'                                        // tipo liquidación (1) mensual
+      + _lsdPadN(1, 5)                             // número liquidación (5)
+      + '30'                                       // días base (2)
+      + _lsdPadN(liqs.length, 6);                  // cantidad trabajadores (6)
+    lineas.push(reg01);
+
+    let empleadosOK = 0, empleadosErr = [];
+
+    // ─── Por cada empleado: 02 + N×03 + 04 ───
+    for (const l of liqs) {
+      const emp = l.empleado;
+      if (!emp) { empleadosErr.push('liq ' + l.id + ' sin empleado'); continue; }
+      const cuil = String(emp.cuil || '').replace(/[^\d]/g, '').padStart(11, '0');
+      if (cuil === '00000000000') { empleadosErr.push(emp.nombre_completo + ' sin CUIL'); continue; }
+
+      // ── Registro 02 ──
+      const formaPago = emp.cbu ? '3' : '1';  // 3 = acreditación, 1 = efectivo
+      const reg02 = ''
+        + '02'                                                   // tipo (2)
+        + cuil                                                   // CUIL (11)
+        + _lsdPadA(emp.legajo || emp.id, 10)                     // legajo (10)
+        + _lsdPadA(LOCALES[emp.local]?.nombre || emp.local || '', 50)  // dependencia revista (50)
+        + _lsdPadA((emp.cbu || '').replace(/\D/g,''), 22)        // CBU (22)
+        + _lsdPadN(30, 3)                                        // días para proporcionar tope (3)
+        + fechaPagoAAAAMMDD                                      // fecha pago (8)
+        + fechaRubricaAAAAMMDD                                   // fecha rúbrica (8)
+        + formaPago;                                             // forma de pago (1)
+      lineas.push(reg02);
+
+      // ── Registros 03: conceptos ──
+      const conceptos = (l.conceptos || []).sort((a,b) => (a.orden||0) - (b.orden||0));
+      for (const c of conceptos) {
+        const codigoAfip = mapeoMap[c.codigo] || '';
+        if (!codigoAfip) continue;  // skip conceptos sin mapeo
+        const reg03 = ''
+          + '03'                                       // tipo (2)
+          + cuil                                       // CUIL (11)
+          + _lsdPadA(codigoAfip, 10)                   // código concepto AFIP (10)
+          + _lsdPadN(Math.round(Number(c.unidades||0) * 100), 5)  // cantidad (3.2)
+          + ' '                                        // unidad de medida (1)
+          + _lsdPadIm(c.importe)                       // importe (15) sin punto
+          + (c.es_descuento ? 'D' : 'C')               // D/C (1)
+          + '      ';                                  // período ajuste retroactivo (6) vacío
+        lineas.push(reg03);
+      }
+
+      // ── Registro 04: datos para F.931 ──
+      const conyuge = emp.conyuge_a_cargo ? '1' : '0';
+      const hijos = emp.hijos_a_cargo || 0;
+      const enCCT = emp.fuera_convenio ? '0' : '1';
+      const remBruta = Number(l.total_negro || 0);
+      // Bases imponibles 1-10: AFIP define qué entra en cada base.
+      // Simplificación: bases 1-4 (SIPA, INSSJyP, OS, FSR) = bruto remunerativo del mes;
+      //                 bases 5-9 = bruto total (rem + NR);
+      //                 base 10 = 0 (no aplica régimen diferencial para comercio).
+      // Si MEMOSOFT calcula diferente, lo ajustamos cuando comparemos.
+      const bases123 = Number(l.recibo_basico||0) + Number(l.recibo_antiguedad||0) + Number(l.recibo_presentismo||0);
+      const baseTotal = bases123 + Number(l.recibo_sumafija_nr||0) + Number(l.recibo_antig_nr||0)
+                       + Number(l.recibo_pres_nr||0) + Number(l.recibo_recompos_nr||0);
+
+      const reg04 = ''
+        + '04'                                         // tipo (2)
+        + cuil                                         // CUIL (11)
+        + conyuge                                      // marca cónyuge (1)
+        + _lsdPadN(hijos, 2)                           // cantidad hijos (2)
+        + enCCT                                        // marca CCT (1)
+        + '1'                                          // marca SCVO (1) — todos cubiertos
+        + '0'                                          // marca reducción (1)
+        + '1'                                          // código tipo empleador (1) — 1 = privado
+        + '0'                                          // tipo operación (1)
+        + _lsdPadA(emp.situacion_revista_default || '1', 2)  // situación revista (2)
+        + _lsdPadA(emp.condicion_codigo || '1', 2)     // código condición (2)
+        + _lsdPadA(emp.actividad_codigo || '478996', 3).slice(-3)  // código actividad (3) — últimos 3
+        + _lsdPadA(emp.modalidad_contrato_codigo || '008', 3)  // modalidad (3)
+        + _lsdPadA(emp.siniestrado_codigo || '0', 2)   // siniestrado (2)
+        + _lsdPadA('1', 2)                             // código localidad (2) — 1 = CABA/Bs As por defecto
+        + _lsdPadA(emp.situacion_revista_default || '1', 2)  // situación revista 1 (2)
+        + _lsdPadN(1, 2)                               // día inicio revista 1 (2) — día 1
+        + '  '                                         // situación revista 2 (2) vacía
+        + '00'                                         // día inicio revista 2
+        + '  '                                         // situación revista 3
+        + '00'                                         // día inicio revista 3
+        + _lsdPadN(l.dias_trabajados || 30, 2)         // días trabajados (2)
+        + _lsdPadN(0, 3)                               // horas trabajadas (3)
+        + _lsdPadN(0, 5)                               // % aporte adicional SS (5)
+        + _lsdPadN(0, 5)                               // % contribución diferencial (5)
+        + _lsdPadA(emp.os_codigo_afip || '000000', 6)  // código obra social (6)
+        + _lsdPadN(0, 2)                               // adherentes OS (2)
+        + _lsdPadIm(0)                                 // aporte adicional OS (15)
+        + _lsdPadIm(0)                                 // contribución adicional OS (15)
+        + _lsdPadIm(0)                                 // base diferencial aporte OS+FSR (15)
+        + _lsdPadIm(0)                                 // base diferencial contrib OS+FSR (15)
+        + _lsdPadIm(0)                                 // base diferencial LRT (15)
+        + _lsdPadIm(0)                                 // remuneración maternidad (15)
+        + _lsdPadIm(remBruta)                          // remuneración bruta (15)
+        + _lsdPadIm(bases123)                          // base imponible 1 (15) SIPA
+        + _lsdPadIm(bases123)                          // base imponible 2 (15) INSSJyP
+        + _lsdPadIm(baseTotal)                         // base imponible 3 (15) Obra Social
+        + _lsdPadIm(baseTotal)                         // base imponible 4 (15) FSR
+        + _lsdPadIm(0)                                 // base imponible 5 (15) RENATEA — no aplica
+        + _lsdPadIm(bases123)                          // base imponible 6 (15) Asig Fam
+        + _lsdPadIm(bases123)                          // base imponible 7 (15) FNE
+        + _lsdPadIm(baseTotal)                         // base imponible 8 (15) LRT
+        + _lsdPadIm(baseTotal)                         // base imponible 9 (15) SCVO
+        + _lsdPadIm(0)                                 // base diferencial aporte SS (15)
+        + _lsdPadIm(0)                                 // base diferencial contrib SS (15)
+        + _lsdPadIm(0)                                 // base imponible 10 (15) régimen especial
+        + _lsdPadIm(0);                                // importe a detraer Ley 26473 (15)
+      lineas.push(reg04);
+      empleadosOK++;
+    }
+
+    // Descargar
+    const txt = lineas.join('\r\n') + '\r\n';
+    const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'LSD_Adorno_' + periodoAAMM + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Loggear en rrhh_lsd_export_log (si la tabla existe, sino skip)
+    try {
+      await sb.from('rrhh_lsd_export_log').insert({
+        periodo: periodoFull, tipo: 'AFIP_LSD',
+        empleados_count: empleadosOK, lineas_count: lineas.length,
+        errores: empleadosErr.length ? empleadosErr.join(' · ') : null
+      });
+    } catch (_) {}
+
+    let msg = '✓ LSD generado: ' + empleadosOK + ' empleados · ' + lineas.length + ' líneas';
+    if (empleadosErr.length) msg += ' · ⚠ ' + empleadosErr.length + ' con errores';
+    toast(msg, empleadosErr.length ? 'error' : 'success');
+    if (empleadosErr.length) console.warn('LSD errores:', empleadosErr);
+  } catch (e) {
+    console.error(e);
+    toast('Error generando LSD: ' + e.message, 'error');
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 //  SALARY WORKFLOW — Orquesta el cálculo y guardado de liquidaciones
