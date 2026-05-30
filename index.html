@@ -13640,7 +13640,9 @@ const salaryEngine = (() => {
     // ── Descuentos ──
     const jubilacion = total_rem * PCT.JUB;
     const ley19032   = total_rem * PCT.LEY19032;
-    const baseOS = (obra_social_codigo === 'osecac') ? bruto : total_rem;
+    // OS: base imponible AFIP = remunerativo + ant_nr (0492) + pres_nr (0493) = baseLRT
+    // (corregido tras validación contra ARCA: ARCA calcula 3% × baseLRT para TODOS, OSECAC o no)
+    const baseOS    = total_rem + ant_nr + pres_nr;
     const os         = baseOS * PCT.OS;
     const sec        = fuera_convenio ? 0 : bruto * PCT.SEC;
     const faecys     = fuera_convenio ? 0 : bruto * PCT.FAECYS;
@@ -13723,14 +13725,19 @@ const salaryEngine = (() => {
     const pres_nr = fuera_convenio ? 0 : (sumafija_nr + recompos + ant_nr) * PCT.PRES;
     const N = sumafija_nr + ant_nr + pres_nr + recompos;
 
-    // Coeficientes de descuento
-    const isOsecac = (obra_social_codigo || '').toLowerCase() === 'osecac';
-    const cb = (isOsecac ? PCT.OS : 0) + (fuera_convenio ? 0 : (PCT.SEC + PCT.FAECYS)); // sobre bruto
-    const cr = PCT.JUB + PCT.LEY19032 + (isOsecac ? 0 : PCT.OS);                        // sobre rem
+    // Coeficientes de descuento (post-fix OS sobre baseLRT)
+    const cb = (fuera_convenio ? 0 : (PCT.SEC + PCT.FAECYS));    // sobre bruto: solo SEC + FAECYS
+    const cr = PCT.JUB + PCT.LEY19032 + PCT.OS;                  // sobre rem: jub + pami + os
+    // OS también descuenta sobre (ant_nr + pres_nr) — eso es parte de N. Lo separamos:
+    const cn_os = PCT.OS;                                         // descuento OS sobre la porción (ant_nr + pres_nr) de N
+    const N_os_part = ant_nr + pres_nr;
     const denom = 1 - cb - cr;
     if (denom <= 0) throw new Error('Solver: denominador <= 0 (revisar coeficientes)');
 
-    const total_rem_obj = (neto_objetivo - N * (1 - cb)) / denom;
+    // neto = bruto·(1-cb) - total_rem·cr - N_os_part·cn_os
+    //      = (total_rem + N)·(1-cb) - total_rem·cr - N_os_part·cn_os
+    //      = total_rem·(1-cb-cr) + N·(1-cb) - N_os_part·cn_os
+    const total_rem_obj = (neto_objetivo - N * (1 - cb) + N_os_part * cn_os) / denom;
     const denomBasico = (1 + a) * (1 + p);   // (1+a)·(1+p), o (1+a) si fuera convenio
     const basico_lleno = (total_rem_obj - O) / denomBasico;
     // basico_lleno está prorrateado por días (porque total_rem_obj sí lo está implícitamente vía el módulo).
@@ -14112,7 +14119,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — ARCA determina = baseTotal
         + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub) — sobre rem
         + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI) — sobre rem
-        + _lsdPadIm(baseRem)                           // base imponible 3 (OS) — ARCA determina baseRem siempre
+        + _lsdPadIm(baseLRT)                           // base imponible 3 (OS) — = baseRem + 0492 + 0493 (NRs que imputan a OS)
         + _lsdPadIm(baseLRT)                           // base imponible 4 (LRT aporte) — baseRem + 0492 + 0493
         + _lsdPadIm(baseRem)                           // base imponible 5 (FNE) — sobre rem
         + _lsdPadIm(0)                                 // base imponible 6
