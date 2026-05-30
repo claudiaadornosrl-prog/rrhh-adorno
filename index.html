@@ -13937,30 +13937,12 @@ const _lsdFechaAAAAMMDD = (d) => {
 };
 
 async function generarLSDTxtAuto(periodo, localFilter) {
-  // Detecta automáticamente qué jurisdicciones hay en las liquidaciones del período
-  // (filtrando por local si se especifica) y genera 1 archivo por cada una.
+  // Genera UN solo archivo con TODOS los empleados (sin separar por jurisdicción).
+  // Razón: Adorno SRL tiene solo Buenos Aires declarada en Simplificación Registral
+  // → ARCA rechaza cargar liquidaciones para otras jurisdicciones (ej: CABA).
+  // Cada empleado mantiene su código de localidad individual dentro del registro 04.
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
-  let q = sb.from('rrhh_liquidacion')
-    .select('empleado:rrhh_empleados!inner(jurisdiccion)')
-    .eq('periodo', periodo + '-01');
-  if (localFilter && localFilter !== 'todos') q = q.eq('local', localFilter);
-  const { data: rows, error } = await q;
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-  if (!rows || rows.length === 0) { toast('No hay liquidaciones para ese período', 'warning'); return; }
-  // Jurisdicciones únicas presentes
-  const juris = [...new Set(rows.map(r => r.empleado?.jurisdiccion || 'NACION'))].sort();
-  if (juris.length === 0) { toast('No se pudo determinar jurisdicción', 'error'); return; }
-  if (juris.length === 1) {
-    // Una sola jurisdicción → 1 archivo con Nro liquidación 1
-    await generarLSDTxt(periodo, juris[0], 1);
-  } else {
-    toast(`Generando ${juris.length} archivos LSD (${juris.join(' + ')})…`, '');
-    for (let i = 0; i < juris.length; i++) {
-      if (i > 0) await new Promise(r => setTimeout(r, 800));
-      // Nro 1 para la primera, Nro 2 para la segunda, etc.
-      await generarLSDTxt(periodo, juris[i], i + 1);
-    }
-  }
+  await generarLSDTxt(periodo, null, 1);
 }
 
 async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
