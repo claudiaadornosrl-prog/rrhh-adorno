@@ -13640,9 +13640,10 @@ const salaryEngine = (() => {
     // ── Descuentos ──
     const jubilacion = total_rem * PCT.JUB;
     const ley19032   = total_rem * PCT.LEY19032;
-    // OS: base imponible AFIP = remunerativo + ant_nr (0492) + pres_nr (0493) = baseLRT
-    // (corregido tras validación contra ARCA: ARCA calcula 3% × baseLRT para TODOS, OSECAC o no)
-    const baseOS    = total_rem + ant_nr + pres_nr;
+    // OS: base AFIP depende de la OS. Para OSECAC = bruto. Para otras = total_rem.
+    // Esto coincide con cómo el estudio carga los conceptos: OSECAC usa códigos NR que
+    // imputan a OS (0490/0492/0493/0496), las demás usan códigos que NO imputan (0491/0494/0495/0497).
+    const baseOS = (obra_social_codigo === 'osecac') ? bruto : total_rem;
     const os         = baseOS * PCT.OS;
     const sec        = fuera_convenio ? 0 : bruto * PCT.SEC;
     const faecys     = fuera_convenio ? 0 : bruto * PCT.FAECYS;
@@ -13725,19 +13726,14 @@ const salaryEngine = (() => {
     const pres_nr = fuera_convenio ? 0 : (sumafija_nr + recompos + ant_nr) * PCT.PRES;
     const N = sumafija_nr + ant_nr + pres_nr + recompos;
 
-    // Coeficientes de descuento (post-fix OS sobre baseLRT)
-    const cb = (fuera_convenio ? 0 : (PCT.SEC + PCT.FAECYS));    // sobre bruto: solo SEC + FAECYS
-    const cr = PCT.JUB + PCT.LEY19032 + PCT.OS;                  // sobre rem: jub + pami + os
-    // OS también descuenta sobre (ant_nr + pres_nr) — eso es parte de N. Lo separamos:
-    const cn_os = PCT.OS;                                         // descuento OS sobre la porción (ant_nr + pres_nr) de N
-    const N_os_part = ant_nr + pres_nr;
+    // Coeficientes de descuento
+    const isOsecac = (obra_social_codigo || '').toLowerCase() === 'osecac';
+    const cb = (isOsecac ? PCT.OS : 0) + (fuera_convenio ? 0 : (PCT.SEC + PCT.FAECYS)); // sobre bruto
+    const cr = PCT.JUB + PCT.LEY19032 + (isOsecac ? 0 : PCT.OS);                        // sobre rem
     const denom = 1 - cb - cr;
     if (denom <= 0) throw new Error('Solver: denominador <= 0 (revisar coeficientes)');
 
-    // neto = bruto·(1-cb) - total_rem·cr - N_os_part·cn_os
-    //      = (total_rem + N)·(1-cb) - total_rem·cr - N_os_part·cn_os
-    //      = total_rem·(1-cb-cr) + N·(1-cb) - N_os_part·cn_os
-    const total_rem_obj = (neto_objetivo - N * (1 - cb) + N_os_part * cn_os) / denom;
+    const total_rem_obj = (neto_objetivo - N * (1 - cb)) / denom;
     const denomBasico = (1 + a) * (1 + p);   // (1+a)·(1+p), o (1+a) si fuera convenio
     const basico_lleno = (total_rem_obj - O) / denomBasico;
     // basico_lleno está prorrateado por días (porque total_rem_obj sí lo está implícitamente vía el módulo).
@@ -14026,9 +14022,31 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
 
       // ── Registros 03: conceptos ──
       const conceptos = (l.conceptos || []).sort((a,b) => (a.orden||0) - (b.orden||0));
+      // OSECAC usa códigos NR distintos a no-OSECAC para que las bases AFIP se calculen bien.
+      // OSECAC : 0490 (suma), 0492 (ant), 0493 (pres), 0496 (recompos) — todos imputan a OS
+      // no-OSECAC: 0491 (suma), 0494 (ant), 0495 (pres), 0497 (recompos) — NO imputan a OS
+      const _osEmp = (emp.obra_social_codigo || '').toLowerCase();
+      const _esOsecac = _osEmp === 'osecac';
+      const _codeSwap = (cod) => {
+        if (_esOsecac) {
+          // Convertir códigos no-OSECAC → OSECAC
+          if (cod === '0491') return '0490';
+          if (cod === '0494') return '0492';
+          if (cod === '0495') return '0493';
+          if (cod === '0497') return '0496';
+        } else {
+          // Convertir códigos OSECAC → no-OSECAC
+          if (cod === '0490') return '0491';
+          if (cod === '0492') return '0494';
+          if (cod === '0493') return '0495';
+          if (cod === '0496') return '0497';
+        }
+        return cod;
+      };
       for (const c of conceptos) {
-        const codInterno = String(c.codigo || '').trim();
+        let codInterno = String(c.codigo || '').trim();
         if (!codInterno) continue;  // skip conceptos sin código
+        codInterno = _codeSwap(codInterno);
         // Padding-LEFT con espacios (formato que usa el estudio en TXT real)
         const codField = codInterno.padStart(10, ' ').slice(-10);
         const reg03 = ''
@@ -14055,25 +14073,19 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       //                 base 10 = 0 (no aplica régimen diferencial para comercio).
       // Si MEMOSOFT calcula diferente, lo ajustamos cuando comparemos.
       // Calcular bases imponibles a partir de los CONCEPTOS (registro 03).
-      // Imputación EXACTA según conceptos cargados por el estudio en ARCA:
-      //   0001/0022/0025 (rem): TODAS las bases
-      //   0491/0497 (suma NR/recompos NR): SOLO LRT contrib (Base 8 y 9)
-      //   0492/0493 (ant NR/pres NR): OS+FSR+LRT contrib (Bases 4, 8, 9)
-      let baseRem = 0, baseLRT_extra = 0, baseNR_total = 0;
+      let baseRem = 0, baseNR_total = 0;
       for (const c of conceptos) {
         if (c.es_descuento) continue;
         const imp = Number(c.importe) || 0;
-        const cod = String(c.codigo || '').trim();
-        if (c.remunerativo) {
-          baseRem += imp;
-        } else {
-          baseNR_total += imp;
-          // 0492 (ant NR) y 0493 (pres NR) imputan a Base 4/8 (LRT aporte y contrib)
-          if (cod === '0492' || cod === '0493') baseLRT_extra += imp;
-        }
+        if (c.remunerativo) baseRem += imp;
+        else baseNR_total += imp;
       }
       const baseTotal = baseRem + baseNR_total;
-      const baseLRT = baseRem + baseLRT_extra;  // Base 4 y 8
+      // Base 3 (OS): para OSECAC todos los NRs imputan a OS (porque usamos códigos 0490/0492/0493/0496);
+      // para no-OSECAC ninguno imputa (porque usamos 0491/0494/0495/0497).
+      const base3 = _esOsecac ? baseTotal : baseRem;
+      // Base 4 y 8 (LRT): todos los NRs imputan a LRT en ambos esquemas de códigos.
+      const baseLRT = baseTotal;
       // Base 1-3, 5 (SIPA, PAMI, OS, FNE) = remunerativo
       // Base 4, 8 (LRT/ART) = remunerativo + NR (sobre rem total)
       // Base 9 (contribución empleador) = bruto total
@@ -14119,7 +14131,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — ARCA determina = baseTotal
         + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub) — sobre rem
         + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI) — sobre rem
-        + _lsdPadIm(baseLRT)                           // base imponible 3 (OS) — = baseRem + 0492 + 0493 (NRs que imputan a OS)
+        + _lsdPadIm(base3)                             // base imponible 3 (OS) — dinámica: baseTotal si OSECAC, baseRem si no
         + _lsdPadIm(baseLRT)                           // base imponible 4 (LRT aporte) — baseRem + 0492 + 0493
         + _lsdPadIm(baseRem)                           // base imponible 5 (FNE) — sobre rem
         + _lsdPadIm(0)                                 // base imponible 6
