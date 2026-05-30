@@ -13950,7 +13950,7 @@ async function generarLSDTxtAuto(periodo, localFilter) {
 
 // Versión del generador LSD — incluida en el nombre del archivo para fácil verificación.
 // Bumpear este string en cada cambio funcional del generador.
-const LSD_GENERATOR_VERSION = 'v48';
+const LSD_GENERATOR_VERSION = 'v49';
 
 async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
@@ -14085,11 +14085,13 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         else baseNR_total += imp;
       }
       const baseTotal = baseRem + baseNR_total;
-      // Base 3 (OS): para OSECAC todos los NRs imputan a OS (porque usamos códigos 0490/0492/0493/0496);
-      // para no-OSECAC ninguno imputa (porque usamos 0491/0494/0495/0497).
-      const base3 = _esOsecac ? baseTotal : baseRem;
-      // Base 4 y 8 (LRT): todos los NRs imputan a LRT en ambos esquemas de códigos.
-      const baseLRT = baseTotal;
+      // PATRÓN DEL ESTUDIO (validado contra TXT abril 2026):
+      //   - Base 1, 2, 3, 5 = baseRem SIEMPRE (incluso OSECAC)
+      //   - Base 4, 8 (LRT) = baseTotal si OSECAC; baseRem si no
+      //   - Base 9 = baseTotal SIEMPRE
+      //   - Rem.Bruta = baseTotal SIEMPRE
+      const base3 = baseRem;
+      const baseLRT = _esOsecac ? baseTotal : baseRem;
       // Base 1-3, 5 (SIPA, PAMI, OS, FNE) = remunerativo
       // Base 4, 8 (LRT/ART) = remunerativo + NR (sobre rem total)
       // Base 9 (contribución empleador) = bruto total
