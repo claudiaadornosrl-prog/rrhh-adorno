@@ -13984,18 +13984,19 @@ async function generarLSDTxt(periodo) {
       const cuil = String(emp.cuil || '').replace(/[^\d]/g, '').padStart(11, '0');
       if (cuil === '00000000000') { empleadosErr.push(emp.nombre_completo + ' sin CUIL'); continue; }
 
-      // ── Registro 02 ──
-      const formaPago = emp.cbu ? '3' : '1';  // 3 = acreditación, 1 = efectivo
+      // ── Registro 02 (formato real del estudio MEMOSOFT) ──
+      // Legajo right-aligned con 0s, dependencia vacía, CBU vacío, forma_pago=1, fecha rúbrica vacía.
+      const legajoField = String(emp.legajo || emp.id || '').padStart(10, '0').slice(-10);
       const reg02 = ''
         + '02'                                                   // tipo (2)
         + cuil                                                   // CUIL (11)
-        + _lsdPadA(emp.legajo || emp.id, 10)                     // legajo (10)
-        + _lsdPadA(LOCALES[emp.local]?.nombre || emp.local || '', 50)  // dependencia revista (50)
-        + _lsdPadA((emp.cbu || '').replace(/\D/g,''), 22)        // CBU (22)
-        + _lsdPadN(30, 3)                                        // días para proporcionar tope (3)
+        + legajoField                                            // legajo (10) right-aligned con 0
+        + _lsdPadA('', 50)                                       // dependencia revista (50) vacía
+        + _lsdPadA('', 22)                                       // CBU (22) vacío
+        + _lsdPadN(30, 3)                                        // días tope (3)
         + fechaPagoAAAAMMDD                                      // fecha pago (8)
-        + fechaRubricaAAAAMMDD                                   // fecha rúbrica (8)
-        + formaPago;                                             // forma de pago (1)
+        + _lsdPadA('', 8)                                        // fecha rúbrica (8) vacía
+        + '1';                                                   // forma pago (1) = efectivo (como MEMOSOFT)
       lineas.push(reg02);
 
       // ── Registros 03: conceptos ──
