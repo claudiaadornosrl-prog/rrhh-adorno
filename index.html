@@ -14039,7 +14039,8 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       const conyuge = emp.conyuge_a_cargo ? '1' : '0';
       const hijos = emp.hijos_a_cargo || 0;
       const enCCT = emp.fuera_convenio ? '0' : '1';
-      const remBruta = Number(l.total_negro || 0);
+      // Remuneración bruta = bruto del recibo CCT (rem + NR). NO total_negro.
+      // Si usamos total_negro las bases imponibles pueden quedar mayores → ARCA rechaza.
       // Bases imponibles 1-10: AFIP define qué entra en cada base.
       // Simplificación: bases 1-4 (SIPA, INSSJyP, OS, FSR) = bruto remunerativo del mes;
       //                 bases 5-9 = bruto total (rem + NR);
@@ -14083,7 +14084,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(0)                                 // base diferencial contrib OS+FSR (15)
         + _lsdPadIm(0)                                 // base diferencial LRT (15)
         + _lsdPadIm(0)                                 // remuneración maternidad (15)
-        + _lsdPadIm(remBruta)                          // remuneración bruta (15)
+        + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — bruto del recibo CCT
         + _lsdPadIm(bases123)                          // base imponible 1 (15) SIPA
         + _lsdPadIm(bases123)                          // base imponible 2 (15) INSSJyP
         + _lsdPadIm(baseTotal)                         // base imponible 3 (15) Obra Social
@@ -14102,7 +14103,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
     }
 
     // Descargar
-    const txt = lineas.join('\r\n') + '\r\n';
+    const txt = lineas.join('\r\n');
     const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
