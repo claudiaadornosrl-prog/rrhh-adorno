@@ -655,7 +655,6 @@ const NAV = {
   admin: [
     { id: 'dashboard',   label: 'Dashboard',     icon: '📊', section: null },
     { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
-    { id: 'sueldos',     label: 'Sueldos',       icon: '💰', section: 'Personal' },
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
     { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
@@ -832,7 +831,6 @@ async function renderPage(tabId) {
   const renderers = {
     'dashboard':       renderDashboard,
     'empleados':       renderEmpleados,
-    'sueldos':         renderSueldosAdmin,
     'liquidaciones':   renderLiquidaciones,
     'pagos-mes':       renderPagosMes,
     'retiros':         renderRetirosMercaderia,
@@ -4832,47 +4830,6 @@ async function subirMiCertificado() {
 // ════════════════════════════════════════════════════════════
 let sueldosState = { periodo: null, local: '' };
 
-async function renderSueldosAdmin() {
-  // Período por defecto: mes anterior (los sueldos del mes anterior se pagan a fin de mes)
-  if (!sueldosState.periodo) {
-    const hoy = new Date();
-    let m = hoy.getMonth(); // 0..11 → mes anterior
-    let y = hoy.getFullYear();
-    if (m === 0) { m = 12; y -= 1; }
-    sueldosState.periodo = `${y}-${String(m).padStart(2,'0')}`;
-  }
-
-  const html = `
-    <div class="page-header">
-      <h2>Sueldos</h2>
-      <div class="subtitle">Liquidaciones mes a mes con control automático vs CCT 130/75</div>
-    </div>
-
-    <div class="toolbar">
-      <select id="sueldo-periodo">
-        ${generarPeriodos(sueldosState.periodo).map(p => `<option value="${p}" ${sueldosState.periodo===p?'selected':''}>${p}</option>`).join('')}
-      </select>
-      <select id="sueldo-local">
-        <option value="">Todos los locales</option>
-        <option value="unicenter" ${sueldosState.local==='unicenter'?'selected':''}>Unicenter</option>
-        <option value="alcorta"   ${sueldosState.local==='alcorta'  ?'selected':''}>Alcorta</option>
-        <option value="oficina"   ${sueldosState.local==='oficina'  ?'selected':''}>Oficina</option>
-      </select>
-      <div class="right">
-        <button class="btn accent2" id="sueldo-upload-btn">📎 Subir recibos del mes</button>
-      </div>
-    </div>
-
-    <div id="sueldo-content"><div class="spinner"></div></div>
-  `;
-  setTimeout(() => {
-    document.getElementById('sueldo-periodo').addEventListener('change', e => { sueldosState.periodo = e.target.value; renderSueldoContent(); });
-    document.getElementById('sueldo-local').addEventListener('change', e => { sueldosState.local = e.target.value; renderSueldoContent(); });
-    document.getElementById('sueldo-upload-btn').addEventListener('click', abrirSubirSueldosBulk);
-    renderSueldoContent();
-  }, 0);
-  return html;
-}
 
 function generarPeriodos(actual) {
   // Genera 24 meses hacia atrás desde el seleccionado
@@ -9515,7 +9472,7 @@ async function _loadForumFont(doc) {
   }
 }
 
-async function generarPDFRecibo(liqId) {
+async function generarPDFRecibo(liqId, opts = {}) {
   try {
     // 1. Cargar liquidación + empleado + conceptos
     const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
@@ -9554,7 +9511,8 @@ async function generarPDFRecibo(liqId) {
 
     // 3. Setup PDF
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const doc = opts.existingDoc || new jsPDF({ unit: 'mm', format: 'a4' });
+    if (opts.existingDoc) doc.addPage();
     const W = 210, H = 297, margen = 18, ancho = W - margen * 2;
 
     const COLOR_TEXT    = [26, 26, 26];
@@ -9789,11 +9747,12 @@ async function generarPDFRecibo(liqId) {
     const apellido = (emp?.apellido || 'empleada').toUpperCase().replace(/\s+/g, '_');
     const periodoSafe = liq.periodo ? liq.periodo.slice(0, 7) : 'periodo';
     const fileName = `Recibo_${apellido}_${periodoSafe}.pdf`;
-    doc.save(fileName);
-
-    // 13. Registrar el evento en la base
-    await sb.from('rrhh_liquidacion').update({ pdf_generado_at: new Date().toISOString() }).eq('id', liqId);
-    toast('Recibo descargado ✓', 'success');
+    if (opts.autoSave !== false) {
+      doc.save(fileName);
+      await sb.from('rrhh_liquidacion').update({ pdf_generado_at: new Date().toISOString() }).eq('id', liqId);
+      toast('Recibo descargado ✓', 'success');
+    }
+    return doc;
   } catch (e) {
     console.error(e);
     toast('Error al generar el PDF: ' + e.message, 'error');
@@ -11204,6 +11163,7 @@ async function renderLiquidaciones() {
         `}
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
+        ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
       </div>
@@ -13790,6 +13750,43 @@ const salaryEngine = (() => {
   return { calcularReciboCCT, aniosCumplidosAlPeriodo, calcularBasicoParaNeto, PCT };
 })();
 
+
+
+// ─── Descargar TODOS los recibos del mes/local combinados en 1 PDF ──────
+async function descargarTodosRecibosCombinados(local, periodo) {
+  if (!(session.rol === 'admin' || session.rol === 'gerente')) {
+    toast('Solo admin/encargada', 'error'); return;
+  }
+  let q = sb.from('rrhh_liquidacion')
+    .select('id, periodo, local, empleado_id, empleado:rrhh_empleados(apellido, nombre)')
+    .eq('periodo', periodo + '-01')
+    .order('local').order('empleado(apellido)');
+  if (local && local !== 'todos') q = q.eq('local', local);
+  const { data: liqs, error } = await q;
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (!liqs || liqs.length === 0) { toast('No hay recibos para combinar', 'warning'); return; }
+
+  toast(`Generando ${liqs.length} recibos…`, '');
+  let masterDoc = null;
+  let exitosos = 0, fallidos = 0;
+  for (const liq of liqs) {
+    try {
+      if (!masterDoc) {
+        masterDoc = await generarPDFRecibo(liq.id, { autoSave: false });
+      } else {
+        await generarPDFRecibo(liq.id, { existingDoc: masterDoc, autoSave: false });
+      }
+      exitosos++;
+    } catch (e) {
+      console.error('Fallo recibo liq', liq.id, e);
+      fallidos++;
+    }
+  }
+  if (!masterDoc) { toast('No se pudo generar ningún recibo', 'error'); return; }
+  const localTxt = (local && local !== 'todos') ? local : 'Adorno';
+  masterDoc.save(`Recibos ${localTxt} ${periodo}.pdf`);
+  toast(`✓ ${exitosos} recibo(s) combinados${fallidos ? ' · ' + fallidos + ' fallaron' : ''}`, 'success');
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 //  Liquidador — modales auxiliares (préstamo + ajuste con comentario)
