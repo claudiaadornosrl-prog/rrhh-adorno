@@ -14048,15 +14048,25 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       //                 base 10 = 0 (no aplica régimen diferencial para comercio).
       // Si MEMOSOFT calcula diferente, lo ajustamos cuando comparemos.
       // Calcular bases imponibles a partir de los CONCEPTOS (registro 03).
-      // ARCA compara estos valores contra los que calcula desde el registro 03 — deben coincidir.
-      let baseRem = 0, baseNR = 0;
+      // Imputación EXACTA según conceptos cargados por el estudio en ARCA:
+      //   0001/0022/0025 (rem): TODAS las bases
+      //   0491/0497 (suma NR/recompos NR): SOLO LRT contrib (Base 8 y 9)
+      //   0492/0493 (ant NR/pres NR): OS+FSR+LRT contrib (Bases 4, 8, 9)
+      let baseRem = 0, baseLRT_extra = 0, baseNR_total = 0;
       for (const c of conceptos) {
         if (c.es_descuento) continue;
         const imp = Number(c.importe) || 0;
-        if (c.remunerativo) baseRem += imp;
-        else baseNR += imp;
+        const cod = String(c.codigo || '').trim();
+        if (c.remunerativo) {
+          baseRem += imp;
+        } else {
+          baseNR_total += imp;
+          // 0492 (ant NR) y 0493 (pres NR) imputan a Base 4/8 (LRT aporte y contrib)
+          if (cod === '0492' || cod === '0493') baseLRT_extra += imp;
+        }
       }
-      const baseTotal = baseRem + baseNR;
+      const baseTotal = baseRem + baseNR_total;
+      const baseLRT = baseRem + baseLRT_extra;  // Base 4 y 8
       // Base 1-3, 5 (SIPA, PAMI, OS, FNE) = remunerativo
       // Base 4, 8 (LRT/ART) = remunerativo + NR (sobre rem total)
       // Base 9 (contribución empleador) = bruto total
@@ -14091,7 +14101,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadN(0, 3)                               // horas trabajadas (3)
         + _lsdPadN(0, 5)                               // % aporte adicional SS (5)
         + _lsdPadN(0, 5)                               // % contribución diferencial (5)
-        + '126205'                                     // código obra social (6) — TODAS las empleadas son OSECAC
+        + _lsdPadA(emp.os_codigo_afip || '126205', 6) // código obra social (6) — código REAL per empleada
         + _lsdPadN(0, 2)                               // adherentes OS (2)
         + _lsdPadIm(0)                                 // aporte adicional OS (15)
         + _lsdPadIm(0)                                 // contribución adicional OS (15)
@@ -14102,12 +14112,12 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — ARCA determina = baseTotal
         + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub) — sobre rem
         + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI) — sobre rem
-        + _lsdPadIm(baseTotal)                         // base imponible 3 (OS) — sobre bruto (OSECAC en CCT 130/75 calcula sobre bruto)
-        + _lsdPadIm(baseTotal)                         // base imponible 4 (LRT aporte) — sobre bruto
+        + _lsdPadIm(baseRem)                           // base imponible 3 (OS) — ARCA determina baseRem siempre
+        + _lsdPadIm(baseLRT)                           // base imponible 4 (LRT aporte) — baseRem + 0492 + 0493
         + _lsdPadIm(baseRem)                           // base imponible 5 (FNE) — sobre rem
         + _lsdPadIm(0)                                 // base imponible 6
         + _lsdPadIm(0)                                 // base imponible 7
-        + _lsdPadIm(baseTotal)                         // base imponible 8 (LRT contrib emp) — sobre bruto
+        + _lsdPadIm(baseLRT)                           // base imponible 8 (LRT contrib emp) — baseRem + 0492 + 0493
         + _lsdPadIm(baseTotal)                         // base imponible 9 (contrib total) — sobre bruto
         + _lsdPadIm(0)                                 // base diferencial aporte SS (15)
         + _lsdPadIm(0)                                 // base diferencial contrib SS (15)
