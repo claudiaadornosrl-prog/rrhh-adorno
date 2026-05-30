@@ -14066,7 +14066,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadA(emp.actividad_codigo || '478996', 3).slice(-3)  // código actividad (3) — últimos 3
         + _lsdPadA(emp.modalidad_contrato_codigo || '008', 3)  // modalidad (3)
         + _lsdPadA(emp.siniestrado_codigo || '0', 2)   // siniestrado (2)
-        + _lsdPadA('1', 2)                             // código localidad (2) — 1 = CABA/Bs As por defecto
+        + '00'                                          // código localidad (2) — '00' = ARCA usa lo cargado en su DB
         + _lsdPadA(emp.situacion_revista_default || '1', 2)  // situación revista 1 (2)
         + _lsdPadN(1, 2)                               // día inicio revista 1 (2) — día 1
         + '  '                                         // situación revista 2 (2) vacía
@@ -14086,18 +14086,18 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(0)                                 // base diferencial LRT (15)
         + _lsdPadIm(0)                                 // remuneración maternidad (15)
         + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — bruto del recibo CCT
-        + _lsdPadIm(bases123)                          // base imponible 1 (15) SIPA
-        + _lsdPadIm(bases123)                          // base imponible 2 (15) INSSJyP
-        + _lsdPadIm(baseTotal)                         // base imponible 3 (15) Obra Social
-        + _lsdPadIm(baseTotal)                         // base imponible 4 (15) FSR
-        + _lsdPadIm(0)                                 // base imponible 5 (15) RENATEA — no aplica
-        + _lsdPadIm(bases123)                          // base imponible 6 (15) Asig Fam
-        + _lsdPadIm(bases123)                          // base imponible 7 (15) FNE
-        + _lsdPadIm(baseTotal)                         // base imponible 8 (15) LRT
-        + _lsdPadIm(baseTotal)                         // base imponible 9 (15) SCVO
+        + _lsdPadIm(0)                                 // base imponible 1 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 2 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 3 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 4 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 5 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 6 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 7 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 8 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 9 — ARCA calcula
         + _lsdPadIm(0)                                 // base diferencial aporte SS (15)
         + _lsdPadIm(0)                                 // base diferencial contrib SS (15)
-        + _lsdPadIm(0)                                 // base imponible 10 (15) régimen especial
+        + _lsdPadIm(0)                                 // base imponible 10 — ARCA calcula
         + _lsdPadIm(0);                                // importe a detraer Ley 26473 (15)
       lineas.push(reg04);
       empleadosOK++;
