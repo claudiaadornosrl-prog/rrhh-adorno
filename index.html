@@ -14099,16 +14099,16 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(0)                                 // base diferencial contrib OS+FSR (15)
         + _lsdPadIm(0)                                 // base diferencial LRT (15)
         + _lsdPadIm(0)                                 // remuneración maternidad (15)
-        + _lsdPadIm(baseRem)                           // remuneración bruta (15) — ARCA usa esto para calcular aportes OS/PAMI/SIPA
-        + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub)
-        + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI/INSSJP)
-        + _lsdPadIm(baseRem)                           // base imponible 3 (OS)
-        + _lsdPadIm(baseRem)                           // base imponible 4 (LRT/ART aporte) — ARCA pide solo remunerativo
-        + _lsdPadIm(baseRem)                           // base imponible 5 (FNE)
+        + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — ARCA determina = baseTotal
+        + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub) — sobre rem
+        + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI) — sobre rem
+        + _lsdPadIm(baseTotal)                         // base imponible 3 (OS) — sobre bruto (OSECAC en CCT 130/75 calcula sobre bruto)
+        + _lsdPadIm(baseTotal)                         // base imponible 4 (LRT aporte) — sobre bruto
+        + _lsdPadIm(baseRem)                           // base imponible 5 (FNE) — sobre rem
         + _lsdPadIm(0)                                 // base imponible 6
         + _lsdPadIm(0)                                 // base imponible 7
-        + _lsdPadIm(baseRem)                           // base imponible 8 (LRT/ART contrib emp)
-        + _lsdPadIm(baseTotal)                         // base imponible 9 (contrib total) = bruto rem+NR
+        + _lsdPadIm(baseTotal)                         // base imponible 8 (LRT contrib emp) — sobre bruto
+        + _lsdPadIm(baseTotal)                         // base imponible 9 (contrib total) — sobre bruto
         + _lsdPadIm(0)                                 // base diferencial aporte SS (15)
         + _lsdPadIm(0)                                 // base diferencial contrib SS (15)
         + _lsdPadIm(0)                                 // base imponible 10
