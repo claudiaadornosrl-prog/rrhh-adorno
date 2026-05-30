@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v29-unificacion-liquidacion';
+const CACHE_VERSION = 'rrhh-v30-ganancias-banner';
 const ASSETS = [
   './',
   './index.html',

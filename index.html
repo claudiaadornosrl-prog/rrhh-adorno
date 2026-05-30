@@ -10948,6 +10948,114 @@ async function exportarPlanillaCompleta() {
   }
 }
 
+// ─── Ganancias 4ta: leer última revisión (auto-refresh si está stale) ──
+async function obtenerRevisionGanancias(periodo) {
+  // Empleadas marcadas para tope
+  const { data: emps } = await sb.from('rrhh_empleados')
+    .select('id, nombre_completo, apellido, nombre')
+    .eq('calcular_tope_ganancias', true).eq('estado', 'activo');
+  if (!emps || emps.length === 0) return [];
+
+  const empIds = emps.map(e => e.id);
+  const { data: revs } = await sb.from('rrhh_ganancias_revision')
+    .select('*').in('empleado_id', empIds)
+    .eq('periodo', periodo + '-01')
+    .order('fecha_corrida', { ascending: false });
+
+  // Quedarme con la más reciente por empleado
+  const ultimaPorEmp = {};
+  (revs || []).forEach(r => {
+    if (!ultimaPorEmp[r.empleado_id]) ultimaPorEmp[r.empleado_id] = r;
+  });
+
+  // Si falta alguno o la última es de >7 días → forzar recálculo
+  const ahora = Date.now();
+  const stale = emps.some(e => {
+    const r = ultimaPorEmp[e.id];
+    return !r || (ahora - new Date(r.fecha_corrida).getTime()) > 7*86400000;
+  });
+  if (stale) {
+    try {
+      await sb.rpc('rrhh_revisar_ganancias_mes', { p_periodo: periodo + '-01' });
+      // Re-leer
+      const { data: revs2 } = await sb.from('rrhh_ganancias_revision')
+        .select('*').in('empleado_id', empIds)
+        .eq('periodo', periodo + '-01')
+        .order('fecha_corrida', { ascending: false });
+      (revs2 || []).forEach(r => {
+        if (!ultimaPorEmp[r.empleado_id] ||
+            new Date(r.fecha_corrida) > new Date(ultimaPorEmp[r.empleado_id].fecha_corrida)) {
+          ultimaPorEmp[r.empleado_id] = r;
+        }
+      });
+    } catch(e) { console.warn('No se pudo forzar revisión:', e); }
+  }
+
+  return emps.map(e => ({ ...e, revision: ultimaPorEmp[e.id] || null }));
+}
+
+async function mostrarDetalleGanancias() {
+  const periodo = (typeof liqState !== 'undefined' && liqState.periodo) ||
+    `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+  const filas = await obtenerRevisionGanancias(periodo);
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const labelEstado = { ok: '🟢 OK', al_borde: '🟡 Al borde', excedido: '🔴 Excedido' };
+  const html = `
+    <div style="padding:20px;max-width:780px;">
+      <h2 style="margin:0 0 14px;">🧮 Tope Ganancias — ${periodo}</h2>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+        El sistema acumula bruto + aportes enero→mes y compara contra deducciones × (mes/12).
+        Si la ganancia neta supera las deducciones acumuladas, se gatilla retención.
+      </div>
+      ${filas.map(f => {
+        const r = f.revision;
+        if (!r) return `<div class="card" style="padding:14px;margin-bottom:10px;"><strong>${escapeHtml(f.nombre_completo)}</strong> — sin revisión todavía.</div>`;
+        const d = r.detalle || {};
+        const det = d.detalle_deducciones || {};
+        const color = r.estado === 'ok' ? '#16a34a' : (r.estado === 'al_borde' ? '#d97706' : '#dc2626');
+        const bg = r.estado === 'ok' ? '#f0fdf4' : (r.estado === 'al_borde' ? '#fef9c3' : '#fef2f2');
+        return `
+          <div class="card" style="padding:16px;margin-bottom:12px;background:${bg};border-left:4px solid ${color};">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+              <strong style="font-size:15px;">${escapeHtml(f.nombre_completo)}</strong>
+              <span style="font-weight:600;color:${color};">${labelEstado[r.estado] || r.estado}</span>
+            </div>
+            <table style="width:100%;font-size:12.5px;border-collapse:collapse;">
+              <tr><td>Bruto acumulado ene→${r.periodo.slice(5,7)}</td><td style="text-align:right;font-family:monospace;">${fmt(r.bruto_acumulado_anual)}</td></tr>
+              <tr><td>Aportes (jub+ley+OS+sind)</td><td style="text-align:right;font-family:monospace;">−${fmt(r.aportes_acumulados_anual)}</td></tr>
+              <tr style="border-top:1px solid #e5e7eb;"><td><strong>Ganancia neta acumulada</strong></td><td style="text-align:right;font-family:monospace;"><strong>${fmt(r.ganancia_neta_acumulada)}</strong></td></tr>
+              <tr><td>Deducciones acumuladas (mes/12)</td><td style="text-align:right;font-family:monospace;">−${fmt(r.deducciones_acumuladas)}</td></tr>
+              <tr style="border-top:1px solid #e5e7eb;"><td><strong>${r.excedente > 0 ? 'Excedente' : 'Margen libre'}</strong></td><td style="text-align:right;font-family:monospace;font-weight:700;color:${color};">${fmt(Math.abs(r.excedente))}</td></tr>
+            </table>
+            <details style="margin-top:10px;font-size:11.5px;color:var(--muted);">
+              <summary style="cursor:pointer;">Desglose deducciones anuales</summary>
+              <table style="width:100%;margin-top:6px;">
+                <tr><td>MNI anual</td><td style="text-align:right;font-family:monospace;">${fmt(det.mni_anual)}</td></tr>
+                <tr><td>Deducción especial</td><td style="text-align:right;font-family:monospace;">${fmt(det.especial_anual)}</td></tr>
+                ${det.conyuge_anual ? `<tr><td>Cónyuge a cargo</td><td style="text-align:right;font-family:monospace;">${fmt(det.conyuge_anual)}</td></tr>` : ''}
+                ${det.hijos_anual ? `<tr><td>Hijos a cargo</td><td style="text-align:right;font-family:monospace;">${fmt(det.hijos_anual)}</td></tr>` : ''}
+                ${det.domestica_deducible ? `<tr><td>Empleada doméstica</td><td style="text-align:right;font-family:monospace;">${fmt(det.domestica_deducible)}</td></tr>` : ''}
+                ${det.prepaga_deducible ? `<tr><td>Prepaga (cap 5%)</td><td style="text-align:right;font-family:monospace;">${fmt(det.prepaga_deducible)}</td></tr>` : ''}
+                <tr style="border-top:1px solid #ddd;"><td><strong>Total anual</strong></td><td style="text-align:right;font-family:monospace;"><strong>${fmt(r.deducciones_anuales)}</strong></td></tr>
+              </table>
+            </details>
+            ${r.bruto_extra_disponible > 0
+              ? `<div style="margin-top:10px;padding:8px;background:white;border-radius:6px;font-size:12.5px;"><strong>💡 Sugerencia:</strong> Podés liquidarle hasta <strong style="font-family:monospace;color:${color};">${fmt(r.bruto_extra_disponible)}</strong> de bruto extra antes de gatillar retención.</div>`
+              : `<div style="margin-top:10px;padding:8px;background:white;border-radius:6px;font-size:12.5px;"><strong>⚠ Ya pasó el tope.</strong> Cualquier bruto adicional este mes genera retención. Para ajustar: reducir el bruto del próximo mes o pagar la retención que corresponda.</div>`}
+            <div style="font-size:11px;color:var(--muted);margin-top:8px;">
+              Última revisión: ${new Date(r.fecha_corrida).toLocaleString('es-AR')} · Fuente: ${(d.fuente_datos||'liquidación')}
+            </div>
+          </div>
+        `;
+      }).join('')}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+        <button class="btn" onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  showModal(html);
+}
+
 async function renderLiquidaciones() {
   // Período por defecto: mes actual
   if (!liqState.periodo) {
@@ -10980,6 +11088,13 @@ async function renderLiquidaciones() {
     .order('local').order('empleado(apellido)');
   if (local !== 'todos') qLiq = qLiq.eq('local', local);
   const { data: liqs } = await qLiq;
+
+  // ─── Revisión Ganancias: leer última corrida + auto-refresh si stale ──
+  let gananciasRevisiones = [];
+  if (isAdmin) {
+    try { gananciasRevisiones = await obtenerRevisionGanancias(periodo); }
+    catch (e) { console.warn('Ganancias revisión fail:', e); }
+  }
 
   const periodos = [];
   for (let i = 0; i < 12; i++) {
@@ -11111,6 +11226,32 @@ async function renderLiquidaciones() {
         </div>
         <div class="metric-card accent2"><div class="label">A pagar en efectivo</div><div class="value">${fmt(totalEfectivo)}</div></div>
       </div>
+
+      ${(() => {
+        const alertas = (gananciasRevisiones || []).filter(g => g.revision && (g.revision.estado === 'al_borde' || g.revision.estado === 'excedido'));
+        if (alertas.length === 0) return '';
+        const hayExcedido = alertas.some(a => a.revision.estado === 'excedido');
+        const bg = hayExcedido ? '#fef2f2' : '#fef9c3';
+        const border = hayExcedido ? '#dc2626' : '#d97706';
+        const icono = hayExcedido ? '🔴' : '🟡';
+        const titulo = hayExcedido ? 'Tope Ganancias: hay empleadas excedidas' : 'Tope Ganancias: hay empleadas al borde';
+        const lineas = alertas.map(a => {
+          const r = a.revision;
+          const lbl = r.estado === 'excedido' ? 'excedido' : 'al borde';
+          const monto = '$' + Math.round(Math.abs(r.excedente)).toLocaleString('es-AR');
+          return `<strong>${escapeHtml(a.nombre_completo.split(',')[0])}</strong>: ${monto} ${lbl}`;
+        }).join(' · ');
+        return `
+          <div class="card" style="background:${bg};border-left:4px solid ${border};padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+            <div style="font-size:22px;">${icono}</div>
+            <div style="flex:1;font-size:13.5px;color:#1f2937;">
+              <div style="font-weight:600;margin-bottom:2px;">${titulo}</div>
+              <div>${lineas}</div>
+            </div>
+            <button class="btn" onclick="mostrarDetalleGanancias()" style="background:${border};color:white;border-color:${border};">Ver detalle</button>
+          </div>
+        `;
+      })()}
 
       <div class="card" style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
