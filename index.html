@@ -11064,7 +11064,7 @@ async function renderLiquidaciones() {
   }
   const isAdmin   = session.rol === 'admin';
   const isGerente = session.rol === 'gerente';
-  if (!liqState.local) liqState.local = isAdmin ? 'alcorta' : (session.empleadoData?.local || 'alcorta');
+  if (!liqState.local) liqState.local = isAdmin ? 'todos' : (session.empleadoData?.local || 'alcorta');
   const local = isGerente ? session.empleadoData.local : liqState.local;
   const periodo = liqState.periodo;
 
@@ -11275,7 +11275,8 @@ async function renderLiquidaciones() {
               <th style="padding:8px;" title="Adelantos del mes (préstamos 1 cuota tasa 0%)">Adelantos</th>
               <th style="padding:8px;background:#dcfce7;" title="Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)">Total</th>
               <th style="padding:8px;">Mercadería</th>
-              <th style="padding:8px;">Ajustes</th>
+              <th style="padding:8px;" title="Interés del/los préstamo(s) — se descuenta del Efectivo">Intereses</th>
+              <th style="padding:8px;" title="Ajuste manual. Click para editar. Hover para ver comentario.">Ajustes</th>
               <th style="padding:8px;background:#fde2e8;">Efectivo</th>
               <th style="padding:8px;">Detalle</th>
             </tr>
@@ -11309,7 +11310,8 @@ async function renderLiquidaciones() {
                 <td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+fmt(adel):'—'}</td>
                 <td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)">${fmt(totalBancoFila)}</td>
                 <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
-                <td style="padding:8px;font-family:monospace;">${fmt(l.ajuste)}</td>
+                <td style="padding:8px;font-family:monospace;cursor:${(+l.prestamo_interes)>0?'pointer':'default'};color:${(+l.prestamo_interes)>0?'#d97706':'var(--muted)'};" ${(+l.prestamo_interes)>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${(+l.prestamo_interes)>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${(+l.prestamo_interes)>0?fmt(l.prestamo_interes):'—'}</td>
+                <td style="padding:8px;font-family:monospace;${isAdmin?'cursor:pointer;':''}" ${isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>
                 <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
                 <td style="padding:8px;white-space:nowrap;">
                   <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
@@ -13787,6 +13789,129 @@ const salaryEngine = (() => {
 
   return { calcularReciboCCT, aniosCumplidosAlPeriodo, calcularBasicoParaNeto, PCT };
 })();
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Liquidador — modales auxiliares (préstamo + ajuste con comentario)
+// ═══════════════════════════════════════════════════════════════════════
+
+async function liqVerPrestamoEmp(empleadoId) {
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  // Traer préstamo(s) activos del empleado + cuotas del mes
+  const { data: emp } = await sb.from('rrhh_empleados')
+    .select('id, nombre_completo, local, cbu, cuil').eq('id', empleadoId).single();
+  const { data: prestamos } = await sb.from('rrhh_prestamo')
+    .select('id, capital, cuotas_totales, tasa_mensual, fecha_otorgamiento, estado, notas')
+    .eq('empleado_id', empleadoId).eq('estado','activo').order('fecha_otorgamiento');
+  if (!prestamos || prestamos.length === 0) {
+    openModal('<div style="padding:24px;">Esta empleada no tiene préstamos activos.</div>', '500px');
+    return;
+  }
+  const ids = prestamos.map(p => p.id);
+  const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+    .select('prestamo_id, mes_descuento, monto_capital, monto_interes, estado')
+    .in('prestamo_id', ids).order('mes_descuento');
+  const cuotasPorPr = {};
+  (cuotas || []).forEach(c => {
+    (cuotasPorPr[c.prestamo_id] = cuotasPorPr[c.prestamo_id] || []).push(c);
+  });
+
+  const html = `
+    <div style="padding:20px;max-width:720px;">
+      <h2 style="margin:0 0 8px;">💵 Préstamos de ${escapeHtml(emp?.nombre_completo||'')}</h2>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${prestamos.length} préstamo(s) activo(s)</div>
+      ${prestamos.map(p => {
+        const cs = cuotasPorPr[p.id] || [];
+        const pagadas = cs.filter(c => c.estado === 'aplicada').length;
+        const pendientes = cs.filter(c => c.estado === 'pendiente').length;
+        const saldoCap = cs.filter(c => c.estado === 'pendiente').reduce((a,c) => a + Number(c.monto_capital||0), 0);
+        return `
+          <div class="card" style="padding:14px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+              <strong>Préstamo #${p.id} — ${new Date(p.fecha_otorgamiento+'T12:00:00').toLocaleDateString('es-AR')}</strong>
+              <span class="emp-tag" style="background:${p.tasa_mensual==0?'#dbeafe':'#fef3c7'};color:${p.tasa_mensual==0?'#1e40af':'#92400e'};">${p.tasa_mensual==0?'Adelanto':'Préstamo'} · ${p.cuotas_totales} cuota${p.cuotas_totales===1?'':'s'} · ${(Number(p.tasa_mensual)*100).toFixed(2)}%</span>
+            </div>
+            <table style="width:100%;font-size:12.5px;">
+              <tr><td>Capital original</td><td style="text-align:right;font-family:monospace;">${fmt(p.capital)}</td></tr>
+              <tr><td>Cuotas pagadas</td><td style="text-align:right;">${pagadas} / ${p.cuotas_totales}</td></tr>
+              <tr><td>Saldo capital pendiente</td><td style="text-align:right;font-family:monospace;font-weight:600;">${fmt(saldoCap)}</td></tr>
+            </table>
+            ${p.notas ? `<div style="margin-top:8px;padding:8px;background:#f9fafb;border-radius:6px;font-size:11.5px;color:var(--muted);">📝 ${escapeHtml(p.notas)}</div>` : ''}
+            <details style="margin-top:8px;font-size:11.5px;">
+              <summary style="cursor:pointer;color:var(--muted);">Ver cuotas (${cs.length})</summary>
+              <table style="width:100%;margin-top:6px;font-size:11.5px;">
+                <thead><tr style="background:#f9fafb;text-align:right;"><th style="padding:4px;text-align:left;">Mes</th><th style="padding:4px;">Capital</th><th style="padding:4px;">Interés</th><th style="padding:4px;">Estado</th></tr></thead>
+                <tbody>${cs.map(c => `<tr><td style="text-align:left;">${c.mes_descuento}</td><td style="text-align:right;font-family:monospace;">${fmt(c.monto_capital)}</td><td style="text-align:right;font-family:monospace;">${fmt(c.monto_interes)}</td><td style="text-align:right;">${c.estado==='aplicada'?'✓':'⏳'}</td></tr>`).join('')}</tbody>
+              </table>
+            </details>
+          </div>
+        `;
+      }).join('')}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+        <button class="btn" onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  openModal(html, '760px');
+}
+
+async function liqEditarAjuste(liqId, empleadoId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  // Liquidación actual
+  const { data: liq } = await sb.from('rrhh_liquidacion')
+    .select('id, periodo, ajuste, ajuste_comentario, empleado:rrhh_empleados(nombre_completo)')
+    .eq('id', liqId).single();
+  if (!liq) { toast('Liquidación no encontrada', 'error'); return; }
+  // Histórico de ajustes (últimos 12 meses, solo con ajuste!=0 o con comentario)
+  const { data: hist } = await sb.from('rrhh_liquidacion')
+    .select('periodo, ajuste, ajuste_comentario')
+    .eq('empleado_id', empleadoId)
+    .order('periodo', { ascending: false }).limit(12);
+  const histConDatos = (hist || []).filter(h => Number(h.ajuste||0) !== 0 || (h.ajuste_comentario||'').trim() !== '');
+
+  const html = `
+    <div style="padding:20px;max-width:600px;">
+      <h2 style="margin:0 0 8px;">✏️ Ajuste — ${escapeHtml(liq.empleado?.nombre_completo||'')}</h2>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Período: ${liq.periodo}</div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <label style="display:block;font-size:12.5px;margin-bottom:4px;">Monto del ajuste (positivo = a favor empleada, negativo = a descontar)</label>
+        <input type="number" id="aj-monto" value="${Number(liq.ajuste||0)}" style="width:100%;padding:6px 10px;font-family:monospace;">
+      </div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <label style="display:block;font-size:12.5px;margin-bottom:4px;">Comentario / motivo</label>
+        <textarea id="aj-comentario" rows="3" style="width:100%;padding:6px 10px;" placeholder="Ej: descuento por rotura inventario · reembolso viático · etc.">${escapeHtml(liq.ajuste_comentario||'')}</textarea>
+      </div>
+      ${histConDatos.length > 0 ? `
+        <details style="margin-top:14px;font-size:12.5px;">
+          <summary style="cursor:pointer;color:var(--muted);font-weight:600;">📜 Ajustes anteriores (${histConDatos.length})</summary>
+          <table style="width:100%;margin-top:8px;font-size:12px;">
+            <thead><tr style="background:#f9fafb;text-align:right;"><th style="padding:4px;text-align:left;">Período</th><th style="padding:4px;">Monto</th><th style="padding:4px;text-align:left;">Comentario</th></tr></thead>
+            <tbody>${histConDatos.map(h => `<tr style="border-top:1px solid var(--border);"><td style="text-align:left;padding:4px;">${h.periodo}</td><td style="text-align:right;font-family:monospace;padding:4px;color:${Number(h.ajuste)>=0?'#16a34a':'#dc2626'};">${fmt(h.ajuste)}</td><td style="text-align:left;padding:4px;font-size:11.5px;color:var(--muted);">${escapeHtml(h.ajuste_comentario||'—')}</td></tr>`).join('')}</tbody>
+          </table>
+        </details>
+      ` : ''}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="liqGuardarAjuste(${liqId})">💾 Guardar</button>
+      </div>
+    </div>
+  `;
+  openModal(html, '640px');
+}
+
+async function liqGuardarAjuste(liqId) {
+  const monto = Number(document.getElementById('aj-monto').value || 0);
+  const comentario = (document.getElementById('aj-comentario').value || '').trim();
+  const { error } = await sb.from('rrhh_liquidacion')
+    .update({ ajuste: monto, ajuste_comentario: comentario || null })
+    .eq('id', liqId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Ajuste guardado ✓', 'success');
+  closeModal();
+  switchTab('liquidaciones');
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════
 //  SALARY WORKFLOW — Orquesta el cálculo y guardado de liquidaciones
