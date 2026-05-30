@@ -14047,9 +14047,23 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       //                 bases 5-9 = bruto total (rem + NR);
       //                 base 10 = 0 (no aplica régimen diferencial para comercio).
       // Si MEMOSOFT calcula diferente, lo ajustamos cuando comparemos.
-      const bases123 = Number(l.recibo_basico||0) + Number(l.recibo_antiguedad||0) + Number(l.recibo_presentismo||0);
-      const baseTotal = bases123 + Number(l.recibo_sumafija_nr||0) + Number(l.recibo_antig_nr||0)
-                       + Number(l.recibo_pres_nr||0) + Number(l.recibo_recompos_nr||0);
+      // Calcular bases imponibles a partir de los CONCEPTOS (registro 03).
+      // ARCA compara estos valores contra los que calcula desde el registro 03 — deben coincidir.
+      let baseRem = 0, baseNR = 0;
+      for (const c of conceptos) {
+        if (c.es_descuento) continue;
+        const imp = Number(c.importe) || 0;
+        if (c.remunerativo) baseRem += imp;
+        else baseNR += imp;
+      }
+      const baseTotal = baseRem + baseNR;
+      // Base 1-3, 5 (SIPA, PAMI, OS, FNE) = remunerativo
+      // Base 4, 8 (LRT/ART) = remunerativo + NR (sobre rem total)
+      // Base 9 (contribución empleador) = bruto total
+      // Base 6, 7, 10 = 0
+
+      // Código localidad real per empleado (01 CABA, 02 BsAs)
+      const locCodigo = String(emp.localidad_codigo || '02').padStart(2, '0').slice(-2);
 
       const reg04 = ''
         + '04'                                         // tipo (2)
@@ -14063,10 +14077,10 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + '0'                                          // tipo operación (1)
         + _lsdPadA(emp.situacion_revista_default || '1', 2)  // situación revista (2)
         + _lsdPadA(emp.condicion_codigo || '1', 2)     // código condición (2)
-        + _lsdPadA(emp.actividad_codigo || '478996', 3).slice(-3)  // código actividad (3) — últimos 3
+        + _lsdPadA(emp.actividad_codigo || '049', 3).slice(-3)  // código actividad (3) — últimos 3
         + _lsdPadA(emp.modalidad_contrato_codigo || '008', 3)  // modalidad (3)
         + _lsdPadA(emp.siniestrado_codigo || '0', 2)   // siniestrado (2)
-        + '00'                                          // código localidad (2) — '00' = ARCA usa lo cargado en su DB
+        + locCodigo                                    // código localidad (2) — 01 CABA, 02 BsAs
         + _lsdPadA(emp.situacion_revista_default || '1', 2)  // situación revista 1 (2)
         + _lsdPadN(1, 2)                               // día inicio revista 1 (2) — día 1
         + '  '                                         // situación revista 2 (2) vacía
@@ -14077,7 +14091,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadN(0, 3)                               // horas trabajadas (3)
         + _lsdPadN(0, 5)                               // % aporte adicional SS (5)
         + _lsdPadN(0, 5)                               // % contribución diferencial (5)
-        + _lsdPadA(emp.os_codigo_afip || '000000', 6)  // código obra social (6)
+        + _lsdPadA(emp.os_codigo_afip || '126205', 6)  // código obra social (6) — default OSECAC
         + _lsdPadN(0, 2)                               // adherentes OS (2)
         + _lsdPadIm(0)                                 // aporte adicional OS (15)
         + _lsdPadIm(0)                                 // contribución adicional OS (15)
@@ -14086,18 +14100,18 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
         + _lsdPadIm(0)                                 // base diferencial LRT (15)
         + _lsdPadIm(0)                                 // remuneración maternidad (15)
         + _lsdPadIm(baseTotal)                         // remuneración bruta (15) — bruto del recibo CCT
-        + _lsdPadIm(0)                                 // base imponible 1 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 2 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 3 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 4 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 5 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 6 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 7 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 8 — ARCA calcula
-        + _lsdPadIm(0)                                 // base imponible 9 — ARCA calcula
+        + _lsdPadIm(baseRem)                           // base imponible 1 (SIPA jub)
+        + _lsdPadIm(baseRem)                           // base imponible 2 (PAMI/INSSJP)
+        + _lsdPadIm(baseRem)                           // base imponible 3 (OS)
+        + _lsdPadIm(baseTotal)                         // base imponible 4 (LRT/ART aporte) = bruto
+        + _lsdPadIm(baseRem)                           // base imponible 5 (FNE)
+        + _lsdPadIm(0)                                 // base imponible 6
+        + _lsdPadIm(0)                                 // base imponible 7
+        + _lsdPadIm(baseTotal)                         // base imponible 8 (LRT/ART contrib emp) = bruto
+        + _lsdPadIm(baseTotal)                         // base imponible 9 (contrib total)
         + _lsdPadIm(0)                                 // base diferencial aporte SS (15)
         + _lsdPadIm(0)                                 // base diferencial contrib SS (15)
-        + _lsdPadIm(0)                                 // base imponible 10 — ARCA calcula
+        + _lsdPadIm(0)                                 // base imponible 10
         + _lsdPadIm(0);                                // importe a detraer Ley 26473 (15)
       lineas.push(reg04);
       empleadosOK++;
