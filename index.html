@@ -11239,11 +11239,12 @@ async function renderLiquidaciones() {
         ⚠️ Solo con alertas (puntos > 4)
       </label>
 
-      <div style="margin-left:auto;color:var(--muted);font-size:12px;">
-        Mostrando <strong style="color:var(--text);">${liqs.length}</strong> de ${liqsAll.length}
+      <div style="margin-left:auto;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:8px;">
+        <span>Mostrando <strong style="color:var(--text);">${liqs.length}</strong> de ${liqsAll.length}</span>
         ${(busqNorm || liqState.estado !== 'todos' || liqState.categoria !== 'todas' || liqState.soloAlertas)
-          ? `<button class="btn small" style="margin-left:8px;" onclick="liqLimpiarFiltros()" title="Limpiar todos los filtros">✕ Limpiar</button>`
+          ? `<button class="btn small" onclick="liqLimpiarFiltros()" title="Limpiar todos los filtros">✕ Limpiar</button>`
           : ''}
+        <button class="btn small" onclick="liqAbrirConfigCols()" title="Mostrar/ocultar y reordenar columnas">⚙️ Columnas</button>
       </div>
     </div>
 
@@ -11299,87 +11300,98 @@ async function renderLiquidaciones() {
       })()}
 
       <div class="card" style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-          <thead>
-            ${(() => {
-              const arrow = (col) => liqState.sortBy === col
-                ? `<span style="color:#4338ca;margin-left:3px;">${liqState.sortDir === 'asc' ? '↑' : '↓'}</span>`
-                : '<span style="color:#cbd5e1;margin-left:3px;">↕</span>';
-              const sortable = (col, label, opts = {}) => `<th style="padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}cursor:pointer;user-select:none;" onclick="liqOrdenarPor('${col}')" ${opts.title ? `title="${opts.title}"` : ''}>${label}${arrow(col)}</th>`;
-              const fixed = (label, opts = {}) => `<th style="padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}" ${opts.title ? `title="${opts.title}"` : ''}>${label}</th>`;
-              return `
-            <tr style="background:#f9fafb;text-align:right;">
-              ${sortable('empleada', 'Empleada', { align: 'text-align:left' })}
-              ${local === 'todos' ? sortable('local', 'Local', { align: 'text-align:left' }) : ''}
-              ${fixed('Cat.')}
-              ${sortable('dias', 'Días')}
-              ${sortable('puntos', 'Pts')}
-              ${fixed('Fijo')}
-              ${fixed('Comisión')}
-              ${fixed('Premios')}
-              ${fixed('Viáticos')}
-              ${fixed('Extras')}
-              ${fixed('Feriado')}
-              ${esMesSAC ? fixed('SAC', { title: 'SAC = mejor bruto del semestre / 12 × meses trabajados' }) : ''}
-              ${sortable('total', 'Total', { bg: '#eef2ff', title: 'Fijo + Comisión + Premios + Viáticos + Extras + Feriado' + (esMesSAC ? ' + SAC' : '') })}
-              ${sortable('recibo', 'Recibo', { bg: '#fef3c7', title: 'Neto del recibo CCT (lo que dice el recibo legal)' })}
-              ${fixed('Préstamos', { title: 'Capital de cuota de préstamo descontado del banco' })}
-              ${fixed('Adelantos', { title: 'Adelantos del mes (préstamos 1 cuota tasa 0%)' })}
-              ${sortable('banco', 'Total', { bg: '#dcfce7', title: 'Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)' })}
-              ${fixed('Mercadería')}
-              ${fixed('Intereses', { title: 'Interés del/los préstamo(s) — se descuenta del Efectivo' })}
-              ${fixed('Ajustes', { title: 'Ajuste manual. Click para editar. Hover para ver comentario.' })}
-              ${sortable('efectivo', 'Efectivo', { bg: '#fde2e8' })}
-              ${fixed('Detalle')}
-            </tr>
-              `;
-            })()}
-          </thead>
-          <tbody>
-            ${(liqs||[]).map(l => {
-              const e = l.empleado;
-              const cat = e?.categoria?.nombre || '';
-              const premioOk = l.premio_cobra;
-              const adel = adelantosPorEmpLiq[l.empleado_id] || 0;
-              const pres = prestamosPorEmpLiq[l.empleado_id] || 0;
-              const sac  = sacPorEmp[l.empleado_id] || 0;
-              const totalConSAC = (+l.total_negro || 0) + sac;
-              const totalBancoFila = (+l.recibo_neto || 0) - pres - adel;
-              return `<tr style="border-top:1px solid var(--border);text-align:right;">
-                <td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${escapeHtml(e?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e?.nombre || '').split(' ')[0])}</span></td>
-                ${local === 'todos' ? `<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` : ''}
-                <td style="padding:8px;text-align:left;font-size:11px;color:var(--muted);">${escapeHtml(cat)}</td>
-                <td style="padding:8px;">${l.dias_trabajados}</td>
-                <td style="padding:8px;${(l.puntos_mes||0) > 4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>
-                <td style="padding:8px;font-family:monospace;">${fmt(l.fijo)}</td>
-                <td style="padding:8px;font-family:monospace;">${fmt(l.comision)}</td>
-                <td style="padding:8px;font-family:monospace;color:${premioOk?'#059669':'#dc2626'};" title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}">${premioOk?fmt(l.premio_monto):'—'}</td>
-                <td style="padding:8px;font-family:monospace;">${fmt(l.viaticos)}</td>
-                <td style="padding:8px;font-family:monospace;">${fmt(l.extras)}</td>
-                <td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
-                ${esMesSAC ? `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};" title="${sac>0?'SAC auto = mejor bruto semestre / 12 × meses trabajados':'Sin SAC (sin liquidaciones previas en el semestre)'}">${sac>0?fmt(sac):'—'}</td>` : ''}
-                <td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(totalConSAC)}</td>
-                <td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo">${fmt(l.recibo_neto)}</td>
-                <td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+fmt(pres):'—'}</td>
-                <td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+fmt(adel):'—'}</td>
-                <td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)">${fmt(totalBancoFila)}</td>
-                <td style="padding:8px;font-family:monospace;">${fmt(l.mercaderia)}</td>
-                <td style="padding:8px;font-family:monospace;cursor:${(+l.prestamo_interes)>0?'pointer':'default'};color:${(+l.prestamo_interes)>0?'#d97706':'var(--muted)'};" ${(+l.prestamo_interes)>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${(+l.prestamo_interes)>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${(+l.prestamo_interes)>0?fmt(l.prestamo_interes):'—'}</td>
-                <td style="padding:8px;font-family:monospace;${isAdmin?'cursor:pointer;':''}" ${isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>
-                <td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
-                <td style="padding:8px;white-space:nowrap;">
-                  <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
-                  <button class="btn small" onclick="generarPDFRecibo(${l.id})" title="Descargar recibo PDF">📄</button>
-                  ${isAdmin ? `<button class="btn small" onclick="enviarReciboFirma(${l.id})" title="Enviar para firmar por mail">📧</button>` : ''}
-                  ${l.pdf_firmado_at
-                      ? '<span title="PDF firmado recibido" style="color:#16a34a;font-size:14px;margin-left:4px;">✓</span>'
-                      : (l.pdf_enviado_at ? '<span title="Enviado — esperando firma" style="color:#d97706;font-size:14px;margin-left:4px;">⏳</span>' : '')}
-                  ${isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+        ${(() => {
+          // ── Definición de TODAS las columnas posibles del Liquidador ──
+          const ALL_COLS = [
+            { id:'empleada',  label:'Empleada',   sortKey:'empleada', thOpts:{align:'text-align:left'},
+              tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span></td>` },
+            { id:'local',     label:'Local',      sortKey:'local', condition:c=>c.local==='todos', thOpts:{align:'text-align:left'},
+              tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${c.escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` },
+            { id:'cat',       label:'Cat.',       thOpts:{align:'text-align:left'},
+              tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;color:var(--muted);">${c.escapeHtml(l.empleado?.categoria?.nombre || '')}</td>` },
+            { id:'dias',      label:'Días',       sortKey:'dias',
+              tdRender:(l,c)=>`<td style="padding:8px;">${l.dias_trabajados}</td>` },
+            { id:'puntos',    label:'Pts',        sortKey:'puntos',
+              tdRender:(l,c)=>`<td style="padding:8px;${(l.puntos_mes||0)>4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>` },
+            { id:'fijo',      label:'Fijo',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.fijo)}</td>` },
+            { id:'comision',  label:'Comisión',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.comision)}</td>` },
+            { id:'premios',   label:'Premios',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};" title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}">${l.premio_cobra?c.fmt(l.premio_monto):'—'}</td>` },
+            { id:'viaticos',  label:'Viáticos',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.viaticos)}</td>` },
+            { id:'extras',    label:'Extras',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.extras)}</td>` },
+            { id:'feriado',   label:'Feriado',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?c.fmt(l.feriado_monto):'—'}</td>` },
+            { id:'sac',       label:'SAC',        condition:c=>c.esMesSAC, thOpts:{title:'SAC = mejor bruto del semestre / 12 × meses trabajados'},
+              tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};" title="${sac>0?'SAC auto = mejor bruto semestre / 12 × meses trabajados':'Sin SAC (sin liquidaciones previas en el semestre)'}">${sac>0?c.fmt(sac):'—'}</td>`; } },
+            { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Extras + Feriado'},
+              tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
+            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo CCT (lo que dice el recibo legal)'},
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo">${c.fmt(l.recibo_neto)}</td>` },
+            { id:'prestamos', label:'Préstamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco'},
+              tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):'—'}</td>`; } },
+            { id:'adelantos', label:'Adelantos',  thOpts:{title:'Adelantos del mes (préstamos 1 cuota tasa 0%)'},
+              tdRender:(l,c)=>{ const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+c.fmt(adel):'—'}</td>`; } },
+            { id:'banco',     label:'Total',      sortKey:'banco', thOpts:{bg:'#dcfce7',title:'Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)'},
+              tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)">${c.fmt((+l.recibo_neto || 0) - pres - adel)}</td>`; } },
+            { id:'mercaderia', label:'Mercadería',
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.mercaderia)}</td>` },
+            { id:'intereses', label:'Intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;cursor:${(+l.prestamo_interes)>0?'pointer':'default'};color:${(+l.prestamo_interes)>0?'#d97706':'var(--muted)'};" ${(+l.prestamo_interes)>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${(+l.prestamo_interes)>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${(+l.prestamo_interes)>0?c.fmt(l.prestamo_interes):'—'}</td>` },
+            { id:'ajustes',   label:'Ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
+            { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8'},
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?c.fmt(l.efectivo):'—'}</td>` },
+            { id:'detalle',   label:'Detalle',
+              tdRender:(l,c)=>`<td style="padding:8px;white-space:nowrap;">
+                <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
+                <button class="btn small" onclick="generarPDFRecibo(${l.id})" title="Descargar recibo PDF">📄</button>
+                ${c.isAdmin ? `<button class="btn small" onclick="enviarReciboFirma(${l.id})" title="Enviar para firmar por mail">📧</button>` : ''}
+                ${l.pdf_firmado_at ? '<span title="PDF firmado recibido" style="color:#16a34a;font-size:14px;margin-left:4px;">✓</span>' : (l.pdf_enviado_at ? '<span title="Enviado — esperando firma" style="color:#d97706;font-size:14px;margin-left:4px;">⏳</span>' : '')}
+                ${c.isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
+              </td>` },
+          ];
+
+          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, sacPorEmpLiq: sacPorEmp };
+
+          // Filtrar por condition (local==='todos', esMesSAC)
+          const colsAvailable = ALL_COLS.filter(c => !c.condition || c.condition(ctxL));
+          // Guardar lista de columnas disponibles para que el modal de config las muestre
+          window._liqAvailableCols = colsAvailable.map(c => ({ id: c.id, label: c.label }));
+
+          // Aplicar config del usuario (orden + visibilidad desde localStorage)
+          const cfg = liqGetColsConfig();
+          const byId = Object.fromEntries(colsAvailable.map(c => [c.id, c]));
+          const remaining = new Set(colsAvailable.map(c => c.id));
+          const ordered = [];
+          (cfg.orden || []).forEach(id => { if (byId[id] && remaining.has(id)) { ordered.push(byId[id]); remaining.delete(id); } });
+          // Columnas no listadas en cfg.orden van al final en su orden original
+          colsAvailable.forEach(c => { if (remaining.has(c.id)) ordered.push(c); });
+          const cols = ordered.filter(c => !(cfg.ocultas || []).includes(c.id));
+
+          // Render thead + tbody
+          const arrow = (k) => liqState.sortBy === k
+            ? `<span style="color:#4338ca;margin-left:3px;">${liqState.sortDir === 'asc' ? '↑' : '↓'}</span>`
+            : '<span style="color:#cbd5e1;margin-left:3px;">↕</span>';
+          const thHtml = cols.map(col => {
+            const opts = col.thOpts || {};
+            const style = `padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}${col.sortKey ? 'cursor:pointer;user-select:none;' : ''}`;
+            const onclick = col.sortKey ? `onclick="liqOrdenarPor('${col.sortKey}')"` : '';
+            const title = opts.title ? `title="${opts.title}"` : '';
+            return `<th style="${style}" ${onclick} ${title}>${col.label}${col.sortKey ? arrow(col.sortKey) : ''}</th>`;
+          }).join('');
+          const bodyHtml = (liqs||[]).map(l =>
+            `<tr style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`
+          ).join('');
+
+          return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <thead><tr style="background:#f9fafb;text-align:right;">${thHtml}</tr></thead>
+            <tbody>${bodyHtml}</tbody>
+          </table>`;
+        })()}
       </div>
 
       <div class="card" style="margin-top:14px;padding:12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
@@ -11396,6 +11408,123 @@ function liqLimpiarFiltros() {
   liqState.categoria = 'todas';
   liqState.soloAlertas = false;
   switchTab('liquidaciones');
+}
+
+// ── Config de columnas del Liquidador (orden + visibilidad) ────────
+// Persistencia en localStorage por usuario
+function _liqCfgKey() { return 'rrhh.liq.cols.' + (session?.user?.email || 'anon'); }
+
+function liqGetColsConfig() {
+  try {
+    const raw = localStorage.getItem(_liqCfgKey());
+    if (!raw) return { orden: null, ocultas: [] };
+    const cfg = JSON.parse(raw);
+    return { orden: cfg.orden || null, ocultas: cfg.ocultas || [] };
+  } catch (_) { return { orden: null, ocultas: [] }; }
+}
+
+function liqSaveColsConfig(cfg) {
+  try { localStorage.setItem(_liqCfgKey(), JSON.stringify(cfg)); }
+  catch (e) { console.warn('No se pudo guardar config cols:', e); }
+}
+
+function liqResetColsConfig() {
+  if (!confirm('¿Restablecer columnas al orden y visibilidad por defecto?')) return;
+  try { localStorage.removeItem(_liqCfgKey()); } catch (_) {}
+  closeModal();
+  switchTab('liquidaciones');
+}
+
+// Abre modal con la lista de columnas (checkbox + ↑↓ para reordenar)
+function liqAbrirConfigCols() {
+  const available = window._liqAvailableCols || [];
+  if (available.length === 0) { toast('Primero abrí el Liquidador', 'warning'); return; }
+  const cfg = liqGetColsConfig();
+  const byId = Object.fromEntries(available.map(c => [c.id, c]));
+  const remaining = new Set(available.map(c => c.id));
+  const ordered = [];
+  (cfg.orden || []).forEach(id => { if (byId[id] && remaining.has(id)) { ordered.push(byId[id]); remaining.delete(id); } });
+  available.forEach(c => { if (remaining.has(c.id)) ordered.push(c); });
+
+  // Estado temporal de edición (se aplica al "Guardar")
+  window._liqColsDraft = {
+    orden: ordered.map(c => c.id),
+    ocultas: [...(cfg.ocultas || [])],
+  };
+
+  const html = `
+    <h3 style="margin:0 0 8px;">⚙️ Configurar columnas</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+      Marcá las que querés ver. Usá ↑↓ para reordenar. Se guarda en este navegador.
+    </div>
+    <div id="liq-cols-list" style="max-height:60vh;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
+      ${liqRenderColsList()}
+    </div>
+    <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;">
+      <button class="btn small" onclick="liqResetColsConfig()" title="Volver al orden por defecto">↺ Restablecer</button>
+      <div>
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="liqGuardarConfigCols()">💾 Guardar</button>
+      </div>
+    </div>
+  `;
+  openModal(html, '420px');
+}
+
+function liqRenderColsList() {
+  const available = window._liqAvailableCols || [];
+  const byId = Object.fromEntries(available.map(c => [c.id, c]));
+  const draft = window._liqColsDraft || { orden: [], ocultas: [] };
+  return draft.orden.map((id, idx) => {
+    const col = byId[id]; if (!col) return '';
+    const oculta = (draft.ocultas || []).includes(id);
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);${oculta?'opacity:0.5;':''}">
+        <label style="flex:1;display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" ${oculta?'':'checked'} onchange="liqToggleColVisible('${id}')">
+          <span style="font-weight:${oculta?'400':'600'};">${escapeHtml(col.label)}</span>
+        </label>
+        <button class="btn small" onclick="liqMoverCol('${id}',-1)" ${idx===0?'disabled':''} title="Subir">↑</button>
+        <button class="btn small" onclick="liqMoverCol('${id}', 1)" ${idx===draft.orden.length-1?'disabled':''} title="Bajar">↓</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function liqToggleColVisible(id) {
+  const d = window._liqColsDraft;
+  if (!d) return;
+  if ((d.ocultas || []).includes(id)) {
+    d.ocultas = d.ocultas.filter(x => x !== id);
+  } else {
+    d.ocultas = [...(d.ocultas || []), id];
+  }
+  // Re-render solo la lista
+  const cont = document.getElementById('liq-cols-list');
+  if (cont) cont.innerHTML = liqRenderColsList();
+}
+
+function liqMoverCol(id, delta) {
+  const d = window._liqColsDraft;
+  if (!d) return;
+  const idx = d.orden.indexOf(id);
+  if (idx < 0) return;
+  const nuevoIdx = idx + delta;
+  if (nuevoIdx < 0 || nuevoIdx >= d.orden.length) return;
+  // Swap
+  d.orden.splice(idx, 1);
+  d.orden.splice(nuevoIdx, 0, id);
+  const cont = document.getElementById('liq-cols-list');
+  if (cont) cont.innerHTML = liqRenderColsList();
+}
+
+function liqGuardarConfigCols() {
+  const d = window._liqColsDraft;
+  if (!d) { closeModal(); return; }
+  liqSaveColsConfig({ orden: d.orden, ocultas: d.ocultas });
+  closeModal();
+  switchTab('liquidaciones');
+  toast('Columnas guardadas ✓', 'success');
 }
 
 // Click en header de la tabla → toggle ASC/DESC en esa columna (o asignar si era otra)
