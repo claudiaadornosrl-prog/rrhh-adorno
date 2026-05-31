@@ -866,6 +866,7 @@ async function renderPage(tabId) {
     // Hooks post-render por tab
     if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
     if (tabId === 'mi-legajo')      setTimeout(renderPushCard, 0);
+    if (tabId === 'liquidaciones' && liqState.busqueda) setTimeout(liqFiltrarBusquedaLocal, 0);
   } catch (e) {
     console.error(e);
     main.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${e.message}</div>`;
@@ -11141,11 +11142,9 @@ async function renderLiquidaciones() {
   // ── FILTROS LOCALES (no recargan de Supabase) ──────────────────────
   const busqNorm = (liqState.busqueda || '').toLowerCase().trim();
   const categoriasPresentes = [...new Set(liqsAll.map(l => l.empleado?.categoria?.nombre).filter(Boolean))].sort();
+  // Filtros que requieren recálculo (estado/categoría/alertas) — afectan métricas
+  // El filtro de búsqueda por nombre NO está acá: se aplica en vivo al DOM por liqFiltrarBusquedaLocal()
   const liqs = liqsAll.filter(l => {
-    if (busqNorm) {
-      const nom = (l.empleado?.nombre_completo || '').toLowerCase();
-      if (!nom.includes(busqNorm)) return false;
-    }
     if (liqState.estado && liqState.estado !== 'todos' && l.estado !== liqState.estado) return false;
     if (liqState.categoria && liqState.categoria !== 'todas' && l.empleado?.categoria?.nombre !== liqState.categoria) return false;
     if (liqState.soloAlertas && (l.puntos_mes || 0) <= 4) return false;
@@ -11316,7 +11315,7 @@ async function renderLiquidaciones() {
     <div class="cal-toolbar" style="margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:8px;font-size:13px;">
       <input type="text" id="liq-busqueda" placeholder="🔍 Buscar por nombre…"
              value="${escapeHtml(liqState.busqueda || '')}"
-             oninput="liqState.busqueda = this.value; clearTimeout(window._liqBusqTimer); window._liqBusqTimer = setTimeout(() => switchTab('liquidaciones'), 300);"
+             oninput="liqState.busqueda = this.value; liqFiltrarBusquedaLocal();"
              style="flex:0 0 240px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
 
       <label style="display:flex;align-items:center;gap:6px;color:var(--muted);">Estado:
@@ -11512,9 +11511,10 @@ async function renderLiquidaciones() {
             const title = opts.title ? `title="${opts.title}"` : '';
             return `<th style="${style}" ${onclick} ${title}>${col.label}${col.sortKey ? arrow(col.sortKey) : ''}</th>`;
           }).join('');
-          const bodyHtml = (liqs||[]).map(l =>
-            `<tr style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`
-          ).join('');
+          const bodyHtml = (liqs||[]).map(l => {
+            const nombreNorm = ((l.empleado?.apellido || '') + ' ' + (l.empleado?.nombre || '')).toLowerCase();
+            return `<tr data-search="${escapeHtml(nombreNorm)}" style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`;
+          }).join('');
 
           return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
             <thead><tr style="background:#f9fafb;text-align:right;">${thHtml}</tr></thead>
@@ -11528,6 +11528,36 @@ async function renderLiquidaciones() {
       </div>
     `}
   `;
+}
+
+// Filtra las filas de la tabla del Liquidador SIN recargar desde Supabase.
+// Trabaja sobre el DOM directamente — instantáneo.
+// El filtro de estado/categoria/alertas sigue refrescando porque cambia métricas.
+function liqFiltrarBusquedaLocal() {
+  const txt = (liqState.busqueda || '').toLowerCase().trim();
+  const table = document.querySelector('.cal-toolbar + .cal-toolbar + .card table tbody');
+  // Fallback: buscar tbody dentro del card que contenga la tabla del Liquidador
+  let tbody = table;
+  if (!tbody) {
+    const tables = document.querySelectorAll('.card table');
+    for (const tb of tables) {
+      if (tb.querySelector('tr[data-search]')) { tbody = tb.querySelector('tbody'); break; }
+    }
+  }
+  if (!tbody) return;
+
+  let visibles = 0;
+  let total = 0;
+  tbody.querySelectorAll('tr[data-search]').forEach(tr => {
+    total++;
+    const match = !txt || tr.dataset.search.includes(txt);
+    tr.style.display = match ? '' : 'none';
+    if (match) visibles++;
+  });
+
+  // Actualizar el contador "Mostrando X de Y" sin re-render
+  const counter = document.querySelector('.cal-toolbar span strong');
+  if (counter) counter.textContent = visibles;
 }
 
 // Limpia todos los filtros del Liquidador y refresca
