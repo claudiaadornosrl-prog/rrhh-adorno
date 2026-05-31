@@ -12481,6 +12481,12 @@ function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
 // para acumular IPC). Por ahora hardcodeado a febrero 2026 — más adelante
 // se puede leer de rrhh_sueldo_empleada_config (vigente_desde más reciente).
 const AUM_ULTIMO_AUMENTO_MES = '2026-02-01';
+// Mes en el que JP aplicará el próximo aumento (default = mes actual).
+// El acumulado IPC se calcula hasta este mes inclusive, ignorando meses posteriores.
+let AUM_PROXIMO_AUMENTO_MES = (() => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10);
+})();
 
 async function aumIPCRender() {
   const panel = document.getElementById('aum-ipc-panel');
@@ -12493,10 +12499,13 @@ async function aumIPCRender() {
     return;
   }
 
-  // Calcular acumulado de meses POSTERIORES al último aumento.
-  // (el sueldo de feb-26 ya incluye el aumento de febrero, entonces lo que tiene
-  // que compensar el próximo aumento es marzo en adelante)
-  const filtrados = (ipc || []).filter(r => r.mes > AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0);
+  // Calcular acumulado entre el último aumento (exclusive) y el próximo (inclusive).
+  // El sueldo de feb-26 ya absorbió el aumento de feb, entonces se compensa mar→próximo.
+  const filtrados = (ipc || []).filter(r =>
+    r.mes > AUM_ULTIMO_AUMENTO_MES &&
+    r.mes <= AUM_PROXIMO_AUMENTO_MES &&
+    Number(r.variacion_pct) > 0
+  );
   let factor = 1;
   filtrados.forEach(r => { factor *= (1 + Number(r.variacion_pct)/100); });
   const acumPct = (factor - 1) * 100;
@@ -12508,11 +12517,15 @@ async function aumIPCRender() {
 
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
-      <div>
+      <div style="flex:1;min-width:280px;">
         <h3 style="margin:0 0 4px;">📈 Histórico inflación INDEC</h3>
-        <div style="color:var(--muted);font-size:12px;">
-          Último aumento aplicado: <strong>${mesLabel(AUM_ULTIMO_AUMENTO_MES)}</strong>.
-          IPC acumulado desde entonces: <strong style="color:#7c3aed;font-size:16px;">${acumPct.toFixed(2)}%</strong>
+        <div style="color:var(--muted);font-size:12px;line-height:1.6;">
+          Último aumento: <strong>${mesLabel(AUM_ULTIMO_AUMENTO_MES)}</strong> · Próximo aumento:
+          <input type="month" id="aum-ipc-proximo" value="${AUM_PROXIMO_AUMENTO_MES.slice(0,7)}"
+                 onchange="aumSetProximoAumento(this.value)"
+                 style="padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+          <br>IPC acumulado a compensar (mar→${mesLabel(AUM_PROXIMO_AUMENTO_MES)}):
+          <strong style="color:#7c3aed;font-size:16px;">${acumPct.toFixed(2)}%</strong>
           (${filtrados.length} ${filtrados.length === 1 ? 'mes' : 'meses'}).
         </div>
       </div>
@@ -12523,7 +12536,7 @@ async function aumIPCRender() {
       <thead><tr style="background:#f9fafb;text-align:left;">
         <th style="padding:6px 8px;">Mes</th>
         <th style="padding:6px 8px;text-align:right;">Variación mensual</th>
-        <th style="padding:6px 8px;text-align:right;">Acumulado post-feb 2026</th>
+        <th style="padding:6px 8px;text-align:right;">Acumulado a compensar</th>
         <th style="padding:6px 8px;">Fuente</th>
         <th style="padding:6px 8px;text-align:right;">Acción</th>
       </tr></thead>
@@ -12534,12 +12547,12 @@ async function aumIPCRender() {
           const ordenados = [...(ipc || [])].sort((a,b) => a.mes.localeCompare(b.mes));
           const acumByMes = {};
           ordenados.forEach(r => {
-            if (r.mes > AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0) {
+            if (r.mes > AUM_ULTIMO_AUMENTO_MES && r.mes <= AUM_PROXIMO_AUMENTO_MES && Number(r.variacion_pct) > 0) {
               acum *= (1 + Number(r.variacion_pct)/100);
               acumByMes[r.mes] = (acum - 1) * 100;
             }
           });
-          return (ipc || []).map(r => {
+          return (ipc || []).filter(r => r.mes <= AUM_PROXIMO_AUMENTO_MES).map(r => {
             const acumPct = acumByMes[r.mes];
             const pct = Number(r.variacion_pct);
             const esPendiente = pct === 0;
@@ -12586,6 +12599,12 @@ async function aumIPCGuardarMes(mesISO) {
   }).eq('mes', mesISO);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast(`IPC de ${mesISO} guardado (${v}%)`, 'success');
+  aumIPCRender();
+}
+
+function aumSetProximoAumento(yyyy_mm) {
+  if (!/^\d{4}-\d{2}$/.test(yyyy_mm)) return;
+  AUM_PROXIMO_AUMENTO_MES = yyyy_mm + '-01';
   aumIPCRender();
 }
 
