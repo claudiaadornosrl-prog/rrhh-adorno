@@ -13018,8 +13018,11 @@ async function prestamoRefinanciarAdmin(prestamoId) {
         <div class="hint" style="font-size:11px;color:var(--muted);">Lo que la vendedora pide de más sobre el saldo viejo.</div>
       </div>
       <div class="form-row full">
-        <label>Cuotas TOTALES del nuevo préstamo</label>
-        <input type="number" id="refi-adm-cuotas" min="1" max="60" step="1" placeholder="12" value="12">
+        <label style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Cuotas TOTALES del nuevo préstamo</span>
+          <button type="button" class="btn small" onclick="document.getElementById('refi-adm-cuotas').value=${pendientes.length}" title="Mantener la misma cantidad de cuotas que quedaban del viejo — sirve si querés respetar el plan original" style="font-size:11px;padding:3px 8px;">↻ Usar ${pendientes.length} (las que quedaban)</button>
+        </label>
+        <input type="number" id="refi-adm-cuotas" min="1" max="60" step="1" placeholder="12" value="${pendientes.length}">
         <div class="hint" style="font-size:11px;color:var(--muted);">Cantidad de cuotas del plan nuevo. Sustituye las que quedaban del viejo.</div>
       </div>
       <div class="form-row full">
@@ -13604,14 +13607,23 @@ async function prestamoCrear() {
     toast(`✓ Préstamo #${pres.id} otorgado, ${cuotas} cuotas programadas`, 'success');
   }
 
-  // Si es propuesta de refinanciación, vincular con la solicitud
-  if (window._prestamoRefiSolicitudId && esperarConf && !editandoId) {
+  // Si es refinanciación, vincular con la solicitud (sea propuesta o activo directo).
+  // La RPC rrhh_refinanciar_directo se encarga de: si el nuevo está activo, refinancia
+  // inmediatamente el viejo. Si está propuesto, espera a que la empleada acepte.
+  if (window._prestamoRefiSolicitudId && !editandoId) {
     try {
-      await sb.rpc('rrhh_vincular_refinanciacion', {
+      const { data: rRefi, error: eRefi } = await sb.rpc('rrhh_refinanciar_directo', {
         p_solicitud_id: window._prestamoRefiSolicitudId,
         p_prestamo_nuevo_id: pres.id,
       });
-    } catch (e) { console.warn('vincular refi failed', e); }
+      if (eRefi) throw eRefi;
+      if (rRefi?.refinanciado_inmediato) {
+        toast('✓ Préstamo viejo refinanciado (cuotas pendientes canceladas)', 'success');
+      }
+    } catch (e) {
+      console.warn('refinanciar directo failed', e);
+      toast('⚠ Préstamo creado pero falló la vinculación con el viejo: ' + (e.message || String(e)), 'error');
+    }
   }
 
   // Limpiar estado de edición
