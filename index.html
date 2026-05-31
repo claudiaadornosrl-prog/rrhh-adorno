@@ -867,6 +867,10 @@ async function renderPage(tabId) {
     if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
     if (tabId === 'mi-legajo')      setTimeout(renderPushCard, 0);
     if (tabId === 'liquidaciones' && liqState.busqueda) setTimeout(liqFiltrarBusquedaLocal, 0);
+    if (tabId === 'prestamos' && prestamoState.q) setTimeout(() => {
+      const inp = document.querySelector('input[type="search"][placeholder*="empleada"]');
+      if (inp) filtrarTablaPorTexto(inp, '#tabla-prestamos-tbody tr[data-search]');
+    }, 0);
   } catch (e) {
     console.error(e);
     main.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${e.message}</div>`;
@@ -1437,6 +1441,32 @@ function wireMoneyInput(elem) {
 function wireAllMoneyInputs(scope) {
   const root = scope || document;
   root.querySelectorAll('[data-money]').forEach(wireMoneyInput);
+}
+
+// ════════════════════════════════════════════════════════════
+//  Helper genérico de búsqueda instantánea sobre el DOM.
+//  Filtra <tr> que tengan data-search="texto en minúsculas".
+//  NO recarga la página — solo aplica display:none/none al instante.
+//  Usado en: Liquidador, Préstamos, Empleados, Pedidos CRM, etc.
+//
+//  Uso: <input oninput="filtrarTablaPorTexto(this,'#mi-tabla tbody tr[data-search]','.contador')">
+//  rowSelector  → CSS para las filas con data-search
+//  counterSel   → CSS opcional para mostrar "X de Y" en vivo
+// ════════════════════════════════════════════════════════════
+function filtrarTablaPorTexto(inputEl, rowSelector, counterSel) {
+  const txt = String(inputEl?.value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll(rowSelector);
+  let visibles = 0;
+  rows.forEach(tr => {
+    const ds = (tr.dataset.search || '').toLowerCase();
+    const match = !txt || ds.includes(txt);
+    tr.style.display = match ? '' : 'none';
+    if (match) visibles++;
+  });
+  if (counterSel) {
+    const c = document.querySelector(counterSel);
+    if (c) c.textContent = visibles;
+  }
 }
 
 function escapeHtml(s) {
@@ -12606,7 +12636,12 @@ function _prestamoToggleSort(col) {
   switchTab('prestamos');
 }
 
-function _prestamoSetQ(v) { prestamoState.q = v; switchTab('prestamos'); }
+function _prestamoSetQ(v) {
+  prestamoState.q = v;
+  // Filtra el DOM sin recargar. Usa data-search en cada <tr>.
+  const input = document.querySelector('input[type="search"][placeholder*="empleada"]');
+  if (input) filtrarTablaPorTexto(input, '#tabla-prestamos-tbody tr[data-search]');
+}
 function _prestamoSetLocal(v) { prestamoState.local = v; switchTab('prestamos'); }
 
 // Tabla de topes según antigüedad (en sueldos del promedio)
@@ -12760,14 +12795,9 @@ async function renderPrestamos() {
     });
   }
 
-  // Filtros locales (empleada y local)
-  const _q = (prestamoState.q || '').toLowerCase().trim();
+  // Filtros locales (solo local — la búsqueda por nombre se aplica al DOM en vivo)
   let prestamosFiltrados = (prestamos || []).filter(p => {
     if (prestamoState.local && p.empleado?.local !== prestamoState.local) return false;
-    if (_q) {
-      const nom = ((p.empleado?.apellido||'') + ' ' + (p.empleado?.nombre||'')).toLowerCase();
-      if (!nom.includes(_q)) return false;
-    }
     return true;
   });
 
@@ -12928,7 +12958,7 @@ async function renderPrestamos() {
           <th style="padding:8px;">Estado</th>
           <th style="padding:8px;text-align:right;">Acción</th>
         </tr></thead>
-        <tbody>
+        <tbody id="tabla-prestamos-tbody">
           ${prestamos_view.map(p => {
             const r = cuotasResumen[p.id] || { pagadas: 0, pendientes: p.cuotas_totales, saldo: p.capital };
             const pctProg = Math.round(100 * r.pagadas / p.cuotas_totales);
@@ -12936,7 +12966,8 @@ async function renderPrestamos() {
             const tieneEsteMes = esteMesTotal > 0;
             // CFT anual = (1 + tasa_mensual)^12 - 1
             const cftAnual = (Math.pow(1 + Number(p.tasa_mensual||0), 12) - 1) * 100;
-            return `<tr style="border-top:1px solid var(--border);">
+            const _searchKey = ((p.empleado?.apellido||'') + ' ' + (p.empleado?.nombre||'')).toLowerCase();
+            return `<tr data-search="${escapeHtml(_searchKey)}" style="border-top:1px solid var(--border);">
               <td style="padding:8px;font-weight:600;">${escapeHtml((p.empleado?.apellido||'') + ', ' + (p.empleado?.nombre||''))}</td>
               <td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(p.empleado?.local||'')}</td>
               <td style="padding:8px;font-family:monospace;font-size:12px;">${fmtFecha(p.fecha_otorgamiento)}</td>
