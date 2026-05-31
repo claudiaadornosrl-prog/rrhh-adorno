@@ -12923,6 +12923,7 @@ async function renderPrestamos() {
                   <button class="btn small" onclick="prestamoBorrarPropuesta(${p.id})" title="Borrar propuesta" style="color:#dc2626;">🗑️</button>
                 ` : ''}
                 ${p.estado === 'activo' ? `
+                  <button class="btn small" onclick="prestamoRefinanciarAdmin(${p.id})" title="Refinanciar: sumar capital adicional al saldo y rearmar el plan" style="color:#7c3aed;">💸</button>
                   <button class="btn small" onclick="prestamoMarcarHistorico(${p.id}, ${p.cuotas_totales})" title="Marcar cuotas viejas como pagadas (para préstamos cargados desde MEMOSOFT)" style="color:#0891b2;">📌</button>
                   <button class="btn small" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>
                 ` : ''}
@@ -12935,7 +12936,143 @@ async function renderPrestamos() {
   `;
 }
 
-async function prestamoAbrirNuevo() {
+// ═══════════════════════════════════════════════════════════════════
+//  Refinanciar préstamo (admin, sin solicitud previa de la vendedora)
+//  Modal pide: capital adicional + cuotas + motivo opcional
+//  Crea solicitud aprobada → setea _prestamoRefiSolicitudId → abre wizard
+//  con capital pre-cargado = saldo_pendiente + adicional
+// ═══════════════════════════════════════════════════════════════════
+async function prestamoRefinanciarAdmin(prestamoId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  // Cargar préstamo + cuotas para calcular saldo pendiente
+  const { data: pres } = await sb.from('rrhh_prestamo')
+    .select('*, empleado:rrhh_empleados(apellido, nombre)')
+    .eq('id', prestamoId).single();
+  if (!pres) { toast('Préstamo no encontrado', 'error'); return; }
+  if (pres.estado !== 'activo') { toast('Solo se puede refinanciar préstamos activos', 'error'); return; }
+
+  const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+    .select('monto_capital, monto_total, estado')
+    .eq('prestamo_id', prestamoId);
+  const pendientes = (cuotas || []).filter(c => c.estado === 'pendiente');
+  const saldoCapital = pendientes.reduce((s, c) => s + Number(c.monto_capital || 0), 0);
+
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const empNom = (pres.empleado?.apellido || '') + ', ' + (pres.empleado?.nombre || '');
+  const tasaActualMensual = Number(pres.tasa_mensual || 0);
+  const tasaActualAnual = tasaActualMensual * 12;
+
+  const html = `
+    <h3 style="margin:0 0 6px;">💸 Refinanciar préstamo</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+      ${escapeHtml(empNom)} · Préstamo #${prestamoId}
+    </div>
+
+    <!-- Estado actual del préstamo viejo -->
+    <div style="background:#eff6ff;border:1px solid #93c5fd;padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.7;color:#1e40af;">
+      <strong>Préstamo actual</strong><br>
+      Saldo de CAPITAL pendiente: <strong>${fmt(saldoCapital)}</strong> (${pendientes.length} cuotas)<br>
+      Tasa actual: <strong>${tasaActualAnual.toFixed(2)}% anual</strong> (${(tasaActualMensual*100).toFixed(2)}% mensual)
+    </div>
+
+    <div class="form-grid">
+      <div class="form-row full">
+        <label>Capital ADICIONAL a sumar</label>
+        <input type="text" inputmode="numeric" id="refi-adm-capital" data-money placeholder="$650.000" oninput="prestamoRefiActualizarPreview(${saldoCapital})">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Lo que la vendedora pide de más sobre el saldo viejo.</div>
+      </div>
+      <div class="form-row full">
+        <label>Cuotas TOTALES del nuevo préstamo</label>
+        <input type="number" id="refi-adm-cuotas" min="1" max="60" step="1" placeholder="12" value="12">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Cantidad de cuotas del plan nuevo. Sustituye las que quedaban del viejo.</div>
+      </div>
+      <div class="form-row full">
+        <label>Motivo (opcional)</label>
+        <input type="text" id="refi-adm-motivo" placeholder="Ej: refinanciación verbal acordada con la vendedora">
+      </div>
+    </div>
+
+    <!-- Preview del nuevo total (live) -->
+    <div id="refi-adm-preview" style="background:#f0fdf4;border:1px solid #86efac;padding:12px;border-radius:8px;margin-top:14px;font-size:13px;line-height:1.7;color:#166534;display:none;">
+      <div style="font-weight:600;margin-bottom:4px;">📊 Plan nuevo</div>
+      <div>Saldo viejo: ${fmt(saldoCapital)}</div>
+      <div>+ Capital adicional: <span id="refi-prev-adicional">$0</span></div>
+      <div style="border-top:1px solid #86efac;padding-top:6px;margin-top:6px;">
+        <strong>Total nuevo préstamo: <span id="refi-prev-total">${fmt(saldoCapital)}</span></strong>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#4b5563;">
+        ⚠️ En el wizard siguiente vas a poner el CFT % nuevo. Esa tasa aplica al TOTAL (saldo viejo + adicional). Si querés mantener la tasa actual (${(tasaActualMensual*100).toFixed(2)}% mensual), usá ese valor.
+      </div>
+    </div>
+
+    <div style="margin-top:14px;padding:10px;background:#fef9c3;border-left:4px solid #eab308;font-size:12px;color:#854d0e;line-height:1.5;">
+      💡 <strong>Cómo funciona</strong>: al continuar se crea una solicitud aprobada y se abre el wizard de nueva propuesta con capital pre-cargado (saldo viejo + adicional). Vos definís CFT % y proponés. Cuando la vendedora acepta, el préstamo viejo queda <strong>refinanciado</strong> y sus cuotas pendientes se cancelan automáticamente.
+    </div>
+
+    <div style="margin-top:14px;text-align:right;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" onclick="prestamoRefinanciarAdminContinuar(${prestamoId}, ${saldoCapital})" style="background:#7c3aed;border-color:#7c3aed;">Continuar →</button>
+    </div>
+  `;
+  openModal(html, '500px');
+  // Wire formato $ al input de dinero
+  setTimeout(() => {
+    if (typeof wireAllMoneyInputs === 'function') wireAllMoneyInputs(document.getElementById('global-modal'));
+  }, 50);
+}
+
+// Preview live del total mientras se tipea capital adicional
+function prestamoRefiActualizarPreview(saldoCapital) {
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const cap = parseMoneyInput(document.getElementById('refi-adm-capital')) || 0;
+  const preview = document.getElementById('refi-adm-preview');
+  if (!preview) return;
+  if (cap > 0) {
+    preview.style.display = 'block';
+    const ad = document.getElementById('refi-prev-adicional');
+    const tot = document.getElementById('refi-prev-total');
+    if (ad) ad.textContent = fmt(cap);
+    if (tot) tot.textContent = fmt(saldoCapital + cap);
+  } else {
+    preview.style.display = 'none';
+  }
+}
+
+async function prestamoRefinanciarAdminContinuar(prestamoId, saldoCapital) {
+  const cap = parseMoneyInput(document.getElementById('refi-adm-capital'));
+  const cuotas = Number(document.getElementById('refi-adm-cuotas').value);
+  const motivo = (document.getElementById('refi-adm-motivo').value || '').trim() || null;
+
+  if (!cap || cap <= 0) { toast('Falta capital adicional', 'error'); return; }
+  if (!cuotas || cuotas < 1 || cuotas > 60) { toast('Cuotas 1-60', 'error'); return; }
+
+  try {
+    const { data, error } = await sb.rpc('rrhh_iniciar_refinanciacion_admin', {
+      p_prestamo_id: prestamoId,
+      p_capital_adicional: cap,
+      p_cuotas: cuotas,
+      p_motivo: motivo,
+    });
+    if (error) throw error;
+
+    // Setear el ID de solicitud para que el wizard lo vincule al crear el préstamo
+    window._prestamoRefiSolicitudId = data.solicitud_id;
+    closeModal();
+
+    // Abrir el wizard de nuevo préstamo. Pre-cargar capital = saldo + adicional
+    // y empleado preseleccionado.
+    await prestamoAbrirNuevo({
+      empleadoId: data.empleado_id,
+      capitalPrecargado: saldoCapital + cap,
+      cuotasPrecargado: cuotas,
+      motivoPrecargado: 'Refinanciación de préstamo #' + prestamoId + (motivo ? ' — ' + motivo : ''),
+    });
+  } catch (e) {
+    toast('Error: ' + (e.message || String(e)), 'error');
+  }
+}
+
+async function prestamoAbrirNuevo(prefill = {}) {
   // Lista de empleadas activas para el dropdown
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, local')
@@ -13002,7 +13139,33 @@ async function prestamoAbrirNuevo() {
     </div>
   `;
   openModal(html, '720px');
-  setTimeout(() => wireAllMoneyInputs(document.getElementById('global-modal')), 0);
+  setTimeout(() => {
+    wireAllMoneyInputs(document.getElementById('global-modal'));
+    // Aplicar prefill (desde refinanciación admin u otros atajos)
+    if (prefill.empleadoId) {
+      const sel = document.getElementById('pr-emp');
+      if (sel) sel.value = String(prefill.empleadoId);
+    }
+    if (prefill.capitalPrecargado) {
+      const cap = document.getElementById('pr-capital');
+      if (cap) {
+        cap.value = '$' + Math.round(prefill.capitalPrecargado).toLocaleString('es-AR');
+      }
+    }
+    if (prefill.cuotasPrecargado) {
+      const c = document.getElementById('pr-cuotas');
+      if (c) c.value = String(prefill.cuotasPrecargado);
+    }
+    if (prefill.motivoPrecargado) {
+      const n = document.getElementById('pr-notas');
+      if (n) n.value = prefill.motivoPrecargado;
+    }
+    // Si es refinanciación (vino con prefill.empleadoId) → cambiar título
+    if (prefill.empleadoId && window._prestamoRefiSolicitudId) {
+      const titulo = document.querySelector('#global-modal h3');
+      if (titulo) titulo.innerHTML = '💸 Nueva propuesta — Refinanciación';
+    }
+  }, 50);
 }
 
 async function adelantoAbrirNuevo() {
