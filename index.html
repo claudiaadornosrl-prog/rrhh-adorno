@@ -454,6 +454,9 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- QR codes: generar (qrcode-generator) + leer (jsQR) — usados en Recibos firmados bulk -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
 
 <script>
 'use strict';
@@ -9703,7 +9706,28 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFontSize(16);
     doc.text(fmt(liq.recibo_neto), W - margen - 5, y + 9.5, { align: 'right' });
 
-    // 10. FIRMAS (al pie de la página, no flotante)
+    // 10. QR con código identificador REC-XXXXX (para escaneo bulk de firmados)
+    try {
+      if (typeof qrcode === 'function') {
+        const codigoQR = 'REC-' + String(liq.id).padStart(5, '0');
+        const qr = qrcode(0, 'M');  // tipo 0 (auto), corrección media
+        qr.addData(codigoQR);
+        qr.make();
+        const qrDataUrl = qr.createDataURL(4, 0);  // celdas de 4px, sin margen
+        // 22mm × 22mm en esquina inferior izquierda (debajo del bloque de firmas)
+        const qrSize = 22;
+        const qrX = margen;
+        const qrY = H - qrSize - 14;  // 14mm desde el borde inferior (deja espacio al footer)
+        doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+        // Caption chica al lado
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(...COLOR_MUTED);
+        doc.text(codigoQR, qrX + qrSize + 2, qrY + qrSize - 1);
+      }
+    } catch (e) { console.warn('No se pudo generar QR:', e); }
+
+    // 11. FIRMAS (al pie de la página, no flotante)
     const yFirma = Math.min(H - 35, y + 35);
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
@@ -9737,13 +9761,13 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text('Por Claudia Adorno SRL', (mitad + 10 + W - margen - 10) / 2, yFirma + 4, { align: 'center' });
     doc.text('Firma y sello', (mitad + 10 + W - margen - 10) / 2, yFirma + 8, { align: 'center' });
 
-    // 11. Footer chiquito con fecha de emisión
+    // 12. Footer chiquito con fecha de emisión
     doc.setFontSize(7);
     doc.setTextColor(...COLOR_MUTED);
     const ahora = new Date().toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
     doc.text(`Emitido el ${ahora} · Liquidación #${liq.id}`, W / 2, H - 10, { align: 'center' });
 
-    // 12. Descargar
+    // 13. Descargar
     const apellido = (emp?.apellido || 'empleada').toUpperCase().replace(/\s+/g, '_');
     const periodoSafe = liq.periodo ? liq.periodo.slice(0, 7) : 'periodo';
     const fileName = `Recibo_${apellido}_${periodoSafe}.pdf`;
@@ -11216,6 +11240,7 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
         ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="liqCargarFirmadosBulk()" title="Subir PDF escaneado con varios recibos firmados — el sistema los detecta por QR y los procesa automáticamente">📥 Cargar firmados</button>` : ''}
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período. Si hay empleados de más de una jurisdicción (CABA + BsAs), descarga 2 archivos automáticamente.">📄 LSD AFIP</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
@@ -11575,6 +11600,154 @@ function liqOrdenarPor(col) {
     liqState.sortDir = 'asc';
   }
   switchTab('liquidaciones');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RECIBOS FIRMADOS BULK · subir PDF escaneado con N páginas,
+//  detectar QR en cada página → matchear con liquidacion_id → marcar
+//  pdf_firmado_at + subir página individual a Storage.
+// ═══════════════════════════════════════════════════════════════════
+function liqCargarFirmadosBulk() {
+  // Crear input file dinámico
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/pdf';
+  input.style.display = 'none';
+  input.onchange = async (ev) => {
+    const file = ev.target.files?.[0];
+    if (file) await procesarRecibosBulkPDF(file);
+    input.remove();
+  };
+  document.body.appendChild(input);
+  input.click();
+}
+
+async function procesarRecibosBulkPDF(file) {
+  if (typeof jsQR !== 'function') { toast('No se cargó la lib jsQR', 'error'); return; }
+  if (!window.pdfjsLib) { toast('No se cargó pdf.js', 'error'); return; }
+  if (window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  const { jsPDF } = window.jspdf;
+
+  // Modal de progreso
+  const modalHtml = `
+    <h3 style="margin:0 0 6px;">📥 Procesando recibos firmados</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+      Archivo: ${escapeHtml(file.name)} · ${(file.size/1024/1024).toFixed(2)} MB
+    </div>
+    <div id="bulk-progress" style="font-size:13px;line-height:1.7;max-height:60vh;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:10px;background:#f9fafb;">
+      <div>⏳ Leyendo PDF…</div>
+    </div>
+    <div style="margin-top:14px;text-align:right;">
+      <button class="btn" onclick="closeModal()">Cerrar</button>
+    </div>
+  `;
+  openModal(modalHtml, '600px');
+  const log = document.getElementById('bulk-progress');
+  const append = (msg, color) => {
+    if (!log) return;
+    const div = document.createElement('div');
+    if (color) div.style.color = color;
+    div.innerHTML = msg;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    append(`📄 ${pdf.numPages} página(s) detectada(s)`);
+    let okCount = 0, errCount = 0;
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      append(`<strong>— Página ${pageNum}/${pdf.numPages} —</strong>`);
+      try {
+        const page = await pdf.getPage(pageNum);
+        // Render a 2x para que el QR sea legible
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement('canvas');
+        canvas.width  = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        // Detectar QR — buscamos en la esquina inferior izquierda principalmente,
+        // pero por simplicidad procesamos toda la página.
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const qrResult = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
+        if (!qrResult) {
+          append(`  ❌ Sin QR detectable`, '#dc2626');
+          errCount++;
+          continue;
+        }
+        const codigo = qrResult.data.trim();
+        const m = codigo.match(/^REC-(\d+)$/);
+        if (!m) {
+          append(`  ❌ QR no reconocido: "${escapeHtml(codigo)}"`, '#dc2626');
+          errCount++;
+          continue;
+        }
+        const liqId = parseInt(m[1], 10);
+
+        // Buscar la liquidación + empleada
+        const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
+          .select('id, empleado_id, periodo, pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre)')
+          .eq('id', liqId).single();
+        if (e1 || !liq) {
+          append(`  ❌ ${codigo}: liquidación no encontrada en DB`, '#dc2626');
+          errCount++;
+          continue;
+        }
+        const nombreEmp = `${liq.empleado?.apellido || ''} ${liq.empleado?.nombre || ''}`.trim();
+
+        // Generar PDF individual con esta página (jpeg embebido)
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        const pdfPag = new jsPDF({ unit: 'mm', format: 'a4' });
+        const wMM = 210, hMM = 297;
+        pdfPag.addImage(jpegDataUrl, 'JPEG', 0, 0, wMM, hMM);
+        const pdfBlob = pdfPag.output('blob');
+
+        // Subir a Storage en {empleado_id}/recibo_{liqId}_firmado.pdf
+        const path = `${liq.empleado_id}/recibo_${liqId}_firmado.pdf`;
+        const { error: upErr } = await sb.storage.from('rrhh-recibos').upload(path, pdfBlob, {
+          upsert: true,
+          contentType: 'application/pdf',
+        });
+        if (upErr) {
+          append(`  ❌ ${codigo} (${escapeHtml(nombreEmp)}): error subiendo a Storage — ${escapeHtml(upErr.message)}`, '#dc2626');
+          errCount++;
+          continue;
+        }
+
+        // Marcar liquidación como firmada
+        const { error: upErr2 } = await sb.from('rrhh_liquidacion').update({
+          pdf_firmado_at:   new Date().toISOString(),
+          pdf_firmado_path: path,
+        }).eq('id', liqId);
+        if (upErr2) {
+          append(`  ⚠️ ${codigo}: PDF subido pero error marcando firmado — ${escapeHtml(upErr2.message)}`, '#d97706');
+        }
+
+        const yaFirmado = !!liq.pdf_firmado_at;
+        append(`  ✅ ${codigo} → <strong>${escapeHtml(nombreEmp)}</strong> · ${liq.periodo?.slice(0,7) || ''}${yaFirmado ? ' <span style="color:#d97706;">(reemplaza firma previa)</span>' : ''}`, '#16a34a');
+        okCount++;
+      } catch (e) {
+        append(`  ❌ Error: ${escapeHtml(e.message || String(e))}`, '#dc2626');
+        errCount++;
+      }
+    }
+
+    append(`<br><strong>Resumen:</strong> ✅ ${okCount} OK · ❌ ${errCount} con error`);
+    if (okCount > 0) toast(`${okCount} recibo(s) firmados procesados ✓`, 'success');
+    // Hot-reload del Liquidador (en background — el modal sigue abierto)
+    setTimeout(() => { if (currentTab === 'liquidaciones') switchTab('liquidaciones'); }, 1500);
+
+  } catch (e) {
+    console.error(e);
+    append(`<br>❌ Error general: ${escapeHtml(e.message || String(e))}`, '#dc2626');
+  }
 }
 
 async function liqGuardarVentas(local, periodo) {
