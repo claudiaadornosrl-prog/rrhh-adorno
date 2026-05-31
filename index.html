@@ -11157,6 +11157,18 @@ async function renderLiquidaciones() {
     });
   }
 
+  // ── Estado de cierre del mes en ASISTENCIAS (per local) ──
+  // Si el local está cerrado, los puntos/faltas ya están consolidados.
+  // Si NO está cerrado, los puntos pueden cambiar y la liquidación queda inconsistente.
+  const periodoFull = periodo + '-01';
+  const localesACheck = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+  const { data: cierresRows } = await sb.from('rrhh_meses_cerrados')
+    .select('local, cerrado_por, cerrado_at')
+    .eq('periodo', periodoFull)
+    .in('local', localesACheck);
+  const cierresMes = {};
+  (cierresRows || []).forEach(c => { cierresMes[c.local] = c; });
+
   let totalRecibo=0, totalNegro=0, totalEfectivo=0, totalBanco=0, totalPrestamoCap=0, totalAdelantos=0, totalSAC=0;
   (liqs||[]).forEach(l => {
     const adel = adelantosPorEmpLiq[l.empleado_id] || 0;
@@ -11262,6 +11274,28 @@ async function renderLiquidaciones() {
         <button class="btn primary" style="margin-top:10px;" onclick="liqLimpiarFiltros()">✕ Limpiar filtros</button>
       </div></div>
     `) : `
+      <!-- BADGES de cierre del mes en Asistencias (por local) -->
+      ${(() => {
+        const badges = localesACheck.map(loc => {
+          const c = cierresMes[loc];
+          const nombre = LOCALES[loc]?.nombre || loc;
+          if (c) {
+            const cuando = (c.cerrado_at || '').split('T')[0];
+            const por = (c.cerrado_por || '').split('@')[0];
+            return `<div style="background:#dcfce7;border:1px solid #16a34a;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:6px;" title="Asistencias cerradas — los puntos están consolidados">
+              <span style="color:#16a34a;">✓</span>
+              <strong>${escapeHtml(nombre)}:</strong> Mes cerrado por ${escapeHtml(por)} (${cuando})
+            </div>`;
+          }
+          return `<div style="background:#fef3c7;border:1px solid #d97706;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:6px;" title="El mes NO está cerrado en Asistencias — los puntos pueden cambiar">
+            <span style="color:#d97706;">⚠️</span>
+            <strong>${escapeHtml(nombre)}:</strong> Sin cerrar en Asistencias
+            ${isAdmin || isGerente ? `<button class="btn small" style="margin-left:6px;" onclick="switchTab('asistencias')" title="Ir a Asistencias para cerrar el mes">Cerrar →</button>` : ''}
+          </div>`;
+        }).join('');
+        return `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">${badges}</div>`;
+      })()}
+
       <div class="metrics-grid" style="margin-bottom:12px;">
         <div class="metric-card"><div class="label">Recibo neto (CCT)</div><div class="value">${fmt(totalRecibo)}</div></div>
         <div class="metric-card"><div class="label">Total a pagar</div><div class="value">${fmt(totalNegro)}</div></div>
@@ -11552,6 +11586,19 @@ async function liqGuardarVentas(local, periodo) {
 
 async function liqGenerarMes(local, periodo) {
   const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+  // Verificar cuáles locales NO están cerrados en Asistencias
+  const { data: cierres } = await sb.from('rrhh_meses_cerrados')
+    .select('local').eq('periodo', periodo + '-01').in('local', locales);
+  const cerrados = new Set((cierres || []).map(c => c.local));
+  const sinCerrar = locales.filter(l => !cerrados.has(l));
+  if (sinCerrar.length > 0) {
+    const lista = sinCerrar.map(l => LOCALES[l]?.nombre || l).join(', ');
+    const msg = `⚠️ Atención: el mes de ${periodo} aún NO está cerrado en Asistencias para: ${lista}.\n\n` +
+                `Los puntos, faltas y horas extras pueden cambiar después de cerrarlo, lo que dejaría la liquidación inconsistente.\n\n` +
+                `Recomendado: ir a Asistencias y cerrar el mes ANTES de generar/recalcular.\n\n` +
+                `¿Querés generar igual?`;
+    if (!confirm(msg)) return;
+  }
   if (!confirm(`Generar/recalcular liquidaciones de ${locales.join(', ')} para ${periodo}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
   toast('Calculando…', '');
   try {
