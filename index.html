@@ -11338,7 +11338,12 @@ async function renderLiquidaciones() {
           // ── Definición de TODAS las columnas posibles del Liquidador ──
           const ALL_COLS = [
             { id:'empleada',  label:'Empleada',   sortKey:'empleada', thOpts:{align:'text-align:left'},
-              tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span></td>` },
+              tdRender:(l,c)=>{
+                const mono = l.empleado?.monotributista
+                  ? ' <span style="background:#f3e8ff;color:#7c3aed;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;font-weight:600;" title="Monotributista — factura por banco, NO va al LSD">🟣 MT</span>'
+                  : '';
+                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
+              } },
             { id:'local',     label:'Local',      sortKey:'local', condition:c=>c.local==='todos', thOpts:{align:'text-align:left'},
               tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${c.escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` },
             { id:'cat',       label:'Cat.',       thOpts:{align:'text-align:left'},
@@ -14248,12 +14253,15 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
     const periodoAAMM = periodo.replace('-','');  // AAAAMM
 
     // 1) Liquidaciones del período + empleados + conceptos
+    //    EXCLUYE monotributistas (no van al LSD AFIP — son terceras, facturan)
     let { data: liqs, error } = await sb.from('rrhh_liquidacion')
       .select('*, empleado:rrhh_empleados(*), conceptos:rrhh_liquidacion_concepto(*)')
       .eq('periodo', periodoFull)
       .order('empleado(apellido)');
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para ese período', 'warning'); return; }
+    // Filtrar fuera a monotributistas
+    liqs = liqs.filter(l => !l.empleado?.monotributista);
 
     // 1b) Filtrar por jurisdicción si corresponde
     if (jurisdiccionFiltro) {
@@ -14594,6 +14602,49 @@ const salaryWorkflow = (() => {
       cargarParitaria(periodo),
     ]);
     if (!emp) throw new Error('Empleado no encontrado');
+
+    // ─── CASO ESPECIAL: monotributista (Andrea Adorno) ─────────────────
+    // Factura un monto fijo mensual. Se le transfiere por banco. NO tiene
+    // recibo CCT, NO va al LSD AFIP, NO va al F.931. El efectivo extra (si
+    // corresponde) se carga manual desde el Liquidador.
+    if (emp.monotributista) {
+      const monto = Number(emp.monto_factura_mensual || 0);
+      const periodoFull = periodo + '-01';
+      // Buscar liquidación existente o crear
+      const { data: existing } = await sb.from('rrhh_liquidacion')
+        .select('id, efectivo, ajuste, observaciones')
+        .eq('empleado_id', empleadoId).eq('periodo', periodoFull).limit(1);
+      const payload = {
+        empleado_id: empleadoId, periodo: periodoFull, local: emp.local,
+        estado: 'borrador',
+        dias_trabajados: 30,
+        mercaderia: 0,
+        ajuste: existing?.[0]?.ajuste || 0,
+        uniforme_ok: true, puntos_mes: 0,
+        observaciones: existing?.[0]?.observaciones || 'Monotributista — factura por banco',
+        // Recibo CCT: todo en 0 (no aplica)
+        recibo_basico: 0, recibo_antiguedad: 0, recibo_presentismo: 0,
+        recibo_sumafija_nr: 0, recibo_antig_nr: 0, recibo_pres_nr: 0, recibo_recompos_nr: 0,
+        recibo_otros_rem: 0,
+        recibo_jubilacion: 0, recibo_ley19032: 0, recibo_obra_social: 0,
+        recibo_sec: 0, recibo_faecys: 0,
+        recibo_total_rem: 0, recibo_total_nr: 0, recibo_bruto: 0,
+        recibo_descuentos: 0, recibo_neto: monto,    // ← monto facturado va acá (lo que se transfiere por banco)
+        // Negro: total_negro = monto facturado (sería el "Total a cobrar"), efectivo extra manual
+        fijo: monto, comision: 0, premio_cobra: false, premio_monto: 0,
+        viaticos: 0, extras: 0, feriado_dias: 0, feriado_monto: 0,
+        prestamo_interes: 0, total_negro: monto + Number(existing?.[0]?.efectivo || 0),
+        efectivo: Number(existing?.[0]?.efectivo || 0),
+      };
+      if (existing?.[0]) {
+        await sb.from('rrhh_liquidacion').update(payload).eq('id', existing[0].id);
+      } else {
+        await sb.from('rrhh_liquidacion').insert(payload);
+      }
+      // No insertamos conceptos (no hay recibo CCT)
+      return { recibo: null, monotributista: true, monto };
+    }
+
     if (!configEmp) throw new Error(`Empleada ${emp.nombre_completo} no tiene config de sueldo`);
     if (!configEmp.activa_en_modulo) throw new Error(`Empleada ${emp.nombre_completo} no está activa en el módulo`);
     if (!emp.categoria) throw new Error('Empleada sin categoría CCT asignada');
