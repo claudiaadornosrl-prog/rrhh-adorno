@@ -12218,20 +12218,7 @@ async function renderAumentos() {
   const gerenteLocal = session.empleadoData?.local || null;
   const localFiltro = isAdmin ? (aumState.local || '') : gerenteLocal;
 
-  let q = sb.from('rrhh_aumento_pedido').select('*').order('abierto_at', { ascending: false });
-  if (localFiltro) q = q.eq('local', localFiltro);
-  const { data: pedidos, error } = await q;
-  if (error) {
-    cont.innerHTML = `<div class="card"><div class="card-body" style="color:#b91c1c">Error: ${escapeHtml(error.message)}</div></div>`;
-    return;
-  }
-
   const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  const fmtPct = (n) => (n==null ? '—' : Number(n).toFixed(2) + '%');
-  const estadoChip = (e) => {
-    const colores = { abierto: '#0ea5e9', propuesto: '#f59e0b', aprobado: '#16a34a', rechazado: '#dc2626', aplicado: '#7c3aed' };
-    return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${e}</span>`;
-  };
 
   cont.innerHTML = `
     <div class="page-header">
@@ -12270,76 +12257,207 @@ async function renderAumentos() {
       </div>
     </div>
 
-    <!-- ═════ Workflow clásico (encargada → admin) ═════ -->
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-      <h3 style="margin:0 0 12px;">➕ Abrir pedido clásico (encargada propone %)</h3>
-      <div style="display:grid;grid-template-columns:1fr 1.2fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
-        <div class="form-row"><label>Local</label>
-          <select id="aum-local">
-            <option value="alcorta">Alcorta</option>
-            <option value="unicenter">Unicenter</option>
-            <option value="oficina">Oficina</option>
+    <!-- ═════ Aumento puntual a empleado (caso especial) ═════ -->
+    <div class="card" style="padding:16px;margin-bottom:14px;background:#ecfdf5;border:1px solid #a7f3d0;">
+      <h3 style="margin:0 0 6px;">🎯 Aumento puntual a empleada (caso especial)</h3>
+      <div style="color:#065f46;font-size:13px;margin-bottom:14px;line-height:1.45;">
+        Subir el <strong>fijo</strong> de una empleada sin pasar por el rango grupal. Pensado para promociones, ajustes individuales o casos especiales. Se crea una nueva fila vigente desde la fecha que elijas (se respeta el histórico anterior).
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
+        <div class="form-row"><label>Empleada</label>
+          <select id="aum-puntual-emp" onchange="aumPuntualOnSelect()">
+            <option value="">— Elegir empleada —</option>
           </select>
         </div>
-        <div class="form-row"><label>Vigente desde</label>
-          <input type="date" id="aum-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        <div class="form-row"><label>Fijo actual</label>
+          <input type="text" id="aum-puntual-actual" disabled style="background:#f9fafb;color:#64748b;">
         </div>
-        <div class="form-row"><label>% mínimo</label><input type="number" id="aum-pmin" value="5" min="0" step="0.5"></div>
-        <div class="form-row"><label>% máximo</label><input type="number" id="aum-pmax" value="10" min="0" step="0.5"></div>
-        <div class="form-row"><label>Notas (opcional)</label><input type="text" id="aum-notas" placeholder="Ej: ajuste paritaria mayo"></div>
-        <button class="btn primary" onclick="aumAbrirPedido()">📤 Abrir pedido</button>
+        <div class="form-row"><label>Fijo nuevo</label>
+          <input type="text" id="aum-puntual-nuevo" placeholder="$0" oninput="fmtMoneyInput(this)">
+        </div>
+        <div class="form-row"><label>Vigente desde</label>
+          <input type="date" id="aum-puntual-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        </div>
+        <div class="form-row"><label>Motivo (opcional)</label>
+          <input type="text" id="aum-puntual-motivo" placeholder="Ej: promoción a encargada">
+        </div>
+        <button class="btn primary" onclick="aumPuntualAplicar()">✓ Aplicar</button>
       </div>
     </div>
 
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-      <span style="font-size:13px;color:var(--muted);">Filtrar:</span>
-      <select onchange="aumState.local=this.value; switchTab('aumentos');" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);">
-        <option value="" ${localFiltro===''?'selected':''}>Todos los locales</option>
-        <option value="alcorta" ${localFiltro==='alcorta'?'selected':''}>Alcorta</option>
-        <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
-        <option value="oficina" ${localFiltro==='oficina'?'selected':''}>Oficina</option>
-      </select>
+    <!-- ═════ Historial de envíos de rango ═════ -->
+    <div id="aum-historial-envios" class="card" style="padding:16px;">
+      <div class="section-title">📋 Histórico de envíos a encargadas</div>
+      <div style="color:var(--muted);font-size:13px;">Cargando...</div>
     </div>
     ` : ''}
-
-    <div class="card">
-      <div class="section-title">Pedidos ${localFiltro ? `de ${localFiltro}` : ''}</div>
-      ${(pedidos||[]).length === 0 ? `<div style="padding:14px;color:var(--muted);">No hay pedidos.</div>` : `
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;">Local</th>
-          <th style="padding:8px;">Vigencia</th>
-          <th style="padding:8px;">Rango</th>
-          <th style="padding:8px;">Estado</th>
-          <th style="padding:8px;">Abierto</th>
-          <th style="padding:8px;">Notas</th>
-          <th style="padding:8px;text-align:right;">Acciones</th>
-        </tr></thead>
-        <tbody>
-          ${pedidos.map(p => `<tr style="border-top:1px solid var(--border);">
-            <td style="padding:8px;font-weight:600;">${escapeHtml(p.local)}</td>
-            <td style="padding:8px;font-family:monospace;">${fmtFecha(p.fecha_vigencia)}</td>
-            <td style="padding:8px;font-family:monospace;">${fmtPct(p.pct_min)} – ${fmtPct(p.pct_max)}</td>
-            <td style="padding:8px;">${estadoChip(p.estado)}</td>
-            <td style="padding:8px;font-size:12px;color:var(--muted);">${fmtFecha((p.abierto_at||'').slice(0,10))}${p.abierto_por?'<br><span style="font-size:11px;">'+escapeHtml(p.abierto_por)+'</span>':''}</td>
-            <td style="padding:8px;color:var(--muted);">${escapeHtml(p.notas||'')}</td>
-            <td style="padding:8px;text-align:right;">
-              <button class="btn small" onclick="aumAbrirDetalle(${p.id})">📝 Detalle</button>
-              ${isAdmin && p.estado === 'abierto' ? `<button class="btn small" onclick="aumCancelar(${p.id})" title="Cancelar pedido">🗑</button>` : ''}
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table>`}
-    </div>
   `;
 
-  // Render asincrónico del panel IPC (solo admin)
+  // Render asincrónico del panel IPC + selector empleadas + historial (solo admin)
   if (isAdmin) {
     aumIPCRender().catch(e => console.warn('aumIPCRender', e));
+    aumPuntualCargarSelect().catch(e => console.warn('aumPuntualCargarSelect', e));
+    aumHistorialRender().catch(e => console.warn('aumHistorialRender', e));
   }
 }
 
-async function aumAbrirPedido() {
+// ════════════════════════════════════════════════════════════════════
+//  Aumento puntual a empleada (caso especial)
+// ════════════════════════════════════════════════════════════════════
+let _aumPuntualConfigs = []; // cache de configs vigentes por empleada
+
+async function aumPuntualCargarSelect() {
+  const sel = document.getElementById('aum-puntual-emp');
+  if (!sel) return;
+  const hoy = new Date().toISOString().slice(0,10);
+  const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
+    .select('empleado_id, fijo, vigente_desde, rrhh_empleados!inner(id, apellido, nombre, local, estado, monotributista)')
+    .lte('vigente_desde', hoy)
+    .eq('activa_en_modulo', true)
+    .order('vigente_desde', { ascending: true });
+  if (error) { console.warn('aumPuntualCargarSelect', error); return; }
+
+  // Quedarse con la config más reciente por empleada
+  const porEmp = {};
+  (configs || [])
+    .filter(c => c.rrhh_empleados?.estado === 'activo' && !c.rrhh_empleados?.monotributista)
+    .forEach(c => { porEmp[c.empleado_id] = c; });
+
+  _aumPuntualConfigs = Object.values(porEmp).sort((a,b) => {
+    const la = a.rrhh_empleados.local || '', lb = b.rrhh_empleados.local || '';
+    if (la !== lb) return la.localeCompare(lb);
+    return (a.rrhh_empleados.apellido || '').localeCompare(b.rrhh_empleados.apellido || '');
+  });
+
+  sel.innerHTML = '<option value="">— Elegir empleada —</option>' +
+    _aumPuntualConfigs.map(c => {
+      const e = c.rrhh_empleados;
+      const loc = (e.local || '').charAt(0).toUpperCase() + (e.local || '').slice(1);
+      return `<option value="${c.empleado_id}">${escapeHtml(loc)} · ${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}</option>`;
+    }).join('');
+}
+
+function aumPuntualOnSelect() {
+  const sel = document.getElementById('aum-puntual-emp');
+  const actualInp = document.getElementById('aum-puntual-actual');
+  const empId = Number(sel.value);
+  if (!empId) { actualInp.value = ''; return; }
+  const c = _aumPuntualConfigs.find(x => x.empleado_id === empId);
+  if (c) actualInp.value = '$' + Number(c.fijo || 0).toLocaleString('es-AR');
+}
+
+async function aumPuntualAplicar() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const empId = Number(document.getElementById('aum-puntual-emp').value);
+  if (!empId) { toast('Elegí una empleada', 'error'); return; }
+
+  // Parsear el monto del input (puede venir como "$1.234.567")
+  const nuevoRaw = document.getElementById('aum-puntual-nuevo').value.replace(/[^\d]/g, '');
+  const fijoNuevo = Number(nuevoRaw);
+  if (!fijoNuevo || fijoNuevo < 1000) { toast('Fijo nuevo inválido', 'error'); return; }
+
+  const vigencia = document.getElementById('aum-puntual-vigencia').value;
+  if (!vigencia) { toast('Falta vigencia', 'error'); return; }
+
+  const motivo = document.getElementById('aum-puntual-motivo').value.trim() || null;
+
+  // Traer la config vigente actual para copiar el resto de campos
+  const { data: actual, error: eA } = await sb.from('rrhh_sueldo_empleada_config')
+    .select('*').eq('empleado_id', empId)
+    .lte('vigente_desde', vigencia)
+    .order('vigente_desde', { ascending: false })
+    .limit(1).maybeSingle();
+  if (eA) { toast('Error: ' + eA.message, 'error'); return; }
+  if (!actual) { toast('La empleada no tiene config vigente', 'error'); return; }
+
+  if (fijoNuevo === Number(actual.fijo)) {
+    toast('El fijo nuevo es igual al actual', 'warning'); return;
+  }
+
+  const emp = _aumPuntualConfigs.find(x => x.empleado_id === empId)?.rrhh_empleados;
+  const nombreEmp = emp ? `${emp.apellido}, ${emp.nombre}` : `empleada #${empId}`;
+  const diff = fijoNuevo - Number(actual.fijo);
+  const pct = (diff / Number(actual.fijo)) * 100;
+
+  if (!confirm(`¿Aplicar aumento puntual a ${nombreEmp}?\n\nFijo actual: $${Number(actual.fijo).toLocaleString('es-AR')}\nFijo nuevo:  $${fijoNuevo.toLocaleString('es-AR')}\nDiferencia:  $${diff.toLocaleString('es-AR')} (${pct.toFixed(2)}%)\nVigente desde: ${vigencia}`)) return;
+
+  // Insertar nueva fila con el fijo nuevo + copiar resto de campos
+  const notas = `[Aumento puntual] ${motivo || 'Caso especial'} · Fijo anterior: $${Number(actual.fijo).toLocaleString('es-AR')}`;
+  const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert({
+    empleado_id: empId,
+    vigente_desde: vigencia,
+    fijo: fijoNuevo,
+    viaticos: actual.viaticos,
+    premio_fichadas_uniforme: actual.premio_fichadas_uniforme,
+    fraccion_comision: actual.fraccion_comision,
+    modo_prorrateo_comision: actual.modo_prorrateo_comision,
+    activa_en_modulo: actual.activa_en_modulo,
+    notas: notas,
+  });
+  if (eIns) {
+    if (eIns.code === '23505') {
+      toast('Ya existe una config vigente desde esa fecha para esta empleada. Elegí otra fecha.', 'error');
+    } else {
+      toast('Error: ' + eIns.message, 'error');
+    }
+    return;
+  }
+
+  toast(`✓ Aumento aplicado: ${nombreEmp} → $${fijoNuevo.toLocaleString('es-AR')}`, 'success');
+  document.getElementById('aum-puntual-emp').value = '';
+  document.getElementById('aum-puntual-actual').value = '';
+  document.getElementById('aum-puntual-nuevo').value = '';
+  document.getElementById('aum-puntual-motivo').value = '';
+  await aumPuntualCargarSelect();
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  Historial de envíos de rango a encargadas
+// ════════════════════════════════════════════════════════════════════
+async function aumHistorialRender() {
+  const cont = document.getElementById('aum-historial-envios');
+  if (!cont) return;
+  const { data: envios, error } = await sb.from('rrhh_aumento_envio')
+    .select('*').order('enviado_at', { ascending: false }).limit(20);
+  if (error) {
+    cont.innerHTML = `<div class="section-title">📋 Histórico de envíos a encargadas</div><div style="color:#b91c1c;font-size:13px;">Error: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+  if (!envios || envios.length === 0) {
+    cont.innerHTML = `
+      <div class="section-title">📋 Histórico de envíos a encargadas</div>
+      <div style="padding:14px;color:var(--muted);font-size:13px;">Todavía no enviaste rangos. Usá el panel amarillo de arriba.</div>
+    `;
+    return;
+  }
+  const fmtFecha2 = (s) => s ? new Date(s).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'}) : '—';
+  cont.innerHTML = `
+    <div class="section-title">📋 Histórico de envíos a encargadas</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;text-align:left;">
+        <th style="padding:8px;">Enviado</th>
+        <th style="padding:8px;">Vigente desde</th>
+        <th style="padding:8px;">Rango %</th>
+        <th style="padding:8px;">Locales</th>
+        <th style="padding:8px;">Por</th>
+      </tr></thead>
+      <tbody>
+        ${envios.map(e => {
+          const locales = e.detalle ? Object.keys(e.detalle) : [];
+          return `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:8px;font-size:12px;">${escapeHtml(fmtFecha2(e.enviado_at))}</td>
+            <td style="padding:8px;font-family:monospace;">${escapeHtml(e.periodo_aplica || '—')}</td>
+            <td style="padding:8px;font-family:monospace;">${e.pct_min}% – ${e.pct_max}%</td>
+            <td style="padding:8px;">${locales.map(l => `<span class="emp-tag" style="background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:4px;font-size:11px;margin-right:3px;">${escapeHtml(l)}</span>`).join('')}</td>
+            <td style="padding:8px;font-size:11px;color:var(--muted);">${escapeHtml(e.enviado_por || '')}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function _aumAbrirPedido_DEPRECATED() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const local = document.getElementById('aum-local').value;
   const fecha_vigencia = document.getElementById('aum-vigencia').value;
