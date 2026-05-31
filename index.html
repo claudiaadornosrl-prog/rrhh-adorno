@@ -2032,6 +2032,44 @@ async function renderTabDatos() {
       </div>
     </div>
 
+    <div class="section-title">📊 Ganancias 4ta categoría</div>
+    <div class="form-grid" style="background:#f9fafb;padding:14px;border-radius:10px;">
+      <div class="form-row full" style="margin-bottom:4px;">
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+          El sistema revisa mensualmente (días 25 y último de mes) si la ganancia neta acumulada superaría el tope MNI + deducciones. Si activás esto, te avisa en el banner del Liquidador y sugiere bruto máximo para no gatillar retención. Editar solo para empleados con riesgo de tope (Claudia, JP, gerencia).
+        </div>
+      </div>
+      <div class="form-row full ${!editing?'readonly':''}">
+        <label style="display:flex;align-items:center;gap:8px;cursor:${editing?'pointer':'default'};">
+          <input type="checkbox" data-field="calcular_tope_ganancias" ${d.calcular_tope_ganancias?'checked':''} ${!editing?'disabled':''}>
+          <strong>Revisar tope Ganancias para este empleado</strong>
+        </label>
+        <div class="hint" style="font-size:11px;color:var(--muted);margin-left:24px;">Si está tildado, el cron mensual lo incluye en la revisión y aparece en el banner si está al borde o excedido.</div>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label style="display:flex;align-items:center;gap:8px;cursor:${editing?'pointer':'default'};">
+          <input type="checkbox" data-field="conyuge_a_cargo" ${d.conyuge_a_cargo?'checked':''} ${!editing?'disabled':''}>
+          Cónyuge a cargo
+        </label>
+        <div class="hint" style="font-size:11px;color:var(--muted);margin-left:24px;">Deduce el monto de cónyuge AFIP del año.</div>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Hijos a cargo (cantidad)</label>
+        <input type="number" data-field="hijos_a_cargo" value="${d.hijos_a_cargo||0}" min="0" max="20" ${!editing?'disabled':''} placeholder="0">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Solo los que cumplen requisitos AFIP (menores 18 o discapacitados). Pueden diferir de la lista de hijos cargada arriba.</div>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Doméstica mensual ($)</label>
+        <input type="number" data-field="domestica_mensual" value="${d.domestica_mensual||0}" min="0" step="1000" ${!editing?'disabled':''} placeholder="0">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Lo que paga por mes a personal doméstico registrado. Deducción tope = MNI anual.</div>
+      </div>
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Prepaga mensual ($)</label>
+        <input type="number" data-field="prepaga_mensual" value="${d.prepaga_mensual||0}" min="0" step="1000" ${!editing?'disabled':''} placeholder="0">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Cuota mensual de prepaga (ej. OSDE 310). Tope deducible: 5% de ganancia neta anual.</div>
+      </div>
+    </div>
+
     <div class="section-title">Pago</div>
     <div class="form-grid">
       <div class="form-row ${!editing?'readonly':''}">
@@ -2045,25 +2083,41 @@ async function renderTabDatos() {
     </div>
   `;
 
-  // Wire inputs
-  body.querySelectorAll('[data-field]').forEach(input => {
-    input.addEventListener('input', (e) => {
-      let val = e.target.value;
-      if (e.target.dataset.field === 'apellido' || e.target.dataset.field === 'nombre') val = val.toUpperCase();
-      if (e.target.dataset.field === 'categoria_cct_id') val = val ? parseInt(val, 10) : null;
-      // Campos numéricos de lactancia
-      if (e.target.dataset.field === 'lactancia_reduccion_diaria_min' ||
-          e.target.dataset.field === 'lactancia_reduccion_finde_min') {
+  // Wire inputs (input para text/number, change para checkbox/select)
+  const handleFieldChange = (e) => {
+    const field = e.target.dataset.field;
+    let val;
+    // Checkbox → boolean
+    if (e.target.type === 'checkbox') {
+      val = !!e.target.checked;
+    } else {
+      val = e.target.value;
+      if (field === 'apellido' || field === 'nombre') val = val.toUpperCase();
+      if (field === 'categoria_cct_id') val = val ? parseInt(val, 10) : null;
+      // Campos numéricos enteros
+      if (field === 'lactancia_reduccion_diaria_min' || field === 'lactancia_reduccion_finde_min' ||
+          field === 'hijos_a_cargo') {
         val = val === '' ? 0 : parseInt(val, 10) || 0;
       }
+      // Campos numéricos decimales (Ganancias deducciones)
+      if (field === 'domestica_mensual' || field === 'prepaga_mensual') {
+        val = val === '' ? 0 : Number(val) || 0;
+      }
       // Fechas de lactancia vacías → null
-      if ((e.target.dataset.field === 'lactancia_desde' || e.target.dataset.field === 'lactancia_hasta') && val === '') {
+      if ((field === 'lactancia_desde' || field === 'lactancia_hasta') && val === '') {
         val = null;
       }
-      empModalState.formData[e.target.dataset.field] = val;
-      // Re-render si cambió el estado a baja (para mostrar campos)
-      if (e.target.dataset.field === 'estado') renderModalBody();
-    });
+    }
+    empModalState.formData[field] = val;
+    // Re-render si cambió el estado a baja (para mostrar campos)
+    if (field === 'estado') renderModalBody();
+  };
+  body.querySelectorAll('[data-field]').forEach(input => {
+    if (input.type === 'checkbox' || input.tagName === 'SELECT') {
+      input.addEventListener('change', handleFieldChange);
+    } else {
+      input.addEventListener('input', handleFieldChange);
+    }
   });
 
   // Wire inputs de hijos (data-hijo-idx / data-hijo-campo)
@@ -2799,6 +2853,17 @@ async function saveEmpleado() {
           ...(h.fecha_nacimiento ? { fecha_nacimiento: h.fecha_nacimiento } : {})
         }))
       : [],
+    // Ganancias 4ta categoría
+    calcular_tope_ganancias: !!d.calcular_tope_ganancias,
+    conyuge_a_cargo:         !!d.conyuge_a_cargo,
+    hijos_a_cargo:           Number(d.hijos_a_cargo) || 0,
+    domestica_mensual:       Number(d.domestica_mensual) || 0,
+    prepaga_mensual:         Number(d.prepaga_mensual) || 0,
+    // Lactancia (faltaban del payload)
+    lactancia_desde:                d.lactancia_desde || null,
+    lactancia_hasta:                d.lactancia_hasta || null,
+    lactancia_reduccion_diaria_min: Number(d.lactancia_reduccion_diaria_min) || 0,
+    lactancia_reduccion_finde_min:  Number(d.lactancia_reduccion_finde_min) || 0,
   };
 
   const saveBtn = document.getElementById('emp-modal-save');
