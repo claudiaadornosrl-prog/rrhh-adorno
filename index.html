@@ -12493,8 +12493,10 @@ async function aumIPCRender() {
     return;
   }
 
-  // Calcular acumulado desde último aumento (Feb 2026 → último mes con dato)
-  const filtrados = (ipc || []).filter(r => r.mes >= AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0);
+  // Calcular acumulado de meses POSTERIORES al último aumento.
+  // (el sueldo de feb-26 ya incluye el aumento de febrero, entonces lo que tiene
+  // que compensar el próximo aumento es marzo en adelante)
+  const filtrados = (ipc || []).filter(r => r.mes > AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0);
   let factor = 1;
   filtrados.forEach(r => { factor *= (1 + Number(r.variacion_pct)/100); });
   const acumPct = (factor - 1) * 100;
@@ -12521,7 +12523,7 @@ async function aumIPCRender() {
       <thead><tr style="background:#f9fafb;text-align:left;">
         <th style="padding:6px 8px;">Mes</th>
         <th style="padding:6px 8px;text-align:right;">Variación mensual</th>
-        <th style="padding:6px 8px;text-align:right;">Acumulado desde feb 2026</th>
+        <th style="padding:6px 8px;text-align:right;">Acumulado post-feb 2026</th>
         <th style="padding:6px 8px;">Fuente</th>
         <th style="padding:6px 8px;text-align:right;">Acción</th>
       </tr></thead>
@@ -12532,7 +12534,7 @@ async function aumIPCRender() {
           const ordenados = [...(ipc || [])].sort((a,b) => a.mes.localeCompare(b.mes));
           const acumByMes = {};
           ordenados.forEach(r => {
-            if (r.mes >= AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0) {
+            if (r.mes > AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0) {
               acum *= (1 + Number(r.variacion_pct)/100);
               acumByMes[r.mes] = (acum - 1) * 100;
             }
@@ -12541,7 +12543,8 @@ async function aumIPCRender() {
             const acumPct = acumByMes[r.mes];
             const pct = Number(r.variacion_pct);
             const esPendiente = pct === 0;
-            return `<tr style="border-top:1px solid var(--border);${esPendiente ? 'background:#fef3c7;' : ''}">
+            const esProyeccion = (r.fuente || '').toLowerCase().includes('proyec');
+            return `<tr style="border-top:1px solid var(--border);${esPendiente ? 'background:#fef3c7;' : esProyeccion ? 'background:#dbeafe;' : ''}">
               <td style="padding:6px 8px;font-family:monospace;">${mesLabel(r.mes)}</td>
               <td style="padding:6px 8px;text-align:right;font-family:monospace;${esPendiente ? 'color:#92400e;font-style:italic;' : 'font-weight:600;'}">
                 <input type="number" id="aum-ipc-pct-${r.mes}" value="${pct}" step="0.1" min="0" max="50"
