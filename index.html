@@ -12237,13 +12237,42 @@ async function renderAumentos() {
     <div class="page-header">
       <h2>Aumentos pedidos</h2>
       <div class="subtitle">${isAdmin
-        ? 'Abrí un pedido con rango % por local. La encargada lo completa y vos aprobás/aplicás.'
+        ? 'Mirá la inflación, definí el rango en pesos y mandale a cada encargada la planilla.'
         : 'La oficina te pide que propongas un % de aumento por empleada dentro del rango habilitado.'}</div>
     </div>
 
     ${isAdmin ? `
+    <!-- ═════ Panel histórico IPC INDEC ═════ -->
+    <div id="aum-ipc-panel" class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="color:var(--muted);font-size:13px;">Cargando histórico inflación INDEC...</div>
+    </div>
+
+    <!-- ═════ Wizard: disparar rangos en $ a encargadas ═════ -->
+    <div class="card" style="padding:16px;margin-bottom:14px;background:#fef3c7;border:1px solid #fde68a;">
+      <h3 style="margin:0 0 6px;">📤 Disparar rangos a encargadas (en pesos)</h3>
+      <div style="color:#78350f;font-size:13px;margin-bottom:14px;line-height:1.45;">
+        Ingresá el % mínimo y máximo. El sistema arma una planilla por empleada con su fijo actual + rango en PESOS REDONDEADOS y la manda por push a cada encargada. <strong>Soraya (Unicenter)</strong> recibe además la nota de aumentarle a Marcelo el máximo del rango.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;align-items:end;">
+        <div class="form-row"><label>% mínimo</label><input type="number" id="aum-rg-pmin" value="6" min="0" step="0.5"></div>
+        <div class="form-row"><label>% máximo</label><input type="number" id="aum-rg-pmax" value="10" min="0" step="0.5"></div>
+        <div class="form-row"><label>Vigente desde</label>
+          <input type="date" id="aum-rg-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        </div>
+        <div class="form-row"><label>Redondear a múltiplo de</label>
+          <select id="aum-rg-redondeo">
+            <option value="1000">$1.000</option>
+            <option value="5000" selected>$5.000</option>
+            <option value="10000">$10.000</option>
+          </select>
+        </div>
+        <button class="btn primary" onclick="aumPreviewRangos()">👁 Previsualizar planilla</button>
+      </div>
+    </div>
+
+    <!-- ═════ Workflow clásico (encargada → admin) ═════ -->
     <div class="card" style="padding:16px;margin-bottom:14px;">
-      <h3 style="margin:0 0 12px;">➕ Abrir nuevo pedido</h3>
+      <h3 style="margin:0 0 12px;">➕ Abrir pedido clásico (encargada propone %)</h3>
       <div style="display:grid;grid-template-columns:1fr 1.2fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
         <div class="form-row"><label>Local</label>
           <select id="aum-local">
@@ -12303,6 +12332,11 @@ async function renderAumentos() {
       </table>`}
     </div>
   `;
+
+  // Render asincrónico del panel IPC (solo admin)
+  if (isAdmin) {
+    aumIPCRender().catch(e => console.warn('aumIPCRender', e));
+  }
 }
 
 async function aumAbrirPedido() {
@@ -12437,6 +12471,314 @@ function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
   tgt.style.color = '';
   const nuevo = fijoAnt * (1 + v/100);
   tgt.textContent = '$' + Math.round(nuevo).toLocaleString('es-AR');
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  Aumentos · Panel histórico IPC INDEC + wizard rangos $ a encargadas
+// ════════════════════════════════════════════════════════════════════
+
+// Último mes en que JP dio aumento (lo usamos como "punto de partida"
+// para acumular IPC). Por ahora hardcodeado a febrero 2026 — más adelante
+// se puede leer de rrhh_sueldo_empleada_config (vigente_desde más reciente).
+const AUM_ULTIMO_AUMENTO_MES = '2026-02-01';
+
+async function aumIPCRender() {
+  const panel = document.getElementById('aum-ipc-panel');
+  if (!panel) return;
+
+  const { data: ipc, error } = await sb.from('rrhh_ipc_argentina')
+    .select('*').order('mes', { ascending: false }).limit(12);
+  if (error) {
+    panel.innerHTML = `<div style="color:#b91c1c;font-size:13px;">Error cargando IPC: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  // Calcular acumulado desde último aumento (Feb 2026 → último mes con dato)
+  const filtrados = (ipc || []).filter(r => r.mes >= AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0);
+  let factor = 1;
+  filtrados.forEach(r => { factor *= (1 + Number(r.variacion_pct)/100); });
+  const acumPct = (factor - 1) * 100;
+
+  const mesLabel = (mes) => {
+    const d = new Date(mes + 'T00:00:00');
+    return d.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+  };
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+      <div>
+        <h3 style="margin:0 0 4px;">📈 Histórico inflación INDEC</h3>
+        <div style="color:var(--muted);font-size:12px;">
+          Último aumento aplicado: <strong>${mesLabel(AUM_ULTIMO_AUMENTO_MES)}</strong>.
+          IPC acumulado desde entonces: <strong style="color:#7c3aed;font-size:16px;">${acumPct.toFixed(2)}%</strong>
+          (${filtrados.length} ${filtrados.length === 1 ? 'mes' : 'meses'}).
+        </div>
+      </div>
+      <button class="btn small" onclick="aumIPCAgregarMes()">➕ Cargar mes manual</button>
+    </div>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;text-align:left;">
+        <th style="padding:6px 8px;">Mes</th>
+        <th style="padding:6px 8px;text-align:right;">Variación mensual</th>
+        <th style="padding:6px 8px;text-align:right;">Acumulado desde feb 2026</th>
+        <th style="padding:6px 8px;">Fuente</th>
+        <th style="padding:6px 8px;text-align:right;">Acción</th>
+      </tr></thead>
+      <tbody>
+        ${(() => {
+          // calculo acumulado per row para los que cuentan
+          let acum = 1;
+          const ordenados = [...(ipc || [])].sort((a,b) => a.mes.localeCompare(b.mes));
+          const acumByMes = {};
+          ordenados.forEach(r => {
+            if (r.mes >= AUM_ULTIMO_AUMENTO_MES && Number(r.variacion_pct) > 0) {
+              acum *= (1 + Number(r.variacion_pct)/100);
+              acumByMes[r.mes] = (acum - 1) * 100;
+            }
+          });
+          return (ipc || []).map(r => {
+            const acumPct = acumByMes[r.mes];
+            const pct = Number(r.variacion_pct);
+            const esPendiente = pct === 0;
+            return `<tr style="border-top:1px solid var(--border);${esPendiente ? 'background:#fef3c7;' : ''}">
+              <td style="padding:6px 8px;font-family:monospace;">${mesLabel(r.mes)}</td>
+              <td style="padding:6px 8px;text-align:right;font-family:monospace;${esPendiente ? 'color:#92400e;font-style:italic;' : 'font-weight:600;'}">
+                <input type="number" id="aum-ipc-pct-${r.mes}" value="${pct}" step="0.1" min="0" max="50"
+                       style="width:80px;padding:3px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;">
+                %
+              </td>
+              <td style="padding:6px 8px;text-align:right;font-family:monospace;color:#7c3aed;">
+                ${acumPct != null ? acumPct.toFixed(2) + '%' : '—'}
+              </td>
+              <td style="padding:6px 8px;color:var(--muted);font-size:11px;">${escapeHtml(r.fuente || '')}</td>
+              <td style="padding:6px 8px;text-align:right;">
+                <button class="btn small" onclick="aumIPCGuardarMes('${r.mes}')">💾</button>
+              </td>
+            </tr>`;
+          }).join('');
+        })()}
+      </tbody>
+    </table>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted);">
+      💡 El INDEC publica el IPC alrededor del día 12 del mes siguiente. Cuando salga, actualizá el valor del mes pendiente acá.
+    </div>
+  `;
+}
+
+async function aumIPCGuardarMes(mesISO) {
+  const inp = document.getElementById('aum-ipc-pct-' + mesISO);
+  if (!inp) return;
+  const v = Number(inp.value);
+  if (isNaN(v) || v < 0 || v > 50) {
+    toast('Valor IPC fuera de rango (0-50%)', 'error');
+    return;
+  }
+  const { error } = await sb.from('rrhh_ipc_argentina').update({
+    variacion_pct: v,
+    fuente: 'manual',
+    cargado_at: new Date().toISOString(),
+    cargado_por: session.user?.email || 'admin',
+  }).eq('mes', mesISO);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast(`IPC de ${mesISO} guardado (${v}%)`, 'success');
+  aumIPCRender();
+}
+
+async function aumIPCAgregarMes() {
+  const hoy = new Date();
+  const m = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().slice(0,10);
+  const mesStr = prompt('Mes a cargar (formato yyyy-mm-01)', m);
+  if (!mesStr) return;
+  if (!/^\d{4}-\d{2}-01$/.test(mesStr)) { toast('Formato debe ser yyyy-mm-01', 'error'); return; }
+  const pctStr = prompt('Variación mensual % (ej. 2.5)', '0');
+  if (pctStr == null) return;
+  const pct = Number(pctStr);
+  if (isNaN(pct) || pct < 0 || pct > 50) { toast('% inválido', 'error'); return; }
+  const { error } = await sb.from('rrhh_ipc_argentina').upsert({
+    mes: mesStr,
+    variacion_pct: pct,
+    fuente: 'manual',
+    cargado_por: session.user?.email || 'admin',
+  });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast(`Mes ${mesStr} cargado`, 'success');
+  aumIPCRender();
+}
+
+// ─── Wizard: preview de rangos $ y push a encargadas ─────────────────
+async function aumPreviewRangos() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const pmin = Number(document.getElementById('aum-rg-pmin').value);
+  const pmax = Number(document.getElementById('aum-rg-pmax').value);
+  const vigencia = document.getElementById('aum-rg-vigencia').value;
+  const redondeo = Number(document.getElementById('aum-rg-redondeo').value);
+  if (isNaN(pmin) || isNaN(pmax) || pmin < 0 || pmax < pmin) {
+    toast('% min/max inválidos', 'error'); return;
+  }
+  if (!vigencia) { toast('Falta vigencia', 'error'); return; }
+
+  // Traer todas las vendedoras activas con fijo > 0
+  const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
+    .select('empleado_id, fijo_mensual, modo, vigente_desde, rrhh_empleados!inner(id, apellido, nombre, local, estado, monotributista)')
+    .lte('vigente_desde', vigencia)
+    .eq('activa_en_modulo', true);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  // Quedarnos con la config más reciente por empleada
+  const porEmp = {};
+  (configs || [])
+    .filter(c => c.rrhh_empleados?.estado === 'activo' && !c.rrhh_empleados?.monotributista)
+    .sort((a, b) => (a.vigente_desde || '').localeCompare(b.vigente_desde || ''))
+    .forEach(c => { porEmp[c.empleado_id] = c; });
+
+  const empleados = Object.values(porEmp).filter(c => Number(c.fijo_mensual) > 0);
+  if (empleados.length === 0) { toast('No hay vendedoras con fijo > 0', 'warning'); return; }
+
+  // Redondear hacia el múltiplo más cercano
+  const redondear = (n) => Math.round(n / redondeo) * redondeo;
+
+  // Agrupar por local
+  const ENCARGADAS = {
+    alcorta:   { nombre: 'Encargada Alcorta',   email: null },
+    unicenter: { nombre: 'Soraya (Unicenter)',  email: null, notaExtra: '🧹 Marcelo (limpieza, monotributista, NO se carga al sistema): aumentale el MÁXIMO del rango.' },
+    oficina:   { nombre: 'JP (Oficina)',        email: 'juanpsimonelli@gmail.com' },
+  };
+
+  const porLocal = {};
+  empleados.forEach(c => {
+    const loc = c.rrhh_empleados.local;
+    if (!porLocal[loc]) porLocal[loc] = [];
+    const fijo = Number(c.fijo_mensual);
+    porLocal[loc].push({
+      empleado_id: c.empleado_id,
+      apellido: c.rrhh_empleados.apellido,
+      nombre: c.rrhh_empleados.nombre,
+      fijo_actual: fijo,
+      rango_min: redondear(fijo * (1 + pmin/100)),
+      rango_max: redondear(fijo * (1 + pmax/100)),
+    });
+  });
+  // ordenar
+  Object.values(porLocal).forEach(arr => arr.sort((a,b) => (a.apellido||'').localeCompare(b.apellido||'')));
+
+  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
+
+  let html = `
+    <div style="background:white;border-radius:10px;max-width:980px;width:95vw;max-height:90vh;overflow:auto;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Previsualización · Rangos ${pmin}% – ${pmax}% (redondeado a ${fmt$(redondeo)})</h3>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+        Vigente desde <strong>${vigencia}</strong>. Cada encargada va a recibir SU planilla y elegir el monto exacto dentro del rango.
+      </div>
+  `;
+
+  Object.entries(porLocal).forEach(([loc, lista]) => {
+    const enc = ENCARGADAS[loc] || { nombre: '?' };
+    html += `
+      <div style="margin-bottom:18px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+        <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+          <span>🏬 ${loc.charAt(0).toUpperCase()+loc.slice(1)} → ${enc.nombre}</span>
+          <span style="font-size:12px;color:var(--muted);font-weight:400;">${lista.length} empleadas</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#fafafa;text-align:left;">
+            <th style="padding:6px 10px;">Empleada</th>
+            <th style="padding:6px 10px;text-align:right;">Fijo actual</th>
+            <th style="padding:6px 10px;text-align:right;">Rango sugerido</th>
+          </tr></thead>
+          <tbody>
+            ${lista.map(e => `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:6px 10px;">${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt$(e.fijo_actual)}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;color:#7c3aed;">
+                ${fmt$(e.rango_min)} – ${fmt$(e.rango_max)}
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        ${enc.notaExtra ? `<div style="background:#fef3c7;padding:10px 12px;font-size:12px;color:#78350f;border-top:1px solid var(--border);"><strong>Nota extra para esta encargada:</strong><br>${escapeHtml(enc.notaExtra)}</div>` : ''}
+      </div>
+    `;
+  });
+
+  // Guardar planilla en window para usarla al enviar
+  window._aumPlanillaPreview = { vigencia, pmin, pmax, redondeo, porLocal };
+
+  html += `
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="aumEnviarRangosAEncargadas()">📤 Enviar push a encargadas</button>
+      </div>
+    </div>
+  `;
+  openModal(html);
+}
+
+async function aumEnviarRangosAEncargadas() {
+  const planilla = window._aumPlanillaPreview;
+  if (!planilla) { toast('No hay planilla previsualizada', 'error'); return; }
+  if (!confirm(`¿Mandar la planilla por push a las encargadas?`)) return;
+
+  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
+
+  // Registrar el envío
+  const { data: envio, error: eEnv } = await sb.from('rrhh_aumento_envio').insert({
+    enviado_por: session.user?.email || 'admin',
+    periodo_aplica: planilla.vigencia,
+    pct_min: planilla.pmin,
+    pct_max: planilla.pmax,
+    detalle: planilla.porLocal,
+  }).select('id').single();
+  if (eEnv) { toast('Error registrando envío: ' + eEnv.message, 'error'); return; }
+
+  // Para cada local, buscar la encargada y mandar push
+  let okCount = 0, errCount = 0;
+  for (const [loc, lista] of Object.entries(planilla.porLocal)) {
+    // Encontrar la encargada del local (rol gerente, local_gerencia=loc)
+    const { data: usrs } = await sb.from('rrhh_usuarios')
+      .select('empleado_id, email')
+      .eq('rol', 'gerente').eq('local_gerencia', loc).eq('activo', true);
+    let empIds = (usrs || []).map(u => u.empleado_id).filter(x => x);
+
+    // Caso especial: oficina → JP (admin)
+    if (loc === 'oficina') {
+      const { data: jp } = await sb.from('rrhh_usuarios')
+        .select('empleado_id').eq('rol', 'admin').eq('activo', true);
+      empIds = (jp || []).map(u => u.empleado_id).filter(x => x);
+    }
+
+    if (empIds.length === 0) { errCount++; continue; }
+
+    const titulo = `💰 Rangos de aumento ${planilla.pmin}–${planilla.pmax}%`;
+    let cuerpo = `${loc.toUpperCase()} · ${lista.length} vendedoras\n\n`;
+    lista.slice(0, 6).forEach(e => {
+      cuerpo += `• ${e.apellido}: ${fmt$(e.fijo_actual)} → ${fmt$(e.rango_min)}–${fmt$(e.rango_max)}\n`;
+    });
+    if (lista.length > 6) cuerpo += `…y ${lista.length - 6} más en la app`;
+    if (loc === 'unicenter') {
+      cuerpo += `\n\n🧹 RECORDÁ: aumentale a Marcelo el MÁXIMO del rango.`;
+    }
+
+    for (const empId of empIds) {
+      const r = await enviarPush(empId, titulo, cuerpo, {
+        tag: 'aum-rango-' + envio.id,
+        url: './#aumentos',
+      });
+      if (r?.ok !== false) okCount++; else errCount++;
+    }
+  }
+
+  closeModal();
+  if (errCount === 0) {
+    toast(`✓ Push enviado a ${okCount} encargadas`, 'success');
+  } else {
+    toast(`Enviadas ${okCount}, fallaron ${errCount}. Revisar consola.`, 'warning');
+  }
+  window._aumPlanillaPreview = null;
 }
 
 async function aumGuardarDetalle(pedidoId) {
