@@ -12642,8 +12642,9 @@ async function aumPreviewRangos() {
   if (!vigencia) { toast('Falta vigencia', 'error'); return; }
 
   // Traer todas las vendedoras activas con fijo > 0
+  // ojo: la columna en la tabla se llama 'fijo' (no 'fijo_mensual')
   const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
-    .select('empleado_id, fijo_mensual, modo, vigente_desde, rrhh_empleados!inner(id, apellido, nombre, local, estado, monotributista)')
+    .select('empleado_id, fijo, vigente_desde, rrhh_empleados!inner(id, apellido, nombre, local, estado, monotributista)')
     .lte('vigente_desde', vigencia)
     .eq('activa_en_modulo', true);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
@@ -12655,7 +12656,7 @@ async function aumPreviewRangos() {
     .sort((a, b) => (a.vigente_desde || '').localeCompare(b.vigente_desde || ''))
     .forEach(c => { porEmp[c.empleado_id] = c; });
 
-  const empleados = Object.values(porEmp).filter(c => Number(c.fijo_mensual) > 0);
+  const empleados = Object.values(porEmp).filter(c => Number(c.fijo) > 0);
   if (empleados.length === 0) { toast('No hay vendedoras con fijo > 0', 'warning'); return; }
 
   // Redondear hacia el múltiplo más cercano
@@ -12672,7 +12673,7 @@ async function aumPreviewRangos() {
   empleados.forEach(c => {
     const loc = c.rrhh_empleados.local;
     if (!porLocal[loc]) porLocal[loc] = [];
-    const fijo = Number(c.fijo_mensual);
+    const fijo = Number(c.fijo);
     porLocal[loc].push({
       empleado_id: c.empleado_id,
       apellido: c.rrhh_empleados.apellido,
