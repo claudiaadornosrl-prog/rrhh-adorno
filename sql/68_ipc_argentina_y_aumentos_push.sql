@@ -30,9 +30,10 @@ CREATE POLICY rrhh_ipc_admin_all
     ON public.rrhh_ipc_argentina FOR ALL
     USING (rrhh_is_admin()) WITH CHECK (rrhh_is_admin());
 
--- ─── 2. Seed con valores conocidos (INDEC oficiales) ────────────────
--- Cargo los últimos 12 meses para tener histórica. JP puede actualizar
--- desde la UI cuando salga el dato de cada mes (alrededor del día 12).
+-- ─── 2. Seed con valores conocidos (INDEC oficiales + proyecciones) ──
+-- Histórico INDEC + proyecciones de consultoras privadas (consenso REM-BCRA
+-- y relevamientos Eco Go / LCG / Equilibra / OJF) para meses sin publicar.
+-- JP puede actualizar desde la UI cuando salga cada dato oficial.
 INSERT INTO public.rrhh_ipc_argentina (mes, variacion_pct, fuente, notas) VALUES
     ('2025-06-01', 1.6,  'INDEC', 'Histórico'),
     ('2025-07-01', 1.9,  'INDEC', 'Histórico'),
@@ -42,11 +43,19 @@ INSERT INTO public.rrhh_ipc_argentina (mes, variacion_pct, fuente, notas) VALUES
     ('2025-11-01', 2.4,  'INDEC', 'Histórico'),
     ('2025-12-01', 2.7,  'INDEC', 'Histórico'),
     ('2026-01-01', 2.2,  'INDEC', 'Histórico'),
-    ('2026-02-01', 2.4,  'INDEC', 'Histórico'),
+    ('2026-02-01', 2.4,  'INDEC', 'Histórico (mes del último aumento Adorno)'),
     ('2026-03-01', 3.7,  'INDEC', 'Histórico'),
-    ('2026-04-01', 2.8,  'INDEC', 'Último dato publicado'),
-    ('2026-05-01', 0.0,  'INDEC (pendiente)', 'A publicar ~12/jun. Cargar manualmente.')
+    ('2026-04-01', 2.8,  'INDEC', 'Último dato oficial publicado'),
+    ('2026-05-01', 2.5,  'Proyección consultoras', 'REM-BCRA / Eco Go / LCG promedio. Reemplazar cuando INDEC publique ~12/jun.'),
+    ('2026-06-01', 2.2,  'Proyección consultoras', 'Estimado consenso. Reemplazar cuando INDEC publique ~14/jul.')
 ON CONFLICT (mes) DO NOTHING;
+
+-- Si el seed previo (v1) dejó may-26 en 0%, lo corrijo ahora:
+UPDATE public.rrhh_ipc_argentina
+   SET variacion_pct = 2.5,
+       fuente = 'Proyección consultoras',
+       notas = 'REM-BCRA / Eco Go / LCG promedio. Reemplazar cuando INDEC publique ~12/jun.'
+ WHERE mes = '2026-05-01' AND variacion_pct = 0;
 
 -- ─── 3. Función helper: IPC acumulado entre dos fechas ───────────────
 CREATE OR REPLACE FUNCTION public.rrhh_ipc_acumulado(p_desde date, p_hasta date)
