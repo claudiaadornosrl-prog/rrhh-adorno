@@ -690,7 +690,7 @@ const NAV = {
 };
 
 let session = null;  // { user, rol, empleado, empleadoData }
-let liqState = { periodo: null, local: null };
+let liqState = { periodo: null, local: null, busqueda: '', estado: 'todos', categoria: 'todas', soloAlertas: false, sortBy: null, sortDir: 'asc' };
 
 let currentTab = 'dashboard';
 
@@ -11046,7 +11046,23 @@ async function renderLiquidaciones() {
     .eq('periodo', periodo + '-01')
     .order('local').order('empleado(apellido)');
   if (local !== 'todos') qLiq = qLiq.eq('local', local);
-  const { data: liqs } = await qLiq;
+  const { data: liqsRaw } = await qLiq;
+  const liqsAll = liqsRaw || [];
+
+  // ── FILTROS LOCALES (no recargan de Supabase) ──────────────────────
+  const busqNorm = (liqState.busqueda || '').toLowerCase().trim();
+  const categoriasPresentes = [...new Set(liqsAll.map(l => l.empleado?.categoria?.nombre).filter(Boolean))].sort();
+  const liqs = liqsAll.filter(l => {
+    if (busqNorm) {
+      const nom = (l.empleado?.nombre_completo || '').toLowerCase();
+      if (!nom.includes(busqNorm)) return false;
+    }
+    if (liqState.estado && liqState.estado !== 'todos' && l.estado !== liqState.estado) return false;
+    if (liqState.categoria && liqState.categoria !== 'todas' && l.empleado?.categoria?.nombre !== liqState.categoria) return false;
+    if (liqState.soloAlertas && (l.puntos_mes || 0) <= 4) return false;
+    return true;
+  });
+
 
   // ─── Revisión Ganancias: leer última corrida + auto-refresh si stale ──
   let gananciasRevisiones = [];
@@ -11091,6 +11107,30 @@ async function renderLiquidaciones() {
         else        prestamosPorEmpLiq[pr.empleado_id] = (prestamosPorEmpLiq[pr.empleado_id]||0) + cap;
       });
     }
+  }
+
+  // ── SORT (click en header) — se hace AHORA porque algunos sorts usan préstamos/adelantos
+  if (liqState.sortBy) {
+    const dir = liqState.sortDir === 'desc' ? -1 : 1;
+    const getVal = (l) => {
+      switch (liqState.sortBy) {
+        case 'empleada':   return (l.empleado?.apellido || '').toLowerCase();
+        case 'local':      return l.local || '';
+        case 'dias':       return Number(l.dias_trabajados || 0);
+        case 'puntos':     return Number(l.puntos_mes || 0);
+        case 'total':      return Number(l.total_negro || 0);
+        case 'recibo':     return Number(l.recibo_neto || 0);
+        case 'banco':      return Number(l.recibo_neto || 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0);
+        case 'efectivo':   return Number(l.efectivo || 0);
+        default:           return 0;
+      }
+    };
+    liqs.sort((a, b) => {
+      const va = getVal(a), vb = getVal(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return  1 * dir;
+      return 0;
+    });
   }
 
   // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto del
@@ -11170,13 +11210,57 @@ async function renderLiquidaciones() {
       </div>
     </div>
 
-    ${(liqs||[]).length === 0 ? `
+    <!-- Barra de FILTROS (Fase 1: búsqueda + estado + categoría + solo alertas) -->
+    <div class="cal-toolbar" style="margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:8px;font-size:13px;">
+      <input type="text" id="liq-busqueda" placeholder="🔍 Buscar por nombre…"
+             value="${escapeHtml(liqState.busqueda || '')}"
+             oninput="liqState.busqueda = this.value; clearTimeout(window._liqBusqTimer); window._liqBusqTimer = setTimeout(() => switchTab('liquidaciones'), 300);"
+             style="flex:0 0 240px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+
+      <label style="display:flex;align-items:center;gap:6px;color:var(--muted);">Estado:
+        <select onchange="liqState.estado=this.value; switchTab('liquidaciones');" style="padding:5px 8px;">
+          <option value="todos"    ${liqState.estado==='todos'?'selected':''}>Todos</option>
+          <option value="borrador" ${liqState.estado==='borrador'?'selected':''}>Borrador</option>
+          <option value="revisada" ${liqState.estado==='revisada'?'selected':''}>Revisada</option>
+          <option value="firmada"  ${liqState.estado==='firmada'?'selected':''}>Firmada</option>
+          <option value="anulada"  ${liqState.estado==='anulada'?'selected':''}>Anulada</option>
+        </select>
+      </label>
+
+      ${categoriasPresentes.length > 0 ? `<label style="display:flex;align-items:center;gap:6px;color:var(--muted);">Categoría:
+        <select onchange="liqState.categoria=this.value; switchTab('liquidaciones');" style="padding:5px 8px;max-width:240px;">
+          <option value="todas" ${liqState.categoria==='todas'?'selected':''}>Todas</option>
+          ${categoriasPresentes.map(c => `<option value="${escapeHtml(c)}" ${liqState.categoria===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+        </select>
+      </label>` : ''}
+
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;${liqState.soloAlertas?'background:#fef3c7;padding:4px 10px;border-radius:6px;':''}">
+        <input type="checkbox" ${liqState.soloAlertas?'checked':''} onchange="liqState.soloAlertas=this.checked; switchTab('liquidaciones');">
+        ⚠️ Solo con alertas (puntos > 4)
+      </label>
+
+      <div style="margin-left:auto;color:var(--muted);font-size:12px;">
+        Mostrando <strong style="color:var(--text);">${liqs.length}</strong> de ${liqsAll.length}
+        ${(busqNorm || liqState.estado !== 'todos' || liqState.categoria !== 'todas' || liqState.soloAlertas)
+          ? `<button class="btn small" style="margin-left:8px;" onclick="liqLimpiarFiltros()" title="Limpiar todos los filtros">✕ Limpiar</button>`
+          : ''}
+      </div>
+    </div>
+
+    ${(liqs||[]).length === 0 ? (liqsAll.length === 0 ? `
       <div class="card"><div class="placeholder">
         <div class="icon">🧮</div>
         <h3>Aún no hay liquidaciones para este mes</h3>
         <p>Cargá las ventas del local del mes y dale "Generar mes" para calcular todas las liquidaciones.</p>
       </div></div>
     ` : `
+      <div class="card"><div class="placeholder">
+        <div class="icon">🔎</div>
+        <h3>Ningún resultado coincide con los filtros</h3>
+        <p>Probá limpiar la búsqueda, cambiar el estado o desmarcar "Solo con alertas".</p>
+        <button class="btn primary" style="margin-top:10px;" onclick="liqLimpiarFiltros()">✕ Limpiar filtros</button>
+      </div></div>
+    `) : `
       <div class="metrics-grid" style="margin-bottom:12px;">
         <div class="metric-card"><div class="label">Recibo neto (CCT)</div><div class="value">${fmt(totalRecibo)}</div></div>
         <div class="metric-card"><div class="label">Total a pagar</div><div class="value">${fmt(totalNegro)}</div></div>
@@ -11217,30 +11301,39 @@ async function renderLiquidaciones() {
       <div class="card" style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
           <thead>
+            ${(() => {
+              const arrow = (col) => liqState.sortBy === col
+                ? `<span style="color:#4338ca;margin-left:3px;">${liqState.sortDir === 'asc' ? '↑' : '↓'}</span>`
+                : '<span style="color:#cbd5e1;margin-left:3px;">↕</span>';
+              const sortable = (col, label, opts = {}) => `<th style="padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}cursor:pointer;user-select:none;" onclick="liqOrdenarPor('${col}')" ${opts.title ? `title="${opts.title}"` : ''}>${label}${arrow(col)}</th>`;
+              const fixed = (label, opts = {}) => `<th style="padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}" ${opts.title ? `title="${opts.title}"` : ''}>${label}</th>`;
+              return `
             <tr style="background:#f9fafb;text-align:right;">
-              <th style="padding:8px;text-align:left;">Empleada</th>
-              ${local === 'todos' ? '<th style="padding:8px;text-align:left;">Local</th>' : ''}
-              <th style="padding:8px;">Cat.</th>
-              <th style="padding:8px;">Días</th>
-              <th style="padding:8px;">Pts</th>
-              <th style="padding:8px;">Fijo</th>
-              <th style="padding:8px;">Comisión</th>
-              <th style="padding:8px;">Premios</th>
-              <th style="padding:8px;">Viáticos</th>
-              <th style="padding:8px;">Extras</th>
-              <th style="padding:8px;">Feriado</th>
-              ${esMesSAC ? '<th style="padding:8px;" title="SAC = mejor bruto del semestre / 12 × meses trabajados">SAC</th>' : ''}
-              <th style="padding:8px;background:#eef2ff;" title="Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}">Total</th>
-              <th style="padding:8px;background:#fef3c7;" title="Neto del recibo CCT (lo que dice el recibo legal)">Recibo</th>
-              <th style="padding:8px;" title="Capital de cuota de préstamo descontado del banco">Préstamos</th>
-              <th style="padding:8px;" title="Adelantos del mes (préstamos 1 cuota tasa 0%)">Adelantos</th>
-              <th style="padding:8px;background:#dcfce7;" title="Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)">Total</th>
-              <th style="padding:8px;">Mercadería</th>
-              <th style="padding:8px;" title="Interés del/los préstamo(s) — se descuenta del Efectivo">Intereses</th>
-              <th style="padding:8px;" title="Ajuste manual. Click para editar. Hover para ver comentario.">Ajustes</th>
-              <th style="padding:8px;background:#fde2e8;">Efectivo</th>
-              <th style="padding:8px;">Detalle</th>
+              ${sortable('empleada', 'Empleada', { align: 'text-align:left' })}
+              ${local === 'todos' ? sortable('local', 'Local', { align: 'text-align:left' }) : ''}
+              ${fixed('Cat.')}
+              ${sortable('dias', 'Días')}
+              ${sortable('puntos', 'Pts')}
+              ${fixed('Fijo')}
+              ${fixed('Comisión')}
+              ${fixed('Premios')}
+              ${fixed('Viáticos')}
+              ${fixed('Extras')}
+              ${fixed('Feriado')}
+              ${esMesSAC ? fixed('SAC', { title: 'SAC = mejor bruto del semestre / 12 × meses trabajados' }) : ''}
+              ${sortable('total', 'Total', { bg: '#eef2ff', title: 'Fijo + Comisión + Premios + Viáticos + Extras + Feriado' + (esMesSAC ? ' + SAC' : '') })}
+              ${sortable('recibo', 'Recibo', { bg: '#fef3c7', title: 'Neto del recibo CCT (lo que dice el recibo legal)' })}
+              ${fixed('Préstamos', { title: 'Capital de cuota de préstamo descontado del banco' })}
+              ${fixed('Adelantos', { title: 'Adelantos del mes (préstamos 1 cuota tasa 0%)' })}
+              ${sortable('banco', 'Total', { bg: '#dcfce7', title: 'Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)' })}
+              ${fixed('Mercadería')}
+              ${fixed('Intereses', { title: 'Interés del/los préstamo(s) — se descuenta del Efectivo' })}
+              ${fixed('Ajustes', { title: 'Ajuste manual. Click para editar. Hover para ver comentario.' })}
+              ${sortable('efectivo', 'Efectivo', { bg: '#fde2e8' })}
+              ${fixed('Detalle')}
             </tr>
+              `;
+            })()}
           </thead>
           <tbody>
             ${(liqs||[]).map(l => {
@@ -11294,6 +11387,26 @@ async function renderLiquidaciones() {
       </div>
     `}
   `;
+}
+
+// Limpia todos los filtros del Liquidador y refresca
+function liqLimpiarFiltros() {
+  liqState.busqueda  = '';
+  liqState.estado    = 'todos';
+  liqState.categoria = 'todas';
+  liqState.soloAlertas = false;
+  switchTab('liquidaciones');
+}
+
+// Click en header de la tabla → toggle ASC/DESC en esa columna (o asignar si era otra)
+function liqOrdenarPor(col) {
+  if (liqState.sortBy === col) {
+    liqState.sortDir = liqState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    liqState.sortBy  = col;
+    liqState.sortDir = 'asc';
+  }
+  switchTab('liquidaciones');
 }
 
 async function liqGuardarVentas(local, periodo) {
