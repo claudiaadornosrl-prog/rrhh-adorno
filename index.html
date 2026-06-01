@@ -12285,6 +12285,35 @@ async function renderAumentos() {
       </div>
     </div>
 
+    <!-- ═════ Aumento Admin: Viáticos / Premio / Feriado (sin encargadas) ═════ -->
+    <div class="card" style="padding:16px;margin-bottom:14px;background:#eff6ff;border:1px solid #bfdbfe;">
+      <h3 style="margin:0 0 6px;">💼 Aumento admin — Viáticos · Premio fichadas · Feriado por día</h3>
+      <div style="color:#1e40af;font-size:13px;margin-bottom:14px;line-height:1.45;">
+        Aplica el mismo % a viáticos y premio (todas las empleadas activas con config vigente) + feriado por día (config por local). No pasa por encargadas. Crea nuevas filas vigentes desde la fecha que elijas (respeta histórico).
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:10px;">
+        <div class="form-row"><label>% aumento</label>
+          <input type="number" id="aum-extras-pct" placeholder="ej 8" min="0" max="100" step="0.1">
+        </div>
+        <div class="form-row"><label>Vigente desde</label>
+          <input type="date" id="aum-extras-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        </div>
+        <div class="form-row"><label>Redondear a múltiplo de</label>
+          <select id="aum-extras-redondeo">
+            <option value="100">$100</option>
+            <option value="500" selected>$500</option>
+            <option value="1000">$1.000</option>
+          </select>
+        </div>
+        <button class="btn primary" onclick="aumExtrasPreview()">👁 Previsualizar</button>
+      </div>
+      <div style="display:flex;gap:18px;color:#1e40af;font-size:13px;flex-wrap:wrap;">
+        <label><input type="checkbox" id="aum-extras-chk-viaticos" checked> Viáticos (por empleada)</label>
+        <label><input type="checkbox" id="aum-extras-chk-premio" checked> Premio fichadas/uniforme (por empleada)</label>
+        <label><input type="checkbox" id="aum-extras-chk-feriado" checked> Feriado por día (por local)</label>
+      </div>
+    </div>
+
     <!-- ═════ Historial de envíos de rango ═════ -->
     <div id="aum-historial-envios" class="card" style="padding:16px;">
       <div class="section-title">📋 Histórico de envíos a encargadas</div>
@@ -12409,6 +12438,198 @@ async function aumPuntualAplicar() {
   document.getElementById('aum-puntual-nuevo').value = '';
   document.getElementById('aum-puntual-motivo').value = '';
   await aumPuntualCargarSelect();
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  Aumento admin: Viáticos / Premio fichadas / Feriado por día
+//  Solo admin. No pasa por encargadas. Aplica el mismo % a todas las
+//  empleadas activas + a la config de feriado por local.
+// ════════════════════════════════════════════════════════════════════
+
+async function aumExtrasPreview() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const pct = Number(document.getElementById('aum-extras-pct').value);
+  const vigencia = document.getElementById('aum-extras-vigencia').value;
+  const redondeo = Number(document.getElementById('aum-extras-redondeo').value);
+  const aplicaViaticos = document.getElementById('aum-extras-chk-viaticos').checked;
+  const aplicaPremio = document.getElementById('aum-extras-chk-premio').checked;
+  const aplicaFeriado = document.getElementById('aum-extras-chk-feriado').checked;
+  if (isNaN(pct) || pct <= 0) { toast('% inválido', 'error'); return; }
+  if (!vigencia) { toast('Falta vigencia', 'error'); return; }
+  if (!aplicaViaticos && !aplicaPremio && !aplicaFeriado) { toast('Tildá al menos un concepto', 'error'); return; }
+  const redondear = (n) => Math.round(n / redondeo) * redondeo;
+  const factor = 1 + pct/100;
+  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
+
+  // 1) Config empleadas vigentes (la más reciente por empleada hasta vigencia)
+  let empleadas = [];
+  if (aplicaViaticos || aplicaPremio) {
+    const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('empleado_id, fijo, viaticos, premio_fichadas_uniforme, fraccion_comision, modo_prorrateo_comision, activa_en_modulo, vigente_desde, notas, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
+      .lte('vigente_desde', vigencia)
+      .eq('activa_en_modulo', true)
+      .order('vigente_desde', { ascending: true });
+    if (error) { toast('Error empleadas: ' + error.message, 'error'); return; }
+    const porEmp = {};
+    (configs || [])
+      .filter(c => c.rrhh_empleados?.estado === 'activo')
+      .forEach(c => { porEmp[c.empleado_id] = c; });
+    empleadas = Object.values(porEmp).sort((a,b) => {
+      const la = a.rrhh_empleados.local || '', lb = b.rrhh_empleados.local || '';
+      if (la !== lb) return la.localeCompare(lb);
+      return (a.rrhh_empleados.apellido || '').localeCompare(b.rrhh_empleados.apellido || '');
+    });
+  }
+
+  // 2) Config locales vigentes (la más reciente por local hasta vigencia)
+  let localesConfig = [];
+  if (aplicaFeriado) {
+    const { data: lcs, error: eL } = await sb.from('rrhh_sueldo_local_config')
+      .select('*')
+      .lte('vigente_desde', vigencia)
+      .order('vigente_desde', { ascending: true });
+    if (eL) { toast('Error locales: ' + eL.message, 'error'); return; }
+    const porLoc = {};
+    (lcs || []).forEach(c => { porLoc[c.local] = c; });
+    localesConfig = Object.values(porLoc);
+  }
+
+  // Calcular nuevos
+  empleadas.forEach(c => {
+    c._viaticos_nuevo = aplicaViaticos ? redondear(Number(c.viaticos||0) * factor) : Number(c.viaticos||0);
+    c._premio_nuevo = aplicaPremio ? redondear(Number(c.premio_fichadas_uniforme||0) * factor) : Number(c.premio_fichadas_uniforme||0);
+  });
+  localesConfig.forEach(c => {
+    c._feriado_nuevo = aplicaFeriado ? redondear(Number(c.feriado_por_dia||0) * factor) : Number(c.feriado_por_dia||0);
+  });
+
+  // Guardar para apply
+  window._aumExtrasPreview = { vigencia, pct, redondeo, aplicaViaticos, aplicaPremio, aplicaFeriado, empleadas, localesConfig };
+
+  // Render modal
+  const conceptos = [aplicaViaticos?'Viáticos':null, aplicaPremio?'Premio':null, aplicaFeriado?'Feriado':null].filter(Boolean).join(' + ');
+  let html = `
+    <div style="background:white;border-radius:10px;max-width:1000px;width:95vw;max-height:90vh;overflow:auto;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="margin:0;">Previsualización · ${pct}% en ${conceptos}</h3>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+        Vigente desde <strong>${vigencia}</strong>. Redondeado a múltiplo de ${fmt$(redondeo)}.
+      </div>
+  `;
+
+  if (aplicaFeriado && localesConfig.length > 0) {
+    html += `
+      <div style="margin-bottom:18px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+        <div style="background:#fef3c7;padding:10px 12px;font-weight:600;">🎉 Feriado por día (config por local)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#fafafa;text-align:left;">
+            <th style="padding:6px 10px;">Local</th>
+            <th style="padding:6px 10px;text-align:right;">Actual</th>
+            <th style="padding:6px 10px;text-align:right;">Nuevo</th>
+          </tr></thead>
+          <tbody>
+            ${localesConfig.map(c => `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:6px 10px;">${escapeHtml((c.local||'').charAt(0).toUpperCase() + (c.local||'').slice(1))}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt$(c.feriado_por_dia)}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${fmt$(c._feriado_nuevo)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  if ((aplicaViaticos || aplicaPremio) && empleadas.length > 0) {
+    const porLocal = {};
+    empleadas.forEach(c => {
+      const loc = c.rrhh_empleados.local;
+      if (!porLocal[loc]) porLocal[loc] = [];
+      porLocal[loc].push(c);
+    });
+    Object.entries(porLocal).forEach(([loc, lista]) => {
+      html += `
+        <div style="margin-bottom:18px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;">🏬 ${loc.charAt(0).toUpperCase()+loc.slice(1)} (${lista.length} empleadas)</div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:#fafafa;text-align:left;">
+              <th style="padding:6px 10px;">Empleada</th>
+              ${aplicaViaticos ? '<th style="padding:6px 10px;text-align:right;">Viáticos actual</th><th style="padding:6px 10px;text-align:right;">Viáticos nuevo</th>' : ''}
+              ${aplicaPremio ? '<th style="padding:6px 10px;text-align:right;">Premio actual</th><th style="padding:6px 10px;text-align:right;">Premio nuevo</th>' : ''}
+            </tr></thead>
+            <tbody>
+              ${lista.map(c => `<tr style="border-top:1px solid var(--border);">
+                <td style="padding:6px 10px;">${escapeHtml((c.rrhh_empleados.apellido||'') + ', ' + (c.rrhh_empleados.nombre||''))}</td>
+                ${aplicaViaticos ? `<td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt$(c.viaticos)}</td><td style="padding:6px 10px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${fmt$(c._viaticos_nuevo)}</td>` : ''}
+                ${aplicaPremio ? `<td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt$(c.premio_fichadas_uniforme)}</td><td style="padding:6px 10px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${fmt$(c._premio_nuevo)}</td>` : ''}
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+  }
+
+  html += `
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="aumExtrasAplicar()">✓ Aplicar a todos</button>
+      </div>
+    </div>
+  `;
+  openModal(html);
+}
+
+async function aumExtrasAplicar() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const p = window._aumExtrasPreview;
+  if (!p) { toast('No hay preview', 'error'); return; }
+  const cantEmp = (p.aplicaViaticos || p.aplicaPremio) ? p.empleadas.length : 0;
+  const cantLoc = p.aplicaFeriado ? p.localesConfig.length : 0;
+  if (!confirm(`¿Aplicar el aumento del ${p.pct}% a:\n- ${cantEmp} empleadas (viáticos/premio)\n- ${cantLoc} locales (feriado)\n\nVigente desde ${p.vigencia}.\n\nCrea nuevas filas históricas en el sistema.`)) return;
+
+  let okEmp = 0, errEmp = 0, okLoc = 0, errLoc = 0;
+  if (p.aplicaViaticos || p.aplicaPremio) {
+    for (const c of p.empleadas) {
+      const payload = {
+        empleado_id: c.empleado_id,
+        vigente_desde: p.vigencia,
+        fijo: c.fijo,
+        viaticos: p.aplicaViaticos ? c._viaticos_nuevo : c.viaticos,
+        premio_fichadas_uniforme: p.aplicaPremio ? c._premio_nuevo : c.premio_fichadas_uniforme,
+        fraccion_comision: c.fraccion_comision,
+        modo_prorrateo_comision: c.modo_prorrateo_comision,
+        activa_en_modulo: c.activa_en_modulo,
+        notas: `[Aumento admin ${p.pct}% ${[p.aplicaViaticos?'V':'', p.aplicaPremio?'P':''].filter(Boolean).join('+')}] anterior: V $${Number(c.viaticos).toLocaleString('es-AR')} P $${Number(c.premio_fichadas_uniforme).toLocaleString('es-AR')}`,
+      };
+      const { error } = await sb.from('rrhh_sueldo_empleada_config').insert(payload);
+      if (error) { console.warn('aumExtras emp', c.empleado_id, error); errEmp++; }
+      else { okEmp++; }
+    }
+  }
+  if (p.aplicaFeriado) {
+    for (const c of p.localesConfig) {
+      const payload = {
+        local: c.local,
+        vigente_desde: p.vigencia,
+        tasa_comision: c.tasa_comision,
+        modo_reparto: c.modo_reparto,
+        umbral_premio: c.umbral_premio,
+        feriado_por_dia: c._feriado_nuevo,
+        notas: `[Aumento admin ${p.pct}% feriado] anterior: $${Number(c.feriado_por_dia).toLocaleString('es-AR')}`,
+      };
+      const { error } = await sb.from('rrhh_sueldo_local_config').insert(payload);
+      if (error) { console.warn('aumExtras local', c.local, error); errLoc++; }
+      else { okLoc++; }
+    }
+  }
+  closeModal();
+  if (errEmp === 0 && errLoc === 0) {
+    toast(`✓ Aplicado: ${okEmp} empleadas + ${okLoc} locales`, 'success');
+  } else {
+    toast(`Aplicado parcial: emp ${okEmp}/${okEmp+errEmp}, locales ${okLoc}/${okLoc+errLoc}. Ver consola.`, 'warning');
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
