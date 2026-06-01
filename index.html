@@ -12320,7 +12320,7 @@ async function aumPuntualCargarSelect() {
   // Quedarse con la config más reciente por empleada
   const porEmp = {};
   (configs || [])
-    .filter(c => c.rrhh_empleados?.estado === 'activo' && !c.rrhh_empleados?.monotributista)
+    .filter(c => c.rrhh_empleados?.estado === 'activo')
     .forEach(c => { porEmp[c.empleado_id] = c; });
 
   _aumPuntualConfigs = Object.values(porEmp).sort((a,b) => {
@@ -12768,9 +12768,11 @@ async function aumPreviewRangos() {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
 
   // Quedarnos con la config más reciente por empleada
+  // NOTA: monotributistas con config activa (ej Andrea, encargada Alcorta) tambien
+  // entran en el wizard de rangos. Se distinguen por la nota especifica del local.
   const porEmp = {};
   (configs || [])
-    .filter(c => c.rrhh_empleados?.estado === 'activo' && !c.rrhh_empleados?.monotributista)
+    .filter(c => c.rrhh_empleados?.estado === 'activo')
     .sort((a, b) => (a.vigente_desde || '').localeCompare(b.vigente_desde || ''))
     .forEach(c => { porEmp[c.empleado_id] = c; });
 
@@ -12782,7 +12784,7 @@ async function aumPreviewRangos() {
 
   // Agrupar por local
   const ENCARGADAS = {
-    alcorta:   { nombre: 'Encargada Alcorta',   email: null },
+    alcorta:   { nombre: 'Andrea (Alcorta)',    email: null, notaExtra: '🎯 Andrea (vos, encargada Alcorta, monotributista): para tu propio fijo, aplicate el MÁXIMO del rango.' },
     unicenter: { nombre: 'Soraya (Unicenter)',  email: null, notaExtra: '🧹 Marcelo (limpieza, monotributista, NO se carga al sistema): aumentale el MÁXIMO del rango.' },
     oficina:   { nombre: 'JP (Oficina)',        email: 'juanpsimonelli@gmail.com' },
   };
@@ -12902,6 +12904,9 @@ async function aumEnviarRangosAEncargadas() {
     if (lista.length > 6) cuerpo += `…y ${lista.length - 6} más en la app`;
     if (loc === 'unicenter') {
       cuerpo += `\n\n🧹 RECORDÁ: aumentale a Marcelo el MÁXIMO del rango.`;
+    }
+    if (loc === 'alcorta') {
+      cuerpo += `\n\n🎯 RECORDÁ: para tu propio fijo (Andrea, encargada), aplicate el MÁXIMO del rango.`;
     }
 
     for (const empId of empIds) {
