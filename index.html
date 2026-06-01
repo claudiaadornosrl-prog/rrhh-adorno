@@ -12783,10 +12783,13 @@ async function aumPreviewRangos() {
   const redondear = (n) => Math.round(n / redondeo) * redondeo;
 
   // Agrupar por local
+  // encargada_id identifica a la encargada DEL LOCAL en rrhh_empleados.id.
+  // Cuando aparece en la planilla de su propio local, se le muestra solo el MAX
+  // del rango (no rango completo) porque por convencion cobra el tope.
   const ENCARGADAS = {
-    alcorta:   { nombre: 'Andrea (Alcorta)',    email: null, notaExtra: '🎯 Andrea (vos, encargada Alcorta, monotributista): para tu propio fijo, aplicate el MÁXIMO del rango.' },
-    unicenter: { nombre: 'Soraya (Unicenter)',  email: null, notaExtra: '🧹 Marcelo (limpieza, monotributista, NO se carga al sistema): aumentale el MÁXIMO del rango.' },
-    oficina:   { nombre: 'JP (Oficina)',        email: 'juanpsimonelli@gmail.com' },
+    alcorta:   { nombre: 'Andrea (Alcorta)',    email: null, encargada_id: 20,   notaExtra: '🎯 Andrea (vos, encargada Alcorta, monotributista): para tu propio fijo, aplicate el MÁXIMO del rango.' },
+    unicenter: { nombre: 'Soraya (Unicenter)',  email: null, encargada_id: 6,    notaExtra: '🧹 Marcelo (limpieza, monotributista, NO se carga al sistema): aumentale el MÁXIMO del rango.' },
+    oficina:   { nombre: 'JP (Oficina)',        email: 'juanpsimonelli@gmail.com', encargada_id: null },
   };
 
   const porLocal = {};
@@ -12794,6 +12797,8 @@ async function aumPreviewRangos() {
     const loc = c.rrhh_empleados.local;
     if (!porLocal[loc]) porLocal[loc] = [];
     const fijo = Number(c.fijo);
+    const enc = ENCARGADAS[loc];
+    const esEncargada = !!(enc && enc.encargada_id === c.empleado_id);
     porLocal[loc].push({
       empleado_id: c.empleado_id,
       apellido: c.rrhh_empleados.apellido,
@@ -12801,6 +12806,7 @@ async function aumPreviewRangos() {
       fijo_actual: fijo,
       rango_min: redondear(fijo * (1 + pmin/100)),
       rango_max: redondear(fijo * (1 + pmax/100)),
+      es_encargada: esEncargada,
     });
   });
   // ordenar
@@ -12834,11 +12840,13 @@ async function aumPreviewRangos() {
             <th style="padding:6px 10px;text-align:right;">Rango sugerido</th>
           </tr></thead>
           <tbody>
-            ${lista.map(e => `<tr style="border-top:1px solid var(--border);">
-              <td style="padding:6px 10px;">${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}</td>
+            ${lista.map(e => `<tr style="border-top:1px solid var(--border);${e.es_encargada?'background:#fef3c7;':''}">
+              <td style="padding:6px 10px;">${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}${e.es_encargada?' <span style="font-size:10px;color:#7c2d12;background:#fde68a;padding:1px 6px;border-radius:4px;margin-left:4px;font-weight:600;">🎯 ENCARGADA</span>':''}</td>
               <td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt$(e.fijo_actual)}</td>
               <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;color:#7c3aed;">
-                ${fmt$(e.rango_min)} – ${fmt$(e.rango_max)}
+                ${e.es_encargada
+                  ? fmt$(e.rango_max) + ' <span style="font-size:10px;color:#92400e;background:#fde68a;padding:1px 5px;border-radius:3px;margin-left:4px;">MAX auto</span>'
+                  : fmt$(e.rango_min) + ' – ' + fmt$(e.rango_max)}
               </td>
             </tr>`).join('')}
           </tbody>
@@ -12897,9 +12905,13 @@ async function aumEnviarRangosAEncargadas() {
     if (empIds.length === 0) { errCount++; continue; }
 
     const titulo = `💰 Rangos de aumento ${planilla.pmin}–${planilla.pmax}%`;
-    let cuerpo = `${loc.toUpperCase()} · ${lista.length} vendedoras\n\n`;
+    let cuerpo = `${loc.toUpperCase()} · ${lista.length} ${lista.length === 1 ? 'persona' : 'personas'}\n\n`;
     lista.slice(0, 6).forEach(e => {
-      cuerpo += `• ${e.apellido}: ${fmt$(e.fijo_actual)} → ${fmt$(e.rango_min)}–${fmt$(e.rango_max)}\n`;
+      if (e.es_encargada) {
+        cuerpo += `🎯 ${e.apellido} (vos, MAX): ${fmt$(e.fijo_actual)} → ${fmt$(e.rango_max)}\n`;
+      } else {
+        cuerpo += `• ${e.apellido}: ${fmt$(e.fijo_actual)} → ${fmt$(e.rango_min)}–${fmt$(e.rango_max)}\n`;
+      }
     });
     if (lista.length > 6) cuerpo += `…y ${lista.length - 6} más en la app`;
     if (loc === 'unicenter') {
