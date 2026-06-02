@@ -12598,6 +12598,13 @@ async function renderAumentos() {
       <div style="color:var(--muted);font-size:13px;">Cargando...</div>
     </div>
     ` : ''}
+
+    ${isGerente ? `
+    <!-- ═════ Panel encargada: ver el ultimo envio + cargar propuestas ═════ -->
+    <div id="aum-gerente-envio" class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="color:var(--muted);font-size:13px;">Cargando última propuesta de aumento...</div>
+    </div>
+    ` : ''}
   `;
 
   // Render asincrónico del panel IPC + selector empleadas + historial (solo admin)
@@ -12605,6 +12612,115 @@ async function renderAumentos() {
     aumIPCRender().catch(e => console.warn('aumIPCRender', e));
     aumPuntualCargarSelect().catch(e => console.warn('aumPuntualCargarSelect', e));
     aumHistorialRender().catch(e => console.warn('aumHistorialRender', e));
+  }
+  // Render para encargada — el ultimo envio del local
+  if (isGerente) {
+    aumGerenteRender().catch(e => console.warn('aumGerenteRender', e));
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  Panel encargada: ve el ultimo envio de rangos para su local
+// ════════════════════════════════════════════════════════════════════
+async function aumGerenteRender() {
+  const cont = document.getElementById('aum-gerente-envio');
+  if (!cont) return;
+  const local = session.empleadoData?.local;
+  if (!local) {
+    cont.innerHTML = '<div style="color:#dc2626;font-size:13px;">No se pudo determinar tu local. Contactá al admin.</div>';
+    return;
+  }
+  // Ultimo envio
+  const { data: envios } = await sb.from('rrhh_aumento_envio')
+    .select('*').order('enviado_at', { ascending: false }).limit(10);
+  // Filtrar los que incluyen este local
+  const enviosLocal = (envios || []).filter(e => e.detalle && e.detalle[local]);
+  if (enviosLocal.length === 0) {
+    cont.innerHTML = `
+      <h3 style="margin:0 0 10px;">📥 Aumentos del local</h3>
+      <div style="color:var(--muted);font-size:13px;">
+        Todavía no hay propuestas de aumento para ${local}. Cuando JP envíe los rangos, vas a verlos acá.
+      </div>
+    `;
+    return;
+  }
+  const envio = enviosLocal[0]; // mas reciente
+  const listaLocal = envio.detalle[local] || [];
+  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
+  const fmtFecha = (s) => s ? new Date(s).toLocaleString('es-AR', { dateStyle:'short', timeStyle:'short' }) : '—';
+
+  // Detectar quien es la encargada para marcar su fila con auto MAX
+  const ENCARGADAS_IDS = { alcorta: 20, unicenter: 6, oficina: null };
+  const encargadaId = ENCARGADAS_IDS[local];
+
+  cont.innerHTML = `
+    <h3 style="margin:0 0 6px;">📥 Aumento pendiente — ${local.charAt(0).toUpperCase()+local.slice(1)}</h3>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:10px;">
+      JP te envió esto el <strong>${fmtFecha(envio.enviado_at)}</strong>.
+      Vigente desde <strong>${envio.periodo_aplica}</strong>.
+      Rango: <strong>${envio.pct_min}% – ${envio.pct_max}%</strong>.
+    </div>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+      💡 Para cada empleada de tu local, elegí el monto exacto del fijo nuevo dentro del rango sugerido y mandale a JP el detalle por WhatsApp/mail. Él va a aplicar los aumentos puntuales desde el panel admin.
+      ${encargadaId ? '<br><strong>🎯 Tu fila tiene MAX auto pre-marcado.</strong>' : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;text-align:left;">
+        <th style="padding:8px;">Empleada</th>
+        <th style="padding:8px;text-align:right;">Fijo actual</th>
+        <th style="padding:8px;text-align:right;">Rango sugerido</th>
+        <th style="padding:8px;text-align:right;">Tu propuesta</th>
+      </tr></thead>
+      <tbody>
+        ${listaLocal.map(e => {
+          const esEnc = encargadaId === e.empleado_id;
+          const valorSugerido = esEnc ? e.rango_max : '';
+          return `<tr style="border-top:1px solid var(--border);${esEnc?'background:#fef3c7;':''}">
+            <td style="padding:8px;">${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}${esEnc?' <span style="font-size:10px;color:#7c2d12;background:#fde68a;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;">🎯 VOS · MAX auto</span>':''}</td>
+            <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(e.fijo_actual)}</td>
+            <td style="padding:8px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${esEnc ? fmt$(e.rango_max) + ' <span style="font-size:10px;color:#92400e;">MAX</span>' : fmt$(e.rango_min) + ' – ' + fmt$(e.rango_max)}</td>
+            <td style="padding:8px;text-align:right;">
+              <input type="number" placeholder="$0" min="${e.rango_min}" max="${e.rango_max}" step="500"
+                     value="${valorSugerido}"
+                     style="width:130px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${esEnc?'background:#fef3c7;':''}">
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn primary" onclick="aumGerenteCopiarPropuesta()">📋 Copiar resumen para mandar a JP</button>
+    </div>
+  `;
+}
+
+// Copia un texto al portapapeles con los valores propuestos para mandar a JP
+function aumGerenteCopiarPropuesta() {
+  const filas = document.querySelectorAll('#aum-gerente-envio tbody tr');
+  if (filas.length === 0) { toast('No hay propuestas para copiar', 'error'); return; }
+  const lineas = ['*Propuesta de aumento — ' + (session.empleadoData?.local || '?').toUpperCase() + '*', ''];
+  for (const fila of filas) {
+    const tds = fila.querySelectorAll('td');
+    if (tds.length < 4) continue;
+    const empleada = tds[0].textContent.trim().replace(/🎯[^\n]*MAX[^\n]*/, '').trim();
+    const fijoActual = tds[1].textContent.trim();
+    const inp = tds[3].querySelector('input');
+    const propuesta = inp ? Number(inp.value || 0) : 0;
+    if (propuesta > 0) {
+      lineas.push(`• ${empleada}: ${fijoActual} → $${propuesta.toLocaleString('es-AR')}`);
+    } else {
+      lineas.push(`• ${empleada}: ${fijoActual} → (sin propuesta)`);
+    }
+  }
+  const texto = lineas.join('\n');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(texto).then(() => {
+      toast('✓ Resumen copiado al portapapeles', 'success');
+    }, () => {
+      prompt('Copialo a mano:', texto);
+    });
+  } else {
+    prompt('Copialo a mano:', texto);
   }
 }
 
@@ -12929,7 +13045,41 @@ async function aumHistorialRender() {
     `;
     return;
   }
+
+  // ─── Calcular estado de cada envío (Pendiente / Parcial / Aplicado) ───
+  // Un envío se considera "Aplicado por la encargada" cuando existe una config
+  // en rrhh_sueldo_empleada_config con vigente_desde = periodo_aplica para
+  // alguna empleada del detalle. Si 0/0 → Pendiente. Si N/total → Parcial.
+  const periodos = [...new Set(envios.map(e => e.periodo_aplica).filter(Boolean))];
+  let configsPorPeriodo = {};
+  if (periodos.length > 0) {
+    const { data: cfgs } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('empleado_id, vigente_desde')
+      .in('vigente_desde', periodos);
+    (cfgs || []).forEach(c => {
+      const key = c.vigente_desde;
+      if (!configsPorPeriodo[key]) configsPorPeriodo[key] = new Set();
+      configsPorPeriodo[key].add(c.empleado_id);
+    });
+  }
+
   const fmtFecha2 = (s) => s ? new Date(s).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'}) : '—';
+
+  const buildEstado = (e) => {
+    const empleadasEnvio = [];
+    if (e.detalle && typeof e.detalle === 'object') {
+      Object.values(e.detalle).forEach(arr => {
+        (arr || []).forEach(emp => {
+          if (emp && emp.empleado_id) empleadasEnvio.push(emp.empleado_id);
+        });
+      });
+    }
+    const cfgsDelPeriodo = configsPorPeriodo[e.periodo_aplica] || new Set();
+    const aplicCnt = empleadasEnvio.filter(id => cfgsDelPeriodo.has(id)).length;
+    const total = empleadasEnvio.length;
+    return { aplicCnt, total, esPendiente: aplicCnt === 0, esTotal: total > 0 && aplicCnt >= total };
+  };
+
   cont.innerHTML = `
     <div class="section-title">📋 Histórico de envíos a encargadas</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -12938,22 +13088,108 @@ async function aumHistorialRender() {
         <th style="padding:8px;">Vigente desde</th>
         <th style="padding:8px;">Rango %</th>
         <th style="padding:8px;">Locales</th>
+        <th style="padding:8px;">Estado</th>
         <th style="padding:8px;">Por</th>
+        <th style="padding:8px;">Acciones</th>
       </tr></thead>
       <tbody>
         ${envios.map(e => {
           const locales = e.detalle ? Object.keys(e.detalle) : [];
+          const st = buildEstado(e);
+          const estadoBadge = st.esPendiente
+            ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;">Pendiente</span>`
+            : (st.esTotal
+                ? `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;">Aplicado</span>`
+                : `<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-size:11px;" title="Aplicadas ${st.aplicCnt} de ${st.total}">Parcial ${st.aplicCnt}/${st.total}</span>`);
+          const acciones = st.esPendiente
+            ? `<button class="btn" style="padding:3px 8px;font-size:11px;margin-right:4px;" onclick="aumEnvioEditar(${e.id})">✏️ Editar</button>
+               <button class="btn" style="padding:3px 8px;font-size:11px;color:#b91c1c;border-color:#fca5a5;" onclick="aumEnvioBorrar(${e.id})">🗑 Borrar</button>`
+            : `<span style="color:var(--muted);font-size:11px;">—</span>`;
           return `<tr style="border-top:1px solid var(--border);">
             <td style="padding:8px;font-size:12px;">${escapeHtml(fmtFecha2(e.enviado_at))}</td>
             <td style="padding:8px;font-family:monospace;">${escapeHtml(e.periodo_aplica || '—')}</td>
             <td style="padding:8px;font-family:monospace;">${e.pct_min}% – ${e.pct_max}%</td>
             <td style="padding:8px;">${locales.map(l => `<span class="emp-tag" style="background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:4px;font-size:11px;margin-right:3px;">${escapeHtml(l)}</span>`).join('')}</td>
+            <td style="padding:8px;">${estadoBadge}</td>
             <td style="padding:8px;font-size:11px;color:var(--muted);">${escapeHtml(e.enviado_por || '')}</td>
+            <td style="padding:8px;white-space:nowrap;">${acciones}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
   `;
+}
+
+// ─── Editar / borrar propuesta pendiente ──────────────────────────
+async function aumEnvioEditar(id) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const { data: env, error } = await sb.from('rrhh_aumento_envio').select('*').eq('id', id).single();
+  if (error || !env) { toast('No se encontró el envío', 'error'); return; }
+  const html = `
+    <div style="padding:20px;max-width:480px;">
+      <h3 style="margin:0 0 8px;">✏️ Editar propuesta de aumento</h3>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 14px;">
+        Sólo se puede editar mientras esté Pendiente. Las encargadas verán los nuevos valores
+        la próxima vez que abran la app. El detalle por empleada NO se recalcula automáticamente —
+        si querés rangos individuales nuevos, borrá y volvé a enviar.
+      </p>
+      <div style="display:grid;gap:10px;">
+        <label style="font-size:12px;display:block;">Vigente desde
+          <input type="date" id="aum-ed-periodo" value="${env.periodo_aplica || ''}"
+                 style="display:block;width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;margin-top:4px;">
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <label style="font-size:12px;display:block;">% mínimo
+            <input type="number" step="0.01" id="aum-ed-pmin" value="${env.pct_min}"
+                   style="display:block;width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;margin-top:4px;">
+          </label>
+          <label style="font-size:12px;display:block;">% máximo
+            <input type="number" step="0.01" id="aum-ed-pmax" value="${env.pct_max}"
+                   style="display:block;width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;margin-top:4px;">
+          </label>
+        </div>
+        <label style="font-size:12px;display:block;">Notas
+          <textarea id="aum-ed-notas" rows="2"
+                    style="display:block;width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;margin-top:4px;">${escapeHtml(env.notas || '')}</textarea>
+        </label>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="aumEnvioGuardar(${id})">Guardar cambios</button>
+      </div>
+    </div>
+  `;
+  openModal(html);
+}
+
+async function aumEnvioGuardar(id) {
+  const periodo = document.getElementById('aum-ed-periodo').value;
+  const pmin    = Number(document.getElementById('aum-ed-pmin').value);
+  const pmax    = Number(document.getElementById('aum-ed-pmax').value);
+  const notas   = document.getElementById('aum-ed-notas').value.trim() || null;
+  if (!periodo) { toast('Falta vigencia', 'error'); return; }
+  if (!(pmax >= pmin)) { toast('% máximo debe ser ≥ % mínimo', 'error'); return; }
+  const { error } = await sb.from('rrhh_aumento_envio').update({
+    periodo_aplica: periodo,
+    pct_min: pmin,
+    pct_max: pmax,
+    notas,
+  }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  try { await auditLog('editar_aumento_envio', 'rrhh_aumento_envio', id, null, null, `${pmin}–${pmax}% vig ${periodo}`); } catch(_){}
+  toast('Cambios guardados ✓', 'success');
+  closeModal();
+  aumHistorialRender();
+}
+
+async function aumEnvioBorrar(id) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Borrar esta propuesta de aumento?\n\nSólo deberías borrar propuestas pendientes (sin aprobación). Esta acción no se puede deshacer.')) return;
+  const { error } = await sb.from('rrhh_aumento_envio').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  try { await auditLog('borrar_aumento_envio', 'rrhh_aumento_envio', id, null, null, 'propuesta eliminada'); } catch(_){}
+  toast('Propuesta eliminada ✓', 'success');
+  aumHistorialRender();
 }
 
 async function _aumAbrirPedido_DEPRECATED() {
