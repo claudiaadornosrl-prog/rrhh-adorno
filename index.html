@@ -12411,7 +12411,32 @@ async function liqCerrarMes(local, periodo) {
 ¿Querés REABRIR el mes? (borra el registro de cierre)`)) return;
       const { error } = await sb.from('rrhh_meses_cerrados_sueldos').delete().eq('id', yaCerrado.id);
       if (error) { toast('Error reabrir: ' + error.message, 'error'); return; }
-      toast(`✓ Mes ${periodo} reabierto para ${local}`, 'success');
+      // ─── Revertir cuotas de préstamo del local: 'aplicada' → 'pendiente' ───
+      const { data: empsLoc } = await sb.from('rrhh_empleados')
+        .select('id').eq('local', local).eq('estado', 'activo');
+      const empIdsLoc = (empsLoc || []).map(e => e.id);
+      let cuotasRevertidas = 0;
+      if (empIdsLoc.length) {
+        const { data: prestamosLoc } = await sb.from('rrhh_prestamo')
+          .select('id').in('empleado_id', empIdsLoc);
+        const prestamoIdsLoc = (prestamosLoc || []).map(p => p.id);
+        if (prestamoIdsLoc.length) {
+          // Si algún préstamo quedó 'pagado' por la última cuota del mes, reactivarlo
+          await sb.from('rrhh_prestamo')
+            .update({ estado: 'activo' })
+            .in('id', prestamoIdsLoc)
+            .eq('estado', 'pagado');
+          const { data: revertidas } = await sb.from('rrhh_prestamo_cuota')
+            .update({ estado: 'pendiente', aplicada_at: null })
+            .eq('mes_descuento', periodo + '-01')
+            .in('prestamo_id', prestamoIdsLoc)
+            .eq('estado', 'aplicada')
+            .select('id');
+          cuotasRevertidas = (revertidas || []).length;
+        }
+      }
+      const extra = cuotasRevertidas > 0 ? ` · ${cuotasRevertidas} cuota(s) volvieron a pendiente` : '';
+      toast(`✓ Mes ${periodo} reabierto para ${local}${extra}`, 'success');
       switchTab('liquidaciones'); return;
     }
   }
@@ -12442,7 +12467,43 @@ async function liqCerrarMes(local, periodo) {
       okCount++;
     }
   }
-  toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)`, 'success');
+  // ─── Aplicar cuotas de préstamo al cerrar ───
+  // Las cuotas con mes_descuento = periodo y de préstamos activos del local
+  // pasan de 'pendiente' a 'aplicada'. Esto es lo que JP llama "pagar" la cuota.
+  let cuotasAplicadas = 0, prestamosPagados = 0;
+  for (const loc of locales) {
+    const { data: empsLoc } = await sb.from('rrhh_empleados')
+      .select('id').eq('local', loc).eq('estado', 'activo');
+    const empIdsLoc = (empsLoc || []).map(e => e.id);
+    if (empIdsLoc.length === 0) continue;
+    const { data: prestamosLoc } = await sb.from('rrhh_prestamo')
+      .select('id').in('empleado_id', empIdsLoc).eq('estado', 'activo');
+    const prestamoIdsLoc = (prestamosLoc || []).map(p => p.id);
+    if (prestamoIdsLoc.length === 0) continue;
+    // Marcar cuotas pendientes del mes como aplicadas
+    const { data: cuotasUpd } = await sb.from('rrhh_prestamo_cuota')
+      .update({ estado: 'aplicada', aplicada_at: new Date().toISOString() })
+      .eq('mes_descuento', periodo + '-01')
+      .in('prestamo_id', prestamoIdsLoc)
+      .eq('estado', 'pendiente')
+      .select('id, prestamo_id');
+    cuotasAplicadas += (cuotasUpd || []).length;
+    // Si algún préstamo quedó sin pendientes, marcarlo como 'pagado'
+    const prestamoIdsAfectados = [...new Set((cuotasUpd || []).map(c => c.prestamo_id))];
+    for (const pid of prestamoIdsAfectados) {
+      const { count: pendCount } = await sb.from('rrhh_prestamo_cuota')
+        .select('id', { count: 'exact', head: true })
+        .eq('prestamo_id', pid).eq('estado', 'pendiente');
+      if (pendCount === 0) {
+        await sb.from('rrhh_prestamo').update({ estado: 'pagado' }).eq('id', pid);
+        prestamosPagados++;
+      }
+    }
+  }
+  const msgExtra = cuotasAplicadas > 0
+    ? `\n💵 ${cuotasAplicadas} cuota(s) de préstamo aplicadas${prestamosPagados>0?` · ${prestamosPagados} préstamo(s) finalizado(s)`:''}`
+    : '';
+  toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)${msgExtra}`, 'success');
   switchTab('liquidaciones');
 }
 
@@ -17184,28 +17245,17 @@ const salaryWorkflow = (() => {
       liqId = ins.id;
     }
 
-    // Marcar las cuotas de préstamo aplicadas con esta liquidación
+    // NOTA: Las cuotas se marcan como 'aplicada' al CERRAR el mes
+    // (función liqCerrarMes), NO al calcular/regenerar la liquidación.
+    // Mientras el mes esté abierto, las cuotas quedan 'pendiente' aunque
+    // se haya recalculado la liquidación N veces. Esto evita doble descuento
+    // y permite re-cálculo libre antes del cierre formal.
+    // Sólo seteamos liquidacion_id en las cuotas para trazabilidad (en pendiente):
     if (cuotasEmp.length > 0) {
       const cuotaIds = cuotasEmp.map(c => c.id);
-      await sb.from('rrhh_prestamo_cuota').update({
-        estado: 'aplicada',
-        liquidacion_id: liqId,
-        aplicada_at: new Date().toISOString(),
-      }).in('id', cuotaIds);
-      // Si con esta cuota se completó el préstamo, marcarlo como pagado
-      const prestamoIdsAfectados = [...new Set(cuotasEmp.map(c => c.prestamo_id))];
-      for (const pid of prestamoIdsAfectados) {
-        const { data: restantes } = await sb.from('rrhh_prestamo_cuota')
-          .select('id', { count: 'exact', head: true })
-          .eq('prestamo_id', pid).eq('estado', 'pendiente');
-                // restantes es null pero el count viene en el head; usar otra query si hay 0
-        const { count: pendCount } = await sb.from('rrhh_prestamo_cuota')
-          .select('id', { count: 'exact', head: true })
-          .eq('prestamo_id', pid).eq('estado', 'pendiente');
-        if (pendCount === 0) {
-          await sb.from('rrhh_prestamo').update({ estado: 'pagado' }).eq('id', pid);
-        }
-      }
+      await sb.from('rrhh_prestamo_cuota')
+        .update({ liquidacion_id: liqId })
+        .in('id', cuotaIds);
     }
 
     // Conceptos
