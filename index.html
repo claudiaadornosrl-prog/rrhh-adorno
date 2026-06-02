@@ -7141,8 +7141,9 @@ async function renderConfigUsuarios(cont) {
             <td style="padding:10px 16px;font-size:13px;">${u.local_gerencia ? LOCALES[u.local_gerencia]?.nombre : '—'}</td>
             <td style="padding:10px 16px;font-size:13px;">${u.activo ? '✅' : '⏸️'}</td>
             <td style="padding:10px 16px;font-size:12px;color:var(--muted);">${u.last_login ? fmtFecha(u.last_login.split('T')[0]) : '—'}</td>
-            <td style="padding:10px 16px;text-align:right;">
+            <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
               <button class="btn small" onclick="toggleActivoUsuario(${u.id}, ${u.activo})">${u.activo ? 'Desactivar' : 'Activar'}</button>
+              <button class="btn small" style="background:#fee2e2;color:#b91c1c;border-color:#fca5a5;margin-left:4px;" onclick="borrarUsuario(${u.id}, ${JSON.stringify(u.email || '?').replace(/"/g, '&quot;')})" title="Borrar definitivamente (no toca rrhh_empleados)">🗑</button>
             </td>
           </tr>
         `).join('')}
@@ -7157,6 +7158,18 @@ async function toggleActivoUsuario(id, currentActivo) {
   if (error) { toast('Error: '+error.message, 'error'); return; }
   await auditLog('editar', 'rrhh_usuarios', id, 'activo', String(currentActivo), String(nuevoActivo));
   toast(nuevoActivo ? 'Usuario activado' : 'Usuario desactivado', 'success');
+  renderConfigContent();
+}
+
+// Borrar definitivamente la fila de rrhh_usuarios (desvincula auth_user_id ↔ empleado_id).
+// NO borra ni el usuario de Supabase Auth (eso se hace en el panel Authentication de Supabase)
+// ni el rrhh_empleados. Solo elimina el binding.
+async function borrarUsuario(id, email) {
+  if (!confirm(`¿Borrar el usuario "${email}" definitivamente?\n\nEsto:\n• Borra la fila de rrhh_usuarios (desvincula la sesión Auth del empleado).\n• NO borra el usuario de Supabase Auth (eso se hace desde Authentication → Users).\n• NO borra el rrhh_empleados.\n\n¿Continuar?`)) return;
+  const { error } = await sb.from('rrhh_usuarios').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  try { await auditLog('eliminar', 'rrhh_usuarios', id, null, email, null); } catch(_) {}
+  toast(`Usuario "${email}" borrado de rrhh_usuarios ✓`, 'success');
   renderConfigContent();
 }
 
