@@ -15945,16 +15945,55 @@ const salaryWorkflow = (() => {
     return data?.[0]?.monto_ventas || 0;
   }
 
-  // Días con vacaciones/licencia del mes para la empleada (para prorrateo)
-  async function cargarDiasNoTrabajados(empleadoId, periodo) {
+  // Días no pagados (a descontar del prorrateo CCT/viaticos/comisión).
+  // Reglas:
+  //   - ausente            → cuenta SIEMPRE (no vino, no se paga)
+  //   - licencia paga=false → cuenta (licencia sin goce de sueldo)
+  //   - licencia paga=true  → NO cuenta (con goce: matrimonio, fallecimiento, etc.)
+  //   - vacaciones          → NO cuenta (pagas por LCT)
+  // Si no se encuentra registro en rrhh_licencias para una fecha con estado='licencia',
+  // por seguridad se asume sin goce (descuenta) y se loguea warning a consola.
+  async function cargarDiasNoPagos(empleadoId, periodo) {
     const [y, m] = periodo.split('-').map(Number);
     const desde = `${periodo}-01`;
     const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
-    const { data } = await sb.from('rrhh_asistencias_detalle')
-      .select('estado').eq('empleado_id', empleadoId)
+    const { data: dias } = await sb.from('rrhh_asistencias_detalle')
+      .select('fecha, estado').eq('empleado_id', empleadoId)
       .gte('fecha', desde).lte('fecha', hasta)
       .in('estado', ['vacaciones','licencia','ausente']);
-    return (data || []).length;
+    if (!dias || dias.length === 0) return 0;
+
+    // Para los dias con licencia, consultar rrhh_licencias para saber si es paga o no
+    const fechasLic = dias.filter(d => d.estado === 'licencia').map(d => d.fecha);
+    const licMap = {}; // fecha -> paga (boolean)
+    if (fechasLic.length > 0) {
+      const { data: lics } = await sb.from('rrhh_licencias')
+        .select('fecha_desde, fecha_hasta, paga, tipo')
+        .eq('empleado_id', empleadoId)
+        .lte('fecha_desde', hasta).gte('fecha_hasta', desde);
+      for (const f of fechasLic) {
+        const match = (lics || []).find(l => l.fecha_desde <= f && l.fecha_hasta >= f);
+        if (match) {
+          licMap[f] = !!match.paga;
+        } else {
+          console.warn(`Licencia en asistencias_detalle sin registro en rrhh_licencias: emp=${empleadoId} fecha=${f}. Se descuenta por defecto.`);
+          licMap[f] = false; // sin registro → asumir sin goce
+        }
+      }
+    }
+
+    let count = 0;
+    for (const d of dias) {
+      if (d.estado === 'ausente') count++;
+      else if (d.estado === 'licencia' && licMap[d.fecha] === false) count++;
+      // vacaciones y licencia con goce: no suman
+    }
+    return count;
+  }
+
+  // Alias para retro-compatibilidad (otras partes del codigo siguen llamando al nombre viejo)
+  async function cargarDiasNoTrabajados(empleadoId, periodo) {
+    return cargarDiasNoPagos(empleadoId, periodo);
   }
 
   // Cuenta cuántas empleadas activas hay en el local en ese período (para reparto 'dividido_activos')
@@ -16074,7 +16113,10 @@ const salaryWorkflow = (() => {
     const cobraPremio = uniforme_ok && (puntos_mes <= cfgLocal.umbral_premio);
     const premio = cobraPremio ? Number(configEmp.premio_fichadas_uniforme) : 0;
 
-    // Comisión
+    // Comisión: SIEMPRE se prorratea por dias_trabajados/30.
+    // - Para empleadas en mes_completo: ratio = 1 cuando no hay sin goce; < 1 cuando si.
+    // - Para franquera Escasany (modo 'por_dias_trabajados'): el ratio < 1 refleja sus dias laborales.
+    // En ambos casos, sin goce + ausencias descuentan proporcional.
     const ventasLocal = await cargarVentasLocalMes(emp.local, periodo);
     const tasaLocal = Number(cfgLocal.tasa_comision);
     let comision_base = ventasLocal * tasaLocal;
@@ -16082,12 +16124,13 @@ const salaryWorkflow = (() => {
       const activas = await contarActivasLocal(emp.local, periodo + '-01');
       if (activas > 0) comision_base = comision_base / activas;
     }
-    let comision = comision_base * Number(configEmp.fraccion_comision);
-    if (configEmp.modo_prorrateo_comision === 'por_dias_trabajados') {
-      comision = comision * (dias_trabajados / 30);
-    }
+    let comision = comision_base * Number(configEmp.fraccion_comision) * (dias_trabajados / 30);
 
-    const fijo     = Number(configEmp.fijo);
+    // Fijo: tambien se prorratea por dias_trabajados/30. En meses sin licencias sin goce
+    // ni ausencias, dias_trabajados=30 → ratio=1 → no cambia. Con sin goce/ausentes,
+    // descuenta proporcional.
+    const fijo = Number(configEmp.fijo) * (dias_trabajados / 30);
+
     // Viáticos: se pagan solo los días efectivamente trabajados (vacaciones / sin goce no cobran viático)
     const viaticos_full = Number(configEmp.viaticos);
     const viaticos = viaticos_full * (dias_trabajados / 30);
