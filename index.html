@@ -7064,7 +7064,12 @@ async function renderDetalleEmpDia(empId) {
                   const sug = puedeSalvar ? detectarTurnoSugerido(d) : null;
                   const tieneFichadas = !!(d.entrada || d.salida);
                   const bancoRaro = Math.abs(d.minutos_banco||0) >= 60; // -1h o más
-                  const mostrarOpciones = puedeSalvar && (anomalia || sug || (tieneFichadas && bancoRaro));
+                  // Mostrar opciones cuando: hay anomalía, hay sugerencia, banco raro
+                  // O HAY FICHADAS CON CUALQUIER DESFASE — para que la encargada
+                  // pueda corregir el turno aún cuando el desfase sea chico (< 60 min)
+                  // como el caso "salida temprana de 54 min" o "entrada 55 min antes".
+                  const tieneDesfase = tieneFichadas && (Math.abs(d.minutos_banco||0) > 0 || (d.minutos_tarde||0) > 0 || (d.minutos_salida_temp||0) > 0);
+                  const mostrarOpciones = puedeSalvar && (anomalia || sug || (tieneFichadas && bancoRaro) || tieneDesfase);
 
                   let html = anomalia ? `<span style="color:#92400e;">${anomalia}</span>` : '';
                   if (!anomalia && sug) {
