@@ -12814,15 +12814,21 @@ async function aumGerenteRender() {
   const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
   const fmtFecha = (s) => s ? new Date(s).toLocaleString('es-AR', { dateStyle:'short', timeStyle:'short' }) : '—';
 
-  // ── Detectar si ya hay configs aplicadas para este envío (mes y empleadas) ──
+  // ── Detectar si ya hay configs aplicadas para ESTE envío específico ──
+  // Filtramos por notas que contengan "envío #<id>" — así las configs viejas
+  // que coincidan con la misma fecha pero vengan de otro flujo (aumento puntual,
+  // pruebas, etc.) NO trampean la heurística.
   const empIds = listaLocal.map(x => x.empleado_id).filter(Boolean);
   const yaAplicadas = new Set();
   if (empIds.length > 0) {
     const { data: cfgs } = await sb.from('rrhh_sueldo_empleada_config')
-      .select('empleado_id, vigente_desde, fijo')
+      .select('empleado_id, vigente_desde, fijo, notas')
       .in('empleado_id', empIds)
       .eq('vigente_desde', envio.periodo_aplica);
-    (cfgs || []).forEach(c => yaAplicadas.add(c.empleado_id));
+    const marker = `envío #${envio.id}`;
+    (cfgs || []).forEach(c => {
+      if ((c.notas || '').includes(marker)) yaAplicadas.add(c.empleado_id);
+    });
   }
   const cantAplicadas = yaAplicadas.size;
   const cantTotal     = listaLocal.length;
@@ -13354,19 +13360,21 @@ async function aumHistorialRender() {
   }
 
   // ─── Calcular estado de cada envío (Pendiente / Parcial / Aplicado) ───
-  // Un envío se considera "Aplicado por la encargada" cuando existe una config
-  // en rrhh_sueldo_empleada_config con vigente_desde = periodo_aplica para
-  // alguna empleada del detalle. Si 0/0 → Pendiente. Si N/total → Parcial.
+  // Cuenta configs cuya nota contenga "envío #<id>" → así no trampean configs
+  // viejas o de otro flujo que casualmente tengan la misma fecha.
   const periodos = [...new Set(envios.map(e => e.periodo_aplica).filter(Boolean))];
-  let configsPorPeriodo = {};
+  let configsPorEnvio = {};  // { envioId: Set(empleadoId) }
   if (periodos.length > 0) {
     const { data: cfgs } = await sb.from('rrhh_sueldo_empleada_config')
-      .select('empleado_id, vigente_desde')
+      .select('empleado_id, vigente_desde, notas')
       .in('vigente_desde', periodos);
     (cfgs || []).forEach(c => {
-      const key = c.vigente_desde;
-      if (!configsPorPeriodo[key]) configsPorPeriodo[key] = new Set();
-      configsPorPeriodo[key].add(c.empleado_id);
+      const m = (c.notas || '').match(/envío\s*#(\d+)/);
+      if (m) {
+        const eid = Number(m[1]);
+        if (!configsPorEnvio[eid]) configsPorEnvio[eid] = new Set();
+        configsPorEnvio[eid].add(c.empleado_id);
+      }
     });
   }
 
@@ -13381,8 +13389,8 @@ async function aumHistorialRender() {
         });
       });
     }
-    const cfgsDelPeriodo = configsPorPeriodo[e.periodo_aplica] || new Set();
-    const aplicCnt = empleadasEnvio.filter(id => cfgsDelPeriodo.has(id)).length;
+    const cfgsDeEsteEnvio = configsPorEnvio[e.id] || new Set();
+    const aplicCnt = empleadasEnvio.filter(id => cfgsDeEsteEnvio.has(id)).length;
     const total = empleadasEnvio.length;
     return { aplicCnt, total, esPendiente: aplicCnt === 0, esTotal: total > 0 && aplicCnt >= total };
   };
