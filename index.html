@@ -12993,7 +12993,9 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
       if (prev.modo_liquidacion !== undefined) payload.modo_liquidacion = prev.modo_liquidacion;
       if (prev.fraccion_no_rem  !== undefined) payload.fraccion_no_rem  = prev.fraccion_no_rem;
 
-      const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert(payload);
+      // Upsert: si ya hay config con (empleado_id, vigente_desde), la sobreescribimos.
+      // Esto permite re-aplicar un envío sin chocar con el UNIQUE constraint.
+      const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').upsert(payload, { onConflict: 'empleado_id,vigente_desde' });
       if (eIns) throw eIns;
       ok++;
       try { await auditLog('aplicar_aumento_encargada', 'rrhh_sueldo_empleada_config', it.empId, prev.fijo, it.nuevoFijo, `envío #${envioId}, vig ${periodoAplica}`); } catch(_){}
