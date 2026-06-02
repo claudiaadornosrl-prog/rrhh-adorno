@@ -13355,6 +13355,10 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
         premio_fichadas_uniforme:  prev.premio_fichadas_uniforme,
         fraccion_comision:         prev.fraccion_comision,
         modo_prorrateo_comision:   prev.modo_prorrateo_comision,
+        // Reglas especiales (preservar Escasany etc)
+        max_errores_premio_override: prev.max_errores_premio_override,
+        feriado_multiplicador:     prev.feriado_multiplicador,
+        dias_prorrateo_modo:       prev.dias_prorrateo_modo,
         activa_en_modulo:          prev.activa_en_modulo,
         // Conservar la nota previa (puede contener info de aumentos V+P u otros)
         // y agregar la marca de este envío para que la heurística la detecte
@@ -17399,13 +17403,45 @@ const salaryWorkflow = (() => {
 
     // ── NEGRO ──
     const puntos_mes = await calcularPuntosMes(empleadoId, periodo);
-    const cobraPremio = uniforme_ok && (puntos_mes <= cfgLocal.umbral_premio);
-    const premio = cobraPremio ? Number(configEmp.premio_fichadas_uniforme) : 0;
+    // Tolerancia de errores: override por empleada si existe (Escasany=2), si no, el del local
+    const maxErroresEmp = (configEmp.max_errores_premio_override != null && configEmp.max_errores_premio_override !== undefined)
+      ? Number(configEmp.max_errores_premio_override)
+      : Number(cfgLocal.umbral_premio);
+    const cobraPremio = uniforme_ok && (puntos_mes <= maxErroresEmp);
+    // Premio: si está en modo 'dias_local', se prorratea proporcional. En modo 'mes_30' va full.
+    const premioBase = Number(configEmp.premio_fichadas_uniforme);
+    const premio = cobraPremio
+      ? (configEmp.dias_prorrateo_modo === 'dias_local' ? premioBase * ratio : premioBase)
+      : 0;
 
-    // Comisión: SIEMPRE se prorratea por dias_trabajados/30.
-    // - Para empleadas en mes_completo: ratio = 1 cuando no hay sin goce; < 1 cuando si.
-    // - Para franquera Escasany (modo 'por_dias_trabajados'): el ratio < 1 refleja sus dias laborales.
-    // En ambos casos, sin goce + ausencias descuentan proporcional.
+    // ─── Denominador del prorrateo ───
+    // - 'mes_30' (default): siempre /30 → empleadas que trabajan mes completo
+    // - 'dias_local' (Escasany franquera): /promedio dias_trabajados de vendedoras del local
+    //   en el mismo periodo. Así si vendedora normal trabajó 26 días y Escasany 8, ratio = 8/26.
+    let dias_referencia = 30;
+    if (configEmp.dias_prorrateo_modo === 'dias_local') {
+      const { data: otrasLiqs } = await sb.from('rrhh_liquidacion')
+        .select('dias_trabajados, empleado_id, rrhh_empleados!inner(local, apellido)')
+        .eq('periodo', periodo + '-01')
+        .eq('rrhh_empleados.local', emp.local)
+        .neq('empleado_id', empleadoId);
+      const diasNormales = (otrasLiqs || [])
+        .filter(l => Number(l.dias_trabajados || 0) > 0)
+        .map(l => Number(l.dias_trabajados));
+      if (diasNormales.length > 0) {
+        const promedio = diasNormales.reduce((a, b) => a + b, 0) / diasNormales.length;
+        dias_referencia = Math.max(1, Math.ceil(promedio));
+      } else {
+        // Fallback: si no hay otras liquidaciones todavía (primer cálculo del mes),
+        // asumimos 26 como referencia común de un mes laboral.
+        dias_referencia = 26;
+      }
+    }
+    const ratio = dias_trabajados / dias_referencia;
+
+    // Comisión: ventas_local × tasa × fraccion × ratio.
+    // Para Escasany (modo 'dias_local'), ratio = sus_dias / promedio_local → solo
+    // comisiona sobre la proporción de días que efectivamente trabajó.
     const ventasLocal = await cargarVentasLocalMes(emp.local, periodo);
     const tasaLocal = Number(cfgLocal.tasa_comision);
     let comision_base = ventasLocal * tasaLocal;
@@ -17413,16 +17449,14 @@ const salaryWorkflow = (() => {
       const activas = await contarActivasLocal(emp.local, periodo + '-01');
       if (activas > 0) comision_base = comision_base / activas;
     }
-    let comision = comision_base * Number(configEmp.fraccion_comision) * (dias_trabajados / 30);
+    let comision = comision_base * Number(configEmp.fraccion_comision) * ratio;
 
-    // Fijo: tambien se prorratea por dias_trabajados/30. En meses sin licencias sin goce
-    // ni ausencias, dias_trabajados=30 → ratio=1 → no cambia. Con sin goce/ausentes,
-    // descuenta proporcional.
+    // Fijo: siempre se prorratea sobre 30. El fijo es contractual mensual.
     const fijo = Number(configEmp.fijo) * (dias_trabajados / 30);
 
-    // Viáticos: se pagan solo los días efectivamente trabajados (vacaciones / sin goce no cobran viático)
+    // Viáticos: prorrateados sobre dias_referencia (mismo criterio que comisión).
     const viaticos_full = Number(configEmp.viaticos);
-    const viaticos = viaticos_full * (dias_trabajados / 30);
+    const viaticos = viaticos_full * ratio;
 
     // Plus por feriado trabajado: solo en locales en shoppings (Alcorta/Unicenter).
     // Se cuentan los feriados del mes donde el local NO cierra Y la empleada efectivamente
@@ -17451,7 +17485,9 @@ const salaryWorkflow = (() => {
       feriado_dias += 1;
     });
     const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
-    const feriado_monto = feriado_dias * feriado_por_dia;
+    // Multiplicador especial: para Escasany x2 porque al ser franquera el feriado le pesa más
+    const feriadoMul = Number(configEmp.feriado_multiplicador || 1.0);
+    const feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
 
     const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto;
 
