@@ -11476,9 +11476,14 @@ async function renderLiquidaciones() {
         case 'recibo':     return Number(l.recibo_neto || 0);
         case 'banco':      return Number(l.recibo_neto || 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0);
         case 'efectivo':   {
+            const sac = sacPorEmp[l.empleado_id] || 0;
+            const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
             const intrLive = interesesPorEmpLiq[l.empleado_id] || 0;
-            const intrDB   = Number(l.prestamo_interes || 0);
-            return Math.max(0, Number(l.efectivo || 0) + intrDB - intrLive);
+            return Math.max(0, subtotal - Number(l.mercaderia || 0) - intrLive - Number(l.ajuste || 0));
+          }
+        case 'subtotal_efectivo': {
+            const sac = sacPorEmp[l.empleado_id] || 0;
+            return Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
           }
         default:           return 0;
       }
@@ -11759,24 +11764,32 @@ async function renderLiquidaciones() {
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):'—'}</td>`; } },
             { id:'adelantos', label:'Adelantos',  thOpts:{title:'Adelantos del mes (préstamos 1 cuota tasa 0%)'},
               tdRender:(l,c)=>{ const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+c.fmt(adel):'—'}</td>`; } },
-            { id:'banco',     label:'Total',      sortKey:'banco', thOpts:{bg:'#dcfce7',title:'Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)'},
+            { id:'banco',     label:'Banco',      sortKey:'banco', thOpts:{bg:'#dcfce7',title:'Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)'},
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)">${c.fmt((+l.recibo_neto || 0) - pres - adel)}</td>`; } },
+            { id:'subtotal_efectivo', label:'Subtotal', sortKey:'subtotal_efectivo', thOpts:{bg:'#ecfccb',title:'Subtotal del efectivo (Total − Recibo CCT). De acá se descuentan Mercadería, Intereses y Ajustes para llegar al Efectivo final.'},
+              tdRender:(l,c)=>{
+                const sac = c.sacPorEmpLiq[l.empleado_id] || 0;
+                const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+                return `<td style="padding:8px;font-family:monospace;background:#ecfccb;font-weight:600;" title="Subtotal del efectivo = Total a pagar − Recibo CCT. Es la base sobre la que se aplican mercadería/intereses/ajustes.">${subtotal>0?c.fmt(subtotal):'—'}</td>`;
+              } },
             { id:'mercaderia', label:'Mercadería',
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.mercaderia)}</td>` },
             { id:'intereses', label:'Intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
               tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):'—'}</td>`; } },
             { id:'ajustes',   label:'Ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
-            { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8',title:'Total a pagar en negro (descuenta intereses de préstamo)'},
+            { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8',title:'Efectivo neto = Subtotal − Mercadería − Intereses − Ajustes'},
               tdRender:(l,c)=>{
-                // Autocorrección: si el l.efectivo del DB se grabó con prestamo_interes=0
-                // (regeneración previa al fix), le sumamos lo que estaba en DB y le
-                // restamos el interés real live. Resultado: el efectivo siempre queda bien
-                // calculado sin necesidad de regenerar la liquidación.
-                const intrLive = c.interesesPorEmpLiq[l.empleado_id] || 0;
-                const intrDB   = Number(l.prestamo_interes || 0);
-                const ef       = Math.max(0, Number(l.efectivo || 0) + intrDB - intrLive);
-                return `<td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;" title="Total negro a pagar en mano${intrLive>0?' (ya descontó $'+Math.round(intrLive).toLocaleString('es-AR')+' de interés)':''}">${ef>0?c.fmt(ef):'—'}</td>`;
+                // Modelo claro: parte del Subtotal efectivo (Total − Recibo) y restamos
+                // mercadería, intereses (live) y ajustes. Así el cálculo siempre cuadra
+                // con lo que vé el usuario en pantalla, independiente del DB.
+                const sac = c.sacPorEmpLiq[l.empleado_id] || 0;
+                const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+                const mercaderia = Number(l.mercaderia || 0);
+                const intrLive   = c.interesesPorEmpLiq[l.empleado_id] || 0;
+                const ajuste     = Number(l.ajuste || 0);
+                const ef = Math.max(0, subtotal - mercaderia - intrLive - ajuste);
+                return `<td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;" title="Efectivo neto = Subtotal − Mercadería − Intereses − Ajustes${intrLive>0?' (interés descontado: $'+Math.round(intrLive).toLocaleString('es-AR')+')':''}">${ef>0?c.fmt(ef):'—'}</td>`;
               } },
             { id:'detalle',   label:'Detalle',
               tdRender:(l,c)=>`<td style="padding:8px;white-space:nowrap;">
@@ -11802,7 +11815,7 @@ async function renderLiquidaciones() {
           //   empleada, dias, puntos, total, recibo, prestamos, adelantos, banco,
           //   intereses, efectivo, detalle.
           if (!isAdmin) {
-            const CORE_GERENTE = ['empleada','dias','puntos','total','recibo','prestamos','adelantos','banco','intereses','efectivo','detalle'];
+            const CORE_GERENTE = ['empleada','dias','puntos','total','recibo','prestamos','adelantos','banco','subtotal_efectivo','mercaderia','intereses','ajustes','efectivo','detalle'];
             cfg.ocultas = (cfg.ocultas || []).filter(id => !CORE_GERENTE.includes(id));
           }
           const byId = Object.fromEntries(colsAvailable.map(c => [c.id, c]));
@@ -11837,7 +11850,7 @@ async function renderLiquidaciones() {
       </div>
 
       <div class="card" style="margin-top:14px;padding:12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
-        💡 <strong>Cómo se lee:</strong> el primer <strong>Total</strong> (azulado) es lo que debería cobrar la empleada (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. El segundo <strong>Total</strong> (verde) es lo que efectivamente se transfiere al banco (Recibo − Préstamos − Adelantos). Para vendedoras del local, la diferencia con el primer Total se paga en <strong>Efectivo</strong> (negro). Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
+        💡 <strong>Cómo se lee:</strong> el <strong>Total</strong> (azulado) es lo que debería cobrar la empleada (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. <strong>Banco</strong> (verde) es lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos). <strong>Subtotal</strong> (verde claro) es la base del efectivo (Total − Recibo); de ahí se descuentan Mercadería, Intereses y Ajustes para llegar al <strong>Efectivo</strong> (rojo) que va en mano. Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
       </div>
     `}
   `;
