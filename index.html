@@ -11345,6 +11345,7 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período. Si hay empleados de más de una jurisdicción (CABA + BsAs), descarga 2 archivos automáticamente.">📄 LSD AFIP</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Valida ventas + asistencias + aumentos. Despues podras modificar pero con aviso.">🔒 Cerrar mes</button>` : ''}
       </div>
     </div>
 
@@ -12037,11 +12038,119 @@ async function liqEditar(liqId) {
   openModal(html);
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  CIERRE DEL MES — botón + validaciones + warning de modificación
+// ════════════════════════════════════════════════════════════════════
+
+// Devuelve true si (local, periodo) ya está cerrado para sueldos
+async function liqMesEstaCerrado(local, periodo) {
+  const periodoIso = periodo + '-01';
+  const { data } = await sb.from('rrhh_meses_cerrados_sueldos')
+    .select('id, cerrado_at, cerrado_por').eq('local', local).eq('periodo', periodoIso).maybeSingle();
+  return data || null;
+}
+
+// Devuelve lista de errores. Vacia = puede cerrar.
+async function liqValidarCierreMes(local, periodo) {
+  const periodoIso = periodo + '-01';
+  const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+  const errores = [];
+  for (const loc of locales) {
+    const tag = loc.charAt(0).toUpperCase() + loc.slice(1);
+    // 1. Ventas cargadas (oficina puede $0; el resto debe ser > 0)
+    const { data: v } = await sb.from('rrhh_ventas_local_mes')
+      .select('monto_ventas, origen').eq('local', loc).eq('periodo', periodoIso).maybeSingle();
+    if (!v) {
+      errores.push(`${tag}: ventas del mes NO cargadas`);
+    } else if (loc !== 'oficina' && Number(v.monto_ventas) <= 0) {
+      errores.push(`${tag}: ventas del mes en $0`);
+    }
+    // 2. Asistencias cerradas por las encargadas
+    const { data: a } = await sb.from('rrhh_meses_cerrados')
+      .select('id').eq('local', loc).eq('periodo', periodoIso).maybeSingle();
+    if (!a) errores.push(`${tag}: asistencias del mes NO cerradas`);
+    // 3. Si hubo envio de aumento para este periodo, validar que las encargadas hayan respondido
+    //    (cada empleada activa del local tiene config con vigente_desde >= periodo)
+    const { data: envio } = await sb.from('rrhh_aumento_envio')
+      .select('id, periodo_aplica').eq('periodo_aplica', periodoIso).order('id', { ascending: false }).limit(1).maybeSingle();
+    if (envio) {
+      const { data: empleadas } = await sb.from('rrhh_empleados')
+        .select('id, apellido, rrhh_sueldo_empleada_config(vigente_desde)')
+        .eq('local', loc).eq('estado', 'activo');
+      const sinNueva = [];
+      for (const e of (empleadas || [])) {
+        const cfgs = e.rrhh_sueldo_empleada_config || [];
+        const tieneNueva = cfgs.some(c => c.vigente_desde >= periodoIso);
+        if (!tieneNueva) sinNueva.push(e.apellido);
+      }
+      if (sinNueva.length > 0) {
+        errores.push(`${tag}: aumento ${envio.periodo_aplica} sin cerrar para: ${sinNueva.join(', ')}`);
+      }
+    }
+  }
+  return errores;
+}
+
+async function liqCerrarMes(local, periodo) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  // Si ya está cerrado, ofrecer re-abrir (delete del registro)
+  if (local !== 'todos') {
+    const yaCerrado = await liqMesEstaCerrado(local, periodo);
+    if (yaCerrado) {
+      const fechaCer = new Date(yaCerrado.cerrado_at).toLocaleString('es-AR');
+      if (!confirm(`Este mes ya está cerrado (${fechaCer} por ${yaCerrado.cerrado_por || '?'}).
+
+¿Querés REABRIR el mes? (borra el registro de cierre)`)) return;
+      const { error } = await sb.from('rrhh_meses_cerrados_sueldos').delete().eq('id', yaCerrado.id);
+      if (error) { toast('Error reabrir: ' + error.message, 'error'); return; }
+      toast(`✓ Mes ${periodo} reabierto para ${local}`, 'success');
+      switchTab('liquidaciones'); return;
+    }
+  }
+  toast('🔍 Validando cierre...', 'info');
+  const errores = await liqValidarCierreMes(local, periodo);
+  if (errores.length > 0) {
+    alert('⚠️ No se puede cerrar el mes — corregí estos puntos:\n\n' + errores.map(e => '• ' + e).join('\n'));
+    return;
+  }
+  const target = local === 'todos' ? 'TODOS los locales' : local;
+  if (!confirm(`Cerrar mes ${periodo} para ${target}?\n\n✓ Ventas cargadas\n✓ Asistencias cerradas\n✓ Aumentos cerrados\n\nDespués podras modificar liquidaciones pero saldra un aviso.`)) return;
+  const obs = prompt('Observación del cierre (opcional):') || null;
+  const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+  let okCount = 0;
+  for (const loc of locales) {
+    const { error } = await sb.from('rrhh_meses_cerrados_sueldos').insert({
+      periodo: periodo + '-01', local: loc,
+      cerrado_por: session.user?.email || 'admin', observaciones: obs,
+    });
+    if (error) {
+      if (error.code === '23505') {
+        // ya cerrado, skip
+        okCount++;
+      } else {
+        toast(`Error ${loc}: ${error.message}`, 'error'); return;
+      }
+    } else {
+      okCount++;
+    }
+  }
+  toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)`, 'success');
+  switchTab('liquidaciones');
+}
+
 async function liqEditarGuardar(liqId) {
   const { data: liq } = await sb.from('rrhh_liquidacion')
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, fecha_ingreso, obra_social_codigo, local, categoria:rrhh_categorias_cct(*))')
     .eq('id', liqId).single();
   if (!liq) { toast('No encontrada', 'error'); return; }
+
+  // ⚠ WARNING: si el mes está cerrado, pedir confirmación antes de modificar
+  const periodoEdit = (liq.periodo || '').slice(0, 7);
+  const cerrado = await liqMesEstaCerrado(liq.local, periodoEdit);
+  if (cerrado) {
+    const fechaCer = new Date(cerrado.cerrado_at).toLocaleString('es-AR');
+    if (!confirm(`⚠️ Estás modificando una liquidación de un mes ya CERRADO (${fechaCer} por ${cerrado.cerrado_por || '?'}).\n\n¿Querés continuar con la modificación?`)) return;
+  }
 
   // Lectura del form
   const dias    = parseInt(document.getElementById('ledit-dias').value) || 0;
