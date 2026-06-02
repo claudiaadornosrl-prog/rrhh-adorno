@@ -11430,9 +11430,12 @@ async function renderLiquidaciones() {
 
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
-  // ─── Separar Adelantos (1 cuota tasa 0) vs Préstamos largos ───
+  // ─── Separar Adelantos (1 cuota tasa 0) vs Préstamos largos + intereses live ───
+  // NOTA: leemos todas las cuotas del mes SIN filtrar por estado, así no
+  // dependemos del campo l.prestamo_interes grabado (que puede quedar mal
+  // si la liquidación se regeneró cuando las cuotas estaban 'aplicada').
   const empIdsLiq = [...new Set((liqs||[]).map(l => l.empleado_id))];
-  const adelantosPorEmpLiq = {}, prestamosPorEmpLiq = {};
+  const adelantosPorEmpLiq = {}, prestamosPorEmpLiq = {}, interesesPorEmpLiq = {};
   if (empIdsLiq.length > 0) {
     const { data: pAct } = await sb.from('rrhh_prestamo')
       .select('id, empleado_id, estado, cuotas_totales, tasa_mensual')
@@ -11442,15 +11445,20 @@ async function renderLiquidaciones() {
     const idsP = (pAct || []).map(p => p.id);
     if (idsP.length > 0) {
       const { data: cs } = await sb.from('rrhh_prestamo_cuota')
-        .select('prestamo_id, monto_capital, mes_descuento, estado')
+        .select('prestamo_id, monto_capital, monto_interes, mes_descuento, estado')
         .eq('mes_descuento', periodo + '-01')
         .in('prestamo_id', idsP);
       (cs || []).forEach(c => {
         const pr = pMap[c.prestamo_id]; if (!pr) return;
         const cap = Number(c.monto_capital || 0);
+        const intr = Number(c.monto_interes || 0);
         const esAdel = pr.cuotas_totales === 1 && Number(pr.tasa_mensual||0) === 0;
-        if (esAdel) adelantosPorEmpLiq[pr.empleado_id] = (adelantosPorEmpLiq[pr.empleado_id]||0) + cap;
-        else        prestamosPorEmpLiq[pr.empleado_id] = (prestamosPorEmpLiq[pr.empleado_id]||0) + cap;
+        if (esAdel) {
+          adelantosPorEmpLiq[pr.empleado_id] = (adelantosPorEmpLiq[pr.empleado_id]||0) + cap;
+        } else {
+          prestamosPorEmpLiq[pr.empleado_id] = (prestamosPorEmpLiq[pr.empleado_id]||0) + cap;
+          interesesPorEmpLiq[pr.empleado_id] = (interesesPorEmpLiq[pr.empleado_id]||0) + intr;
+        }
       });
     }
   }
@@ -11752,7 +11760,7 @@ async function renderLiquidaciones() {
             { id:'mercaderia', label:'Mercadería',
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.mercaderia)}</td>` },
             { id:'intereses', label:'Intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;cursor:${(+l.prestamo_interes)>0?'pointer':'default'};color:${(+l.prestamo_interes)>0?'#d97706':'var(--muted)'};" ${(+l.prestamo_interes)>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${(+l.prestamo_interes)>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${(+l.prestamo_interes)>0?c.fmt(l.prestamo_interes):'—'}</td>` },
+              tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):'—'}</td>`; } },
             { id:'ajustes',   label:'Ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
             { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8'},
@@ -11767,7 +11775,7 @@ async function renderLiquidaciones() {
               </td>` },
           ];
 
-          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, sacPorEmpLiq: sacPorEmp };
+          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp };
 
           // Filtrar por condition (local==='todos', esMesSAC)
           const colsAvailable = ALL_COLS.filter(c => !c.condition || c.condition(ctxL));
@@ -11776,6 +11784,14 @@ async function renderLiquidaciones() {
 
           // Aplicar config del usuario (orden + visibilidad desde localStorage)
           const cfg = liqGetColsConfig();
+          // Para la encargada, hay columnas críticas que NO pueden quedar ocultas
+          // aunque su localStorage diga lo contrario (defienden el flujo de liquidación):
+          //   empleada, dias, puntos, total, recibo, prestamos, adelantos, banco,
+          //   intereses, efectivo, detalle.
+          if (!isAdmin) {
+            const CORE_GERENTE = ['empleada','dias','puntos','total','recibo','prestamos','adelantos','banco','intereses','efectivo','detalle'];
+            cfg.ocultas = (cfg.ocultas || []).filter(id => !CORE_GERENTE.includes(id));
+          }
           const byId = Object.fromEntries(colsAvailable.map(c => [c.id, c]));
           const remaining = new Set(colsAvailable.map(c => c.id));
           const ordered = [];
@@ -17033,10 +17049,13 @@ const salaryWorkflow = (() => {
     // Usar reciboFinal (con básico ajustado si doble_blanco, sino el original)
 
         // ── Cuotas de préstamo del mes (capital sale del banco, interés del efectivo) ──
+    // NOTA: NO filtramos por estado='pendiente'. Si la liquidación se regenera
+    // después de aplicar las cuotas, queremos seguir descontándolas — el
+    // mes_descuento es único por préstamo, así que no hay doble descuento.
     const { data: cuotasPendientes } = await sb.from('rrhh_prestamo_cuota')
-      .select('id, monto_capital, monto_interes, prestamo_id, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
-      .eq('estado', 'pendiente')
-      .eq('mes_descuento', periodo + '-01');
+      .select('id, monto_capital, monto_interes, estado, prestamo_id, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
+      .eq('mes_descuento', periodo + '-01')
+      .neq('estado', 'cancelada');
     const cuotasEmp = (cuotasPendientes || []).filter(
       c => c.prestamo?.empleado_id === empleadoId && c.prestamo?.estado === 'activo'
     );
