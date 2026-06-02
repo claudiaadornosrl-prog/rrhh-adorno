@@ -14400,6 +14400,7 @@ async function renderPrestamosGerente() {
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#f9fafb;text-align:left;">
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;" title="Capital + intereses totales del préstamo">Total préstamo</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Capital</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Cuota</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Cuotas</th>
@@ -14412,8 +14413,10 @@ async function renderPrestamosGerente() {
             ${(prestamos || []).map(p => {
               const m = cuotasMap[p.id] || {};
               const otorgado = p.otorgado_at ? new Date(p.otorgado_at).toLocaleDateString('es-AR') : '—';
+              const totalPrestamo = Number(p.capital || 0) + Number(m.intTotal || 0);
               return `<tr style="border-top:1px solid var(--border);">
                 <td style="padding:10px 14px;font-weight:500;">${escapeHtml(p.empleado?.nombre_completo || '—')}</td>
+                <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;" title="Capital ${fmt(p.capital)} + intereses ${fmt(m.intTotal||0)}">${fmt(totalPrestamo)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;">${fmt(p.capital)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;">${fmt(p.cuota_monto)}</td>
                 <td style="padding:10px 14px;text-align:center;"><strong>${m.pagadas || 0}</strong> <span style="color:var(--muted);">/ ${p.cuotas_totales}</span></td>
