@@ -11915,8 +11915,19 @@ async function liqSyncVentasFromSheets(local, periodo) {
     if (errs.length) parts.push(`✗ ${errs.map(r => `${r.local}: ${r.msg}`).join(' · ')}`);
     const tipo = ok.length > 0 ? (paused.length || errs.length ? 'warning' : 'success') : 'error';
     toast(parts.join(' | ') || 'Sin resultados', tipo);
-    // Refrescar la pantalla con los nuevos valores
-    setTimeout(() => { try { switchTab('liquidaciones'); } catch(_){} }, 1200);
+    // Si hubo al menos un sync OK, recalcular liquidaciones del periodo para el local actual.
+    if (ok.length > 0) {
+      try {
+        toast('🧮 Recalculando liquidaciones...', 'info');
+        // liqGenerarMes acepta 'todos' o un local especifico
+        await liqGenerarMes(local, periodo);
+      } catch (e2) {
+        console.warn('auto-recalc fallo', e2);
+      }
+    } else {
+      // Sin recalc, solo refrescar la pantalla
+      setTimeout(() => { try { switchTab('liquidaciones'); } catch(_){} }, 1200);
+    }
   } catch (e) {
     toast('Error: ' + e.message, 'error');
   }
