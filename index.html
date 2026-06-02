@@ -7142,7 +7142,8 @@ async function renderConfigUsuarios(cont) {
             <td style="padding:10px 16px;font-size:13px;">${u.activo ? '✅' : '⏸️'}</td>
             <td style="padding:10px 16px;font-size:12px;color:var(--muted);">${u.last_login ? fmtFecha(u.last_login.split('T')[0]) : '—'}</td>
             <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
-              <button class="btn small" onclick="toggleActivoUsuario(${u.id}, ${u.activo})">${u.activo ? 'Desactivar' : 'Activar'}</button>
+              <button class="btn small" style="background:#eef2ff;color:#3730a3;border-color:#c7d2fe;" onclick="abrirEditarUsuario(${u.id})" title="Editar empleado vinculado, rol y/o local">✏ Editar</button>
+              <button class="btn small" style="margin-left:4px;" onclick="toggleActivoUsuario(${u.id}, ${u.activo})">${u.activo ? 'Desactivar' : 'Activar'}</button>
               <button class="btn small" style="background:#fee2e2;color:#b91c1c;border-color:#fca5a5;margin-left:4px;" onclick="borrarUsuario(${u.id}, ${JSON.stringify(u.email || '?').replace(/"/g, '&quot;')})" title="Borrar definitivamente (no toca rrhh_empleados)">🗑</button>
             </td>
           </tr>
@@ -7170,6 +7171,94 @@ async function borrarUsuario(id, email) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   try { await auditLog('eliminar', 'rrhh_usuarios', id, null, email, null); } catch(_) {}
   toast(`Usuario "${email}" borrado de rrhh_usuarios ✓`, 'success');
+  renderConfigContent();
+}
+
+// Editar la fila de rrhh_usuarios: empleado vinculado + rol + local_gerencia.
+// auth_user_id (UUID) y email quedan bloqueados (van atados a Supabase Auth, hay que
+// borrar y re-crear la fila si querés cambiarlos).
+async function abrirEditarUsuario(id) {
+  const { data: u, error } = await sb.from('rrhh_usuarios').select('*').eq('id', id).single();
+  if (error || !u) { toast('Usuario no encontrado: ' + (error?.message||''), 'error'); return; }
+  const cont = document.getElementById('cfg-content');
+  cont.innerHTML = `
+    <div class="card">
+      <h3 style="margin:0 0 16px;">✏ Editar usuario</h3>
+      <div class="form-grid">
+        <div class="form-row full">
+          <label>Email (no editable — atado a Supabase Auth)</label>
+          <input type="email" value="${escapeHtml(u.email || '')}" disabled style="background:#f9fafb;color:#64748b;">
+          <div class="hint">Para cambiar el email, borrá esta vinculación y creá una nueva.</div>
+        </div>
+        <div class="form-row full">
+          <label>UUID Supabase Auth (no editable)</label>
+          <input type="text" value="${escapeHtml(u.auth_user_id || '')}" disabled style="background:#f9fafb;color:#64748b;font-family:monospace;">
+        </div>
+        <div class="form-row">
+          <label>Rol *</label>
+          <select id="cfg-edit-rol">
+            <option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado (self-service)</option>
+            <option value="gerente" ${u.rol==='gerente'?'selected':''}>Gerente de local</option>
+            <option value="admin" ${u.rol==='admin'?'selected':''}>Admin (acceso total)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Empleado vinculado *</label>
+          <select id="cfg-edit-empleado">
+            <option value="">Cargando…</option>
+          </select>
+        </div>
+        <div class="form-row full" id="cfg-edit-local-row" style="display:${u.rol==='gerente'?'flex':'none'};">
+          <label>Local que administra (solo gerente)</label>
+          <select id="cfg-edit-local-gerencia">
+            <option value="">—</option>
+            <option value="unicenter" ${u.local_gerencia==='unicenter'?'selected':''}>Unicenter</option>
+            <option value="alcorta" ${u.local_gerencia==='alcorta'?'selected':''}>Alcorta</option>
+            <option value="oficina" ${u.local_gerencia==='oficina'?'selected':''}>Oficina</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn" onclick="renderConfigContent()">Cancelar</button>
+        <button class="btn primary" onclick="guardarEditarUsuario(${u.id})">Guardar cambios</button>
+      </div>
+    </div>
+  `;
+  // Cargar empleados con la pre-selección
+  sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').order('nombre_completo').then(({ data }) => {
+    document.getElementById('cfg-edit-empleado').innerHTML = '<option value="">— Seleccionar —</option>' +
+      (data||[]).map(e => `<option value="${e.id}" ${e.id === u.empleado_id ? 'selected' : ''}>${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('');
+  });
+  document.getElementById('cfg-edit-rol').addEventListener('change', e => {
+    document.getElementById('cfg-edit-local-row').style.display = e.target.value === 'gerente' ? 'flex' : 'none';
+  });
+}
+
+async function guardarEditarUsuario(id) {
+  const rol = document.getElementById('cfg-edit-rol').value;
+  const empId = parseInt(document.getElementById('cfg-edit-empleado').value, 10);
+  const localGerencia = rol === 'gerente' ? document.getElementById('cfg-edit-local-gerencia').value || null : null;
+  if (!empId) { toast('Falta empleado', 'error'); return; }
+  if (rol === 'gerente' && !localGerencia) { toast('Si es gerente, falta el local', 'error'); return; }
+
+  // Traer valores anteriores para audit log
+  const { data: viejo } = await sb.from('rrhh_usuarios').select('rol, empleado_id, local_gerencia, email').eq('id', id).single();
+
+  const { error } = await sb.from('rrhh_usuarios').update({
+    empleado_id: empId, rol, local_gerencia: localGerencia,
+  }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  try {
+    const cambios = [];
+    if (viejo) {
+      if (viejo.rol !== rol) cambios.push(`rol: ${viejo.rol} → ${rol}`);
+      if (viejo.empleado_id !== empId) cambios.push(`empleado_id: ${viejo.empleado_id} → ${empId}`);
+      if ((viejo.local_gerencia||null) !== localGerencia) cambios.push(`local: ${viejo.local_gerencia||'—'} → ${localGerencia||'—'}`);
+    }
+    await auditLog('editar', 'rrhh_usuarios', id, null, viejo?.email || '?', cambios.join('; ') || 'sin cambios');
+  } catch(_) {}
+  toast('Cambios guardados ✓', 'success');
+  configState.tab = 'usuarios';
   renderConfigContent();
 }
 
