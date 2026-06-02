@@ -14323,13 +14323,18 @@ async function renderPrestamosGerente() {
       .order('num_cuota');
     (cuotas || []).forEach(c => {
       const m = cuotasMap[c.prestamo_id] = cuotasMap[c.prestamo_id] || {
-        pagadas: 0, pendientes: 0, saldoCap: 0, proxima: null
+        pagadas: 0, pendientes: 0, saldoCap: 0, saldoInt: 0,
+        intPagado: 0, intTotal: 0, proxima: null
       };
+      // Sumar interés total y pagado independientemente del estado
+      m.intTotal += Number(c.monto_interes || 0);
       if (c.estado === 'aplicada') {
         m.pagadas++;
-      } else {
+        m.intPagado += Number(c.monto_interes || 0);
+      } else if (c.estado === 'pendiente') {
         m.pendientes++;
         m.saldoCap += Number(c.monto_capital || 0);
+        m.saldoInt += Number(c.monto_interes || 0);
         if (!m.proxima || c.mes_descuento < m.proxima.mes_descuento) m.proxima = c;
       }
     });
@@ -14342,8 +14347,9 @@ async function renderPrestamosGerente() {
     return new Date(y, m - 1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
   };
 
-  const totalCap = (prestamos || []).reduce((s, p) => s + Number(p.capital || 0), 0);
-  const totalSaldo = Object.values(cuotasMap).reduce((s, m) => s + (m.saldoCap || 0), 0);
+  const totalCap     = (prestamos || []).reduce((s, p) => s + Number(p.capital || 0), 0);
+  const totalSaldo   = Object.values(cuotasMap).reduce((s, m) => s + (m.saldoCap || 0), 0);
+  const totalIntPend = Object.values(cuotasMap).reduce((s, m) => s + (m.saldoInt || 0), 0);
 
   cont.innerHTML = `
     <div class="page-header">
@@ -14364,6 +14370,10 @@ async function renderPrestamosGerente() {
         <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Saldo capital pendiente</div>
         <div style="font-size:24px;font-weight:600;margin-top:4px;font-family:monospace;color:#7c3aed;">${fmt(totalSaldo)}</div>
       </div>
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Interés pendiente</div>
+        <div style="font-size:24px;font-weight:600;margin-top:4px;font-family:monospace;color:#d97706;">${fmt(totalIntPend)}</div>
+      </div>
     </div>
 
     <div class="card" style="padding:0;overflow:hidden;">
@@ -14379,6 +14389,7 @@ async function renderPrestamosGerente() {
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Cuota</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Cuotas</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Saldo capital</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;" title="Interés pendiente (no incluye cuotas ya descontadas)">Interés pend.</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Próxima</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Otorgado</th>
           </tr></thead>
@@ -14392,6 +14403,7 @@ async function renderPrestamosGerente() {
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;">${fmt(p.cuota_monto)}</td>
                 <td style="padding:10px 14px;text-align:center;"><strong>${m.pagadas || 0}</strong> <span style="color:var(--muted);">/ ${p.cuotas_totales}</span></td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${fmt(m.saldoCap)}</td>
+                <td style="padding:10px 14px;text-align:right;font-family:monospace;color:#d97706;" title="Pagado: ${fmt(m.intPagado||0)} / Total: ${fmt(m.intTotal||0)}">${fmt(m.saldoInt)}</td>
                 <td style="padding:10px 14px;font-size:12px;">${m.proxima ? fmtMes(m.proxima.mes_descuento) : 'al día'}</td>
                 <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${otorgado}</td>
               </tr>`;
