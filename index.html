@@ -12630,10 +12630,10 @@ async function aumGerenteRender() {
     cont.innerHTML = '<div style="color:#dc2626;font-size:13px;">No se pudo determinar tu local. Contactá al admin.</div>';
     return;
   }
-  // Ultimo envio
+
+  // ── Cargar últimos envíos del local ──
   const { data: envios } = await sb.from('rrhh_aumento_envio')
     .select('*').order('enviado_at', { ascending: false }).limit(10);
-  // Filtrar los que incluyen este local
   const enviosLocal = (envios || []).filter(e => e.detalle && e.detalle[local]);
   if (enviosLocal.length === 0) {
     cont.innerHTML = `
@@ -12644,72 +12644,215 @@ async function aumGerenteRender() {
     `;
     return;
   }
-  const envio = enviosLocal[0]; // mas reciente
+
+  const envio = enviosLocal[0];
   const listaLocal = envio.detalle[local] || [];
   const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
   const fmtFecha = (s) => s ? new Date(s).toLocaleString('es-AR', { dateStyle:'short', timeStyle:'short' }) : '—';
 
-  // Detectar quien es la encargada para marcar su fila con auto MAX
+  // ── Detectar si ya hay configs aplicadas para este envío (mes y empleadas) ──
+  const empIds = listaLocal.map(x => x.empleado_id).filter(Boolean);
+  const yaAplicadas = new Set();
+  if (empIds.length > 0) {
+    const { data: cfgs } = await sb.from('rrhh_sueldo_empleada_config')
+      .select('empleado_id, vigente_desde, fijo')
+      .in('empleado_id', empIds)
+      .eq('vigente_desde', envio.periodo_aplica);
+    (cfgs || []).forEach(c => yaAplicadas.add(c.empleado_id));
+  }
+  const cantAplicadas = yaAplicadas.size;
+  const cantTotal     = listaLocal.length;
+
+  // ── Encargada por local (para auto MAX) ──
   const ENCARGADAS_IDS = { alcorta: 20, unicenter: 6, oficina: null };
   const encargadaId = ENCARGADAS_IDS[local];
 
+  // ── Banner de estado ──
+  let bannerEstado = '';
+  if (cantAplicadas === 0) {
+    bannerEstado = `
+      <div style="background:#fef3c7;border:1px solid #fcd34d;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+        🟡 <strong>Pendiente</strong> — para cada empleada elegí el monto exacto del fijo nuevo (dentro del rango)
+        y apretá <em>Aplicar aumentos</em>. Una vez aplicado queda registrado para la liquidación del mes.
+        ${encargadaId ? '<br>🎯 <strong>Tu fila ya tiene MAX pre-cargado.</strong>' : ''}
+      </div>
+    `;
+  } else if (cantAplicadas >= cantTotal) {
+    bannerEstado = `
+      <div style="background:#d1fae5;border:1px solid #6ee7b7;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+        🟢 <strong>Aplicado</strong> — Ya cargaste los aumentos de tus ${cantTotal} empleadas para este mes.
+      </div>
+    `;
+  } else {
+    bannerEstado = `
+      <div style="background:#dbeafe;border:1px solid #93c5fd;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
+        🔵 <strong>Parcial</strong> — Llevás ${cantAplicadas} de ${cantTotal} empleadas cargadas. Completá las que faltan.
+      </div>
+    `;
+  }
+
   cont.innerHTML = `
-    <h3 style="margin:0 0 6px;">📥 Aumento pendiente — ${local.charAt(0).toUpperCase()+local.slice(1)}</h3>
+    <h3 style="margin:0 0 6px;">📥 Aumento del mes — ${local.charAt(0).toUpperCase()+local.slice(1)}</h3>
     <div style="color:var(--muted);font-size:12px;margin-bottom:10px;">
       JP te envió esto el <strong>${fmtFecha(envio.enviado_at)}</strong>.
       Vigente desde <strong>${envio.periodo_aplica}</strong>.
-      Rango: <strong>${envio.pct_min}% – ${envio.pct_max}%</strong>.
+      Rango sugerido: <strong>${envio.pct_min}% – ${envio.pct_max}%</strong>.
     </div>
-    <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
-      💡 Para cada empleada de tu local, elegí el monto exacto del fijo nuevo dentro del rango sugerido y mandale a JP el detalle por WhatsApp/mail. Él va a aplicar los aumentos puntuales desde el panel admin.
-      ${encargadaId ? '<br><strong>🎯 Tu fila tiene MAX auto pre-marcado.</strong>' : ''}
-    </div>
+    ${bannerEstado}
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#f9fafb;text-align:left;">
         <th style="padding:8px;">Empleada</th>
         <th style="padding:8px;text-align:right;">Fijo actual</th>
         <th style="padding:8px;text-align:right;">Rango sugerido</th>
-        <th style="padding:8px;text-align:right;">Tu propuesta</th>
+        <th style="padding:8px;text-align:right;">Fijo nuevo</th>
+        <th style="padding:8px;text-align:center;">Estado</th>
       </tr></thead>
-      <tbody>
+      <tbody id="aum-ger-tbody">
         ${listaLocal.map(e => {
-          const esEnc = encargadaId === e.empleado_id;
-          const valorSugerido = esEnc ? e.rango_max : '';
-          return `<tr style="border-top:1px solid var(--border);${esEnc?'background:#fef3c7;':''}">
-            <td style="padding:8px;">${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}${esEnc?' <span style="font-size:10px;color:#7c2d12;background:#fde68a;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;">🎯 VOS · MAX auto</span>':''}</td>
+          const esEnc      = encargadaId === e.empleado_id;
+          const yaAplicada = yaAplicadas.has(e.empleado_id);
+          const valorSug   = esEnc ? Math.round(Number(e.rango_max||0)) : '';
+          const inputDisabled = yaAplicada ? 'disabled' : '';
+          const inputStyle = (yaAplicada
+            ? 'background:#f3f4f6;color:#9ca3af;'
+            : (esEnc ? 'background:#fef3c7;' : ''));
+          return `<tr data-emp-id="${e.empleado_id}"
+                      data-rmin="${Math.round(Number(e.rango_min||0))}"
+                      data-rmax="${Math.round(Number(e.rango_max||0))}"
+                      data-apellido="${escapeHtml(e.apellido||'')}"
+                      data-nombre="${escapeHtml(e.nombre||'')}"
+                      data-aplicada="${yaAplicada?'1':'0'}"
+                      style="border-top:1px solid var(--border);${esEnc?'background:#fffbeb;':''}">
+            <td style="padding:8px;">${escapeHtml((e.apellido||'') + ', ' + (e.nombre||''))}${esEnc?' <span style="font-size:10px;color:#7c2d12;background:#fde68a;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;">🎯 VOS · MAX</span>':''}</td>
             <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(e.fijo_actual)}</td>
             <td style="padding:8px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${esEnc ? fmt$(e.rango_max) + ' <span style="font-size:10px;color:#92400e;">MAX</span>' : fmt$(e.rango_min) + ' – ' + fmt$(e.rango_max)}</td>
             <td style="padding:8px;text-align:right;">
-              <input type="number" placeholder="$0" min="${e.rango_min}" max="${e.rango_max}" step="500"
-                     value="${valorSugerido}"
-                     style="width:130px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${esEnc?'background:#fef3c7;':''}">
+              <input type="number" class="aum-ger-input" placeholder="$0"
+                     min="${Math.round(Number(e.rango_min||0))}" max="${Math.round(Number(e.rango_max||0))}" step="500"
+                     value="${valorSug}"
+                     ${inputDisabled}
+                     style="width:140px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${inputStyle}">
+            </td>
+            <td style="padding:8px;text-align:center;">
+              ${yaAplicada
+                ? '<span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:4px;font-size:11px;">✓ Aplicado</span>'
+                : '<span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:4px;font-size:11px;">Pendiente</span>'}
             </td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
-      <button class="btn primary" onclick="aumGerenteCopiarPropuesta()">📋 Copiar resumen para mandar a JP</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap;">
+      <div style="font-size:12px;color:var(--muted);">
+        💡 El fijo nuevo tiene que estar dentro del rango. Si dejás un input vacío, esa empleada queda sin aplicar.
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="aumGerenteCopiarPropuesta()" title="Copiar como texto para WhatsApp/mail">📋 Copiar resumen</button>
+        ${cantAplicadas < cantTotal
+          ? `<button class="btn primary" onclick="aumGerenteAplicarTodos(${envio.id}, '${envio.periodo_aplica}')">💾 Aplicar aumentos</button>`
+          : ''}
+      </div>
     </div>
   `;
 }
 
-// Copia un texto al portapapeles con los valores propuestos para mandar a JP
+// ── Aplicar todos los aumentos cargados por la encargada ──
+async function aumGerenteAplicarTodos(envioId, periodoAplica) {
+  if (session.rol !== 'gerente' && session.rol !== 'admin') { toast('Solo encargada o admin', 'error'); return; }
+  const filas = document.querySelectorAll('#aum-ger-tbody tr');
+  if (!filas.length) { toast('Nada para aplicar', 'error'); return; }
+
+  // ── Validar inputs ──
+  const items = [];
+  const errores = [];
+  for (const fila of filas) {
+    if (fila.dataset.aplicada === '1') continue; // ya está, skip
+    const empId  = Number(fila.dataset.empId);
+    const rMin   = Number(fila.dataset.rmin);
+    const rMax   = Number(fila.dataset.rmax);
+    const inp    = fila.querySelector('input.aum-ger-input');
+    const raw    = inp ? Number(inp.value || 0) : 0;
+    const nombre = `${fila.dataset.apellido}, ${fila.dataset.nombre}`;
+    if (!raw) continue; // vacío → no aplicar
+    if (raw < rMin || raw > rMax) {
+      errores.push(`${nombre}: $${raw.toLocaleString('es-AR')} fuera de rango ($${rMin.toLocaleString('es-AR')} – $${rMax.toLocaleString('es-AR')})`);
+      continue;
+    }
+    items.push({ empId, nuevoFijo: raw, nombre });
+  }
+
+  if (errores.length) {
+    alert('⚠️ Corregí estos errores antes de aplicar:\n\n' + errores.join('\n'));
+    return;
+  }
+  if (!items.length) {
+    toast('Cargá al menos un fijo nuevo válido', 'error');
+    return;
+  }
+
+  if (!confirm(`¿Aplicar aumentos para ${items.length} empleada${items.length===1?'':'s'} con vigencia ${periodoAplica}?\n\n` +
+               items.map(x => `• ${x.nombre}: $${x.nuevoFijo.toLocaleString('es-AR')}`).join('\n'))) return;
+
+  // ── Para cada empleada: leer config vigente más reciente y crear una nueva ──
+  let ok = 0, fail = 0;
+  const detalles = [];
+  for (const it of items) {
+    try {
+      // Config vigente más reciente (para copiar el resto de campos)
+      const { data: cfgs, error: eRead } = await sb.from('rrhh_sueldo_empleada_config')
+        .select('*')
+        .eq('empleado_id', it.empId)
+        .order('vigente_desde', { ascending: false })
+        .limit(1);
+      if (eRead) throw eRead;
+      const prev = cfgs && cfgs[0];
+      if (!prev) throw new Error('Sin config previa');
+
+      const payload = {
+        empleado_id:               it.empId,
+        vigente_desde:             periodoAplica,
+        fijo:                      it.nuevoFijo,
+        viaticos:                  prev.viaticos,
+        premio_fichadas_uniforme:  prev.premio_fichadas_uniforme,
+        fraccion_comision:         prev.fraccion_comision,
+        modo_prorrateo_comision:   prev.modo_prorrateo_comision,
+        activa_en_modulo:          prev.activa_en_modulo,
+        notas:                     `Aumento aplicado por ${session.email || 'encargada'} desde panel — envío #${envioId}`,
+      };
+      // Campos opcionales (doble_blanco)
+      if (prev.modo_liquidacion !== undefined) payload.modo_liquidacion = prev.modo_liquidacion;
+      if (prev.fraccion_no_rem  !== undefined) payload.fraccion_no_rem  = prev.fraccion_no_rem;
+
+      const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert(payload);
+      if (eIns) throw eIns;
+      ok++;
+      try { await auditLog('aplicar_aumento_encargada', 'rrhh_sueldo_empleada_config', it.empId, prev.fijo, it.nuevoFijo, `envío #${envioId}, vig ${periodoAplica}`); } catch(_){}
+      detalles.push(`✓ ${it.nombre}: $${prev.fijo} → $${it.nuevoFijo}`);
+    } catch (e) {
+      fail++;
+      detalles.push(`✗ ${it.nombre}: ${e.message || e}`);
+    }
+  }
+
+  const resumen = `Aplicados ${ok} ${ok===1?'aumento':'aumentos'}${fail?`, ${fail} con error`:''}.\n\n${detalles.join('\n')}`;
+  alert(resumen);
+  if (ok > 0) toast(`✓ ${ok} aumento${ok===1?'':'s'} aplicado${ok===1?'':'s'}`, 'success');
+  aumGerenteRender();
+}
+
+// ── Copiar resumen (acción secundaria para WhatsApp/mail) ──
 function aumGerenteCopiarPropuesta() {
-  const filas = document.querySelectorAll('#aum-gerente-envio tbody tr');
-  if (filas.length === 0) { toast('No hay propuestas para copiar', 'error'); return; }
+  const filas = document.querySelectorAll('#aum-ger-tbody tr');
+  if (!filas.length) { toast('No hay propuestas para copiar', 'error'); return; }
   const lineas = ['*Propuesta de aumento — ' + (session.empleadoData?.local || '?').toUpperCase() + '*', ''];
   for (const fila of filas) {
-    const tds = fila.querySelectorAll('td');
-    if (tds.length < 4) continue;
-    const empleada = tds[0].textContent.trim().replace(/🎯[^\n]*MAX[^\n]*/, '').trim();
-    const fijoActual = tds[1].textContent.trim();
-    const inp = tds[3].querySelector('input');
+    const nombre = `${fila.dataset.apellido}, ${fila.dataset.nombre}`;
+    const inp = fila.querySelector('input.aum-ger-input');
     const propuesta = inp ? Number(inp.value || 0) : 0;
     if (propuesta > 0) {
-      lineas.push(`• ${empleada}: ${fijoActual} → $${propuesta.toLocaleString('es-AR')}`);
+      lineas.push(`• ${nombre}: $${propuesta.toLocaleString('es-AR')}`);
     } else {
-      lineas.push(`• ${empleada}: ${fijoActual} → (sin propuesta)`);
+      lineas.push(`• ${nombre}: (sin propuesta)`);
     }
   }
   const texto = lineas.join('\n');
