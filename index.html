@@ -5467,7 +5467,10 @@ function cambiarMes(delta) {
 
 function cambiarLocal(local) {
   asisState.local = local;
-  renderCalendarioGrid();
+  // Re-rendear segun el tab actual (resumen mensual, calendario, fichadas, etc.)
+  // En vez de solo el calendario.
+  if (typeof renderAsisTab === 'function') renderAsisTab();
+  else renderCalendarioGrid();
 }
 
 // ─── Popover de asignación de turno ───
