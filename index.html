@@ -14333,9 +14333,9 @@ async function renderPrestamosGerente() {
   let cuotasMap = {};
   if (ids.length) {
     const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
-      .select('prestamo_id, estado, monto_capital, monto_interes, mes_descuento, num_cuota')
+      .select('prestamo_id, estado, monto_capital, monto_interes, mes_descuento, numero')
       .in('prestamo_id', ids)
-      .order('num_cuota');
+      .order('numero');
     (cuotas || []).forEach(c => {
       const m = cuotasMap[c.prestamo_id] = cuotasMap[c.prestamo_id] || {
         pagadas: 0, pendientes: 0, saldoCap: 0, saldoInt: 0,
