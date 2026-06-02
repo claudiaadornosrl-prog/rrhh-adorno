@@ -11475,7 +11475,11 @@ async function renderLiquidaciones() {
         case 'total':      return Number(l.total_negro || 0);
         case 'recibo':     return Number(l.recibo_neto || 0);
         case 'banco':      return Number(l.recibo_neto || 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0);
-        case 'efectivo':   return Number(l.efectivo || 0);
+        case 'efectivo':   {
+            const intrLive = interesesPorEmpLiq[l.empleado_id] || 0;
+            const intrDB   = Number(l.prestamo_interes || 0);
+            return Math.max(0, Number(l.efectivo || 0) + intrDB - intrLive);
+          }
         default:           return 0;
       }
     };
@@ -11763,8 +11767,17 @@ async function renderLiquidaciones() {
               tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):'—'}</td>`; } },
             { id:'ajustes',   label:'Ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
-            { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8'},
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?c.fmt(l.efectivo):'—'}</td>` },
+            { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8',title:'Total a pagar en negro (descuenta intereses de préstamo)'},
+              tdRender:(l,c)=>{
+                // Autocorrección: si el l.efectivo del DB se grabó con prestamo_interes=0
+                // (regeneración previa al fix), le sumamos lo que estaba en DB y le
+                // restamos el interés real live. Resultado: el efectivo siempre queda bien
+                // calculado sin necesidad de regenerar la liquidación.
+                const intrLive = c.interesesPorEmpLiq[l.empleado_id] || 0;
+                const intrDB   = Number(l.prestamo_interes || 0);
+                const ef       = Math.max(0, Number(l.efectivo || 0) + intrDB - intrLive);
+                return `<td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;" title="Total negro a pagar en mano${intrLive>0?' (ya descontó $'+Math.round(intrLive).toLocaleString('es-AR')+' de interés)':''}">${ef>0?c.fmt(ef):'—'}</td>`;
+              } },
             { id:'detalle',   label:'Detalle',
               tdRender:(l,c)=>`<td style="padding:8px;white-space:nowrap;">
                 <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
