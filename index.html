@@ -16150,6 +16150,69 @@ const salaryWorkflow = (() => {
       fraccion_no_rem_override: fraccionNR,
     });
 
+    // ── TOPE GANANCIAS 4ta: si emp.calcular_tope_ganancias=true, forzar el recibo neto
+    //    al tope mensual (lo que no se pasa de Ganancias) y prorratear los componentes
+    //    del recibo al nuevo bruto. La diferencia (fijo + viaticos + extras + comision +
+    //    premio - tope) va por efectivo (negro).
+    if (emp.calcular_tope_ganancias) {
+      try {
+        const { data: topeData, error: eTope } = await sb.rpc('rrhh_calcular_tope_ganancias', {
+          p_empleado_id: empleadoId,
+          p_periodo: periodo + '-01',
+        });
+        if (eTope) {
+          console.warn(`Tope ganancias falló para emp=${empleadoId}: ${eTope.message}`);
+        } else if (topeData && Number(topeData.neto_tope_mensual) > 0) {
+          const netoTope = Number(topeData.neto_tope_mensual);
+          const brutoTope = Number(topeData.bruto_tope_mensual);
+          const brutoActual = Number(recibo.totales.bruto || 0);
+          if (brutoActual > 0 && Math.abs(brutoActual - brutoTope) > 1) {
+            // Ajustar proporcional: factor = brutoTope / brutoActual
+            const f = brutoTope / brutoActual;
+            for (const c of recibo.conceptos) {
+              c.importe = Number(c.importe || 0) * f;
+            }
+            const t = recibo.totales;
+            t.basico       = Number(t.basico||0)       * f;
+            t.antiguedad   = Number(t.antiguedad||0)   * f;
+            t.presentismo  = Number(t.presentismo||0)  * f;
+            t.sumafija_nr  = Number(t.sumafija_nr||0)  * f;
+            t.ant_nr       = Number(t.ant_nr||0)       * f;
+            t.pres_nr      = Number(t.pres_nr||0)      * f;
+            t.recompos_nr  = Number(t.recompos_nr||0)  * f;
+            t.otros_rem    = Number(t.otros_rem||0)    * f;
+            t.jubilacion   = Number(t.jubilacion||0)   * f;
+            t.ley19032     = Number(t.ley19032||0)     * f;
+            t.obra_social  = Number(t.obra_social||0)  * f;
+            t.sec          = Number(t.sec||0)          * f;
+            t.faecys       = Number(t.faecys||0)       * f;
+            t.total_rem    = Number(t.total_rem||0)    * f;
+            t.total_nr     = Number(t.total_nr||0)     * f;
+            t.total_descuentos = Number(t.total_descuentos||0) * f;
+            t.bruto = brutoTope;
+            t.neto  = netoTope;
+            console.info(`Tope ganancias aplicado emp=${empleadoId}: neto $${netoTope.toLocaleString('es-AR')}`);
+          } else if (brutoActual === 0) {
+            // Caso fuera_convenio con basico=0: el calc CCT dio todo 0. Forzar valores.
+            const t = recibo.totales;
+            t.basico = brutoTope;  // aprox: poner el bruto como básico
+            t.bruto = brutoTope;
+            // Estimar descuentos jubilatorios típicos (~21% del bruto)
+            const descAprox = brutoTope - netoTope;
+            t.jubilacion = descAprox * 0.55;
+            t.ley19032   = descAprox * 0.15;
+            t.obra_social = descAprox * 0.30;
+            t.total_descuentos = descAprox;
+            t.total_rem = brutoTope;
+            t.neto = netoTope;
+            console.info(`Tope ganancias forzado (basico era 0) emp=${empleadoId}: neto $${netoTope.toLocaleString('es-AR')}`);
+          }
+        }
+      } catch (e) {
+        console.warn(`Excepción tope ganancias emp=${empleadoId}:`, e);
+      }
+    }
+
     // ── NEGRO ──
     const puntos_mes = await calcularPuntosMes(empleadoId, periodo);
     const cobraPremio = uniforme_ok && (puntos_mes <= cfgLocal.umbral_premio);
