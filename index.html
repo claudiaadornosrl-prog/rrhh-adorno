@@ -3106,11 +3106,14 @@ async function renderDocList() {
 // ════════════════════════════════════════════════════════════
 // MÓDULO VACACIONES (admin / gerente)
 // ════════════════════════════════════════════════════════════
-let vacState = { tab: 'pendientes' };
+let vacState = { tab: 'pendientes', _touched: false };
 
 async function renderVacacionesAdmin() {
   const isAdmin = session.rol === 'admin';
   const localFiltro = isAdmin ? null : session.local_gerencia;
+
+  // Para la encargada, arrancar en Saldos (no Pendientes) si no eligió tab manualmente
+  if (!isAdmin && !vacState._touched) vacState.tab = 'saldos';
 
   const html = `
     <div class="page-header">
@@ -3141,6 +3144,7 @@ async function renderVacacionesAdmin() {
     document.querySelectorAll('[data-vactab]').forEach(b => {
       b.addEventListener('click', async () => {
         vacState.tab = b.dataset.vactab;
+        vacState._touched = true;
         document.getElementById('main').innerHTML = await renderVacacionesAdmin();
       });
     });
@@ -3242,7 +3246,11 @@ async function renderVacContent() {
         </thead>
         <tbody>
           ${lista.map(s => `
-            <tr style="border-top:1px solid var(--border);">
+            <tr onclick="abrirDetalleVacEmpleada(${s.empleado?.id}, ${año})"
+                title="Ver detalle de vacaciones"
+                style="border-top:1px solid var(--border);cursor:pointer;"
+                onmouseover="this.style.background='#f9fafb'"
+                onmouseout="this.style.background=''">
               <td style="padding:12px 16px;">${escapeHtml(s.empleado?.nombre_completo)}</td>
               <td style="padding:12px 16px;"><span class="emp-tag local-${s.empleado?.local||''}">${LOCALES[s.empleado?.local]?.nombre||'—'}</span></td>
               <td style="padding:12px 16px;font-size:13px;color:var(--muted);">${antigüedad(s.empleado?.fecha_ingreso)}</td>
@@ -3517,6 +3525,114 @@ async function enviarSolicitudPago() {
   toast('Solicitud de pago enviada ✓ Te avisamos cuando la aprueben', 'success');
   document.getElementById('solpag-modal').remove();
   switchTab('mis-vacaciones');
+}
+
+
+// ════════════════════════════════════════════════════════════
+// Modal: detalle de vacaciones de una empleada (saldos → click)
+// ════════════════════════════════════════════════════════════
+async function abrirDetalleVacEmpleada(empId, año) {
+  if (!empId) return;
+
+  // Datos del empleado + saldo del año
+  const [{ data: emp }, { data: saldos }, { data: movs }] = await Promise.all([
+    sb.from('rrhh_empleados').select('id, nombre_completo, local, fecha_ingreso').eq('id', empId).single(),
+    sb.from('rrhh_vacaciones').select('*').eq('empleado_id', empId).order('año', { ascending: false }),
+    sb.from('rrhh_vacaciones_movimientos').select('*').eq('empleado_id', empId).order('fecha_desde', { ascending: false }).limit(50),
+  ]);
+  if (!emp) { toast('No se encontró la empleada', 'error'); return; }
+
+  const fmt = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString('es-AR') : '—';
+  const tagEstado = (st, tipo) => {
+    const map = {
+      solicitada:  { bg:'#fef3c7', fg:'#92400e', label: tipo==='pago' ? 'Pago solicitado' : 'Solicitada' },
+      aprobada:    { bg:'#dbeafe', fg:'#1e40af', label:'Aprobada' },
+      tomada:      { bg:'#d1fae5', fg:'#065f46', label:'Tomada' },
+      pagada:      { bg:'#ede9fe', fg:'#5b21b6', label:'Pagada' },
+      rechazada:   { bg:'#fee2e2', fg:'#991b1b', label:'Rechazada' },
+      cancelada:   { bg:'#f3f4f6', fg:'#6b7280', label:'Cancelada' },
+    };
+    const m = map[st] || { bg:'#f3f4f6', fg:'#374151', label: st };
+    return `<span style="background:${m.bg};color:${m.fg};padding:2px 8px;border-radius:4px;font-size:11px;">${m.label}</span>`;
+  };
+
+  // Render filas movimientos
+  const filasMovs = (movs || []).length === 0
+    ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin movimientos.</td></tr>`
+    : (movs || []).map(m => {
+        const tipo = m.tipo_solicitud === 'pago' ? '💵 Pago' : '🌴 Toma';
+        const periodo = m.fecha_desde === m.fecha_hasta
+          ? fmt(m.fecha_desde)
+          : `${fmt(m.fecha_desde)} → ${fmt(m.fecha_hasta)}`;
+        const puedeImprimir = ['aprobada','tomada','pagada'].includes(m.estado);
+        const btnPdf = puedeImprimir
+          ? `<button class="btn" style="padding:3px 8px;font-size:11px;" onclick="generarNotificacionVacaciones(${m.id})">📄 PDF</button>`
+          : `<span style="color:var(--muted);font-size:11px;">—</span>`;
+        return `<tr style="border-top:1px solid var(--border);">
+          <td style="padding:8px;font-size:12px;">${tipo}</td>
+          <td style="padding:8px;font-size:12px;">${periodo}</td>
+          <td style="padding:8px;text-align:center;font-weight:600;">${m.dias}</td>
+          <td style="padding:8px;">${tagEstado(m.estado, m.tipo_solicitud)}</td>
+          <td style="padding:8px;text-align:right;">${btnPdf}</td>
+        </tr>`;
+      }).join('');
+
+  // Render filas saldos
+  const filasSaldos = (saldos || []).length === 0
+    ? `<tr><td colspan="4" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin saldos cargados.</td></tr>`
+    : (saldos || []).map(s => `
+        <tr style="border-top:1px solid var(--border);${s.año===año?'background:#fef3c7;':''}">
+          <td style="padding:8px;font-weight:${s.año===año?'600':'400'};">${s.año}${s.año===año?' <span style="font-size:10px;color:#92400e;">actual</span>':''}</td>
+          <td style="padding:8px;text-align:center;">${s.dias_correspondientes}</td>
+          <td style="padding:8px;text-align:center;">${s.dias_tomados}</td>
+          <td style="padding:8px;text-align:center;font-weight:600;color:${s.dias_pendientes>0?'#0d9488':'var(--muted)'};">${s.dias_pendientes}</td>
+        </tr>
+      `).join('');
+
+  const html = `
+    <div style="padding:20px;max-width:780px;width:100%;">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px;">
+        <div>
+          <h3 style="margin:0 0 4px;">🌴 Vacaciones — ${escapeHtml(emp.nombre_completo)}</h3>
+          <div style="font-size:12px;color:var(--muted);">
+            ${LOCALES[emp.local]?.nombre || emp.local || '—'} · Ingresó ${fmt(emp.fecha_ingreso)} · ${antigüedad(emp.fecha_ingreso)}
+          </div>
+        </div>
+        <button class="btn" onclick="closeModal()">✕ Cerrar</button>
+      </div>
+
+      <div style="margin-bottom:18px;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;">Saldos por año</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fafafa;border-radius:8px;overflow:hidden;">
+          <thead><tr style="background:#f3f4f6;text-align:left;">
+            <th style="padding:8px;">Año</th>
+            <th style="padding:8px;text-align:center;">Corresponden</th>
+            <th style="padding:8px;text-align:center;">Tomadas</th>
+            <th style="padding:8px;text-align:center;">Pendientes</th>
+          </tr></thead>
+          <tbody>${filasSaldos}</tbody>
+        </table>
+      </div>
+
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;">Movimientos (últimos 50)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fafafa;border-radius:8px;overflow:hidden;">
+          <thead><tr style="background:#f3f4f6;text-align:left;">
+            <th style="padding:8px;">Tipo</th>
+            <th style="padding:8px;">Período</th>
+            <th style="padding:8px;text-align:center;">Días</th>
+            <th style="padding:8px;">Estado</th>
+            <th style="padding:8px;text-align:right;">Acciones</th>
+          </tr></thead>
+          <tbody>${filasMovs}</tbody>
+        </table>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;">
+          💡 El botón PDF descarga la <strong>Notificación de Vacaciones</strong> firmable, solo disponible cuando la solicitud está aprobada / tomada / pagada.
+        </div>
+      </div>
+    </div>
+  `;
+  openModal(html);
 }
 
 // ════════════════════════════════════════════════════════════
