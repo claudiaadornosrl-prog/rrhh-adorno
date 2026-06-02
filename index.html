@@ -3539,7 +3539,7 @@ async function abrirDetalleVacEmpleada(empId, año) {
   const [{ data: emp }, { data: saldos }, { data: movs }] = await Promise.all([
     sb.from('rrhh_empleados').select('id, nombre_completo, local, fecha_ingreso').eq('id', empId).single(),
     sb.from('rrhh_vacaciones').select('*').eq('empleado_id', empId).order('año', { ascending: false }),
-    sb.from('rrhh_vacaciones_movimientos').select('*').eq('empleado_id', empId).order('fecha_desde', { ascending: false }).limit(50),
+    sb.from('rrhh_vacaciones_movimientos').select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen').eq('empleado_id', empId).order('fecha_desde', { ascending: false }).limit(50),
   ]);
   if (!emp) { toast('No se encontró la empleada', 'error'); return; }
 
@@ -3558,8 +3558,21 @@ async function abrirDetalleVacEmpleada(empId, año) {
   };
 
   // Render filas movimientos
+  const requiereFirma = (estado) => ['aprobada','tomada','pagada'].includes(estado);
+  const tagFirmado = (m) => {
+    if (m.documento_firmado_at) {
+      const fecha = new Date(m.documento_firmado_at).toLocaleDateString('es-AR');
+      const origen = m.documento_firmado_origen === 'mail' ? ' (mail)'
+                   : m.documento_firmado_origen === 'manual' ? ' (manual)' : '';
+      return `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;" title="PDF firmado en OneDrive desde ${fecha}${origen}">✓ Firmado ${fecha}</span>`;
+    }
+    if (requiereFirma(m.estado)) {
+      return `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;" title="Pendiente: hay que imprimir, firmar y mandar el PDF a claudiaadornosrl@gmail.com">⏳ Falta firmar</span>`;
+    }
+    return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+  };
   const filasMovs = (movs || []).length === 0
-    ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin movimientos.</td></tr>`
+    ? `<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin movimientos.</td></tr>`
     : (movs || []).map(m => {
         const tipo = m.tipo_solicitud === 'pago' ? '💵 Pago' : '🌴 Toma';
         const periodo = m.fecha_desde === m.fecha_hasta
@@ -3574,6 +3587,7 @@ async function abrirDetalleVacEmpleada(empId, año) {
           <td style="padding:8px;font-size:12px;">${periodo}</td>
           <td style="padding:8px;text-align:center;font-weight:600;">${m.dias}</td>
           <td style="padding:8px;">${tagEstado(m.estado, m.tipo_solicitud)}</td>
+          <td style="padding:8px;">${tagFirmado(m)}</td>
           <td style="padding:8px;text-align:right;">${btnPdf}</td>
         </tr>`;
       }).join('');
@@ -3623,12 +3637,13 @@ async function abrirDetalleVacEmpleada(empId, año) {
             <th style="padding:8px;">Período</th>
             <th style="padding:8px;text-align:center;">Días</th>
             <th style="padding:8px;">Estado</th>
+            <th style="padding:8px;">Firma</th>
             <th style="padding:8px;text-align:right;">Acciones</th>
           </tr></thead>
           <tbody>${filasMovs}</tbody>
         </table>
         <div style="font-size:11px;color:var(--muted);margin-top:8px;">
-          💡 El botón PDF descarga la <strong>Notificación de Vacaciones</strong> firmable, solo disponible cuando la solicitud está aprobada / tomada / pagada.
+          💡 La columna <strong>Firma</strong> muestra el estado del PDF firmado: <span style="color:#065f46;">✓ Firmado</span> = ya está en OneDrive. <span style="color:#92400e;">⏳ Falta firmar</span> = todavía no llegó (imprimir, firmar y mandar a claudiaadornosrl@gmail.com).
         </div>
       </div>
     </div>
