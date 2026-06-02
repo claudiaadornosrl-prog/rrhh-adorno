@@ -8871,6 +8871,9 @@ async function generarNotificacionVacaciones(movId) {
   const dni = emp?.dni || '';
   const codigo = `VAC-${String(movId).padStart(5,'0')}`;
 
+  // ─── Detectar si es PAGO (no toma) ───
+  const esPago = mov.estado === 'pagada' || mov.tipo_solicitud === 'pago';
+
   // Colores de marca
   const COLOR_PRIMARY = [13, 148, 136];   // #0d9488 turquesa
   const COLOR_TEXT    = [30, 41, 59];     // #1e293b
@@ -8919,7 +8922,7 @@ async function generarNotificacionVacaciones(movId) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
   doc.setTextColor(...COLOR_TEXT);
-  _textTracked(doc, 'NOTIFICACIÓN DE COMIENZO DE VACACIONES', W/2, 50, {
+  _textTracked(doc, esPago ? 'CONFORMIDAD DE PAGO DE VACACIONES' : 'NOTIFICACIÓN DE COMIENZO DE VACACIONES', W/2, 50, {
     align: 'center', tracking: 0.5, fontSize: 13,
   });
 
@@ -8955,7 +8958,9 @@ async function generarNotificacionVacaciones(movId) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(...COLOR_TEXT);
-  const cuerpo = `Le comunicamos que, de acuerdo con las disposiciones legales vigentes, gozará de las vacaciones correspondientes al año ${año} por el período de ${dias} día/s. Dichas vacaciones comenzarán a regir desde el día ${desde} hasta el día ${hasta}, inclusive, debiendo reintegrarse a sus tareas el día ${reintegro}.`;
+  const cuerpo = esPago
+    ? `Por la presente dejamos constancia de que, a su solicitud, se procede al pago de ${dias} día/s de vacaciones correspondientes al año ${año}, los cuales no serán gozados como descanso. El importe correspondiente se abonará junto con la próxima liquidación de haberes. Con la firma del presente, el/la trabajador/a presta su conformidad con la modalidad de pago y confirma la imputación de los días al saldo del año ${año}.`
+    : `Le comunicamos que, de acuerdo con las disposiciones legales vigentes, gozará de las vacaciones correspondientes al año ${año} por el período de ${dias} día/s. Dichas vacaciones comenzarán a regir desde el día ${desde} hasta el día ${hasta}, inclusive, debiendo reintegrarse a sus tareas el día ${reintegro}.`;
   const lineas = doc.splitTextToSize(cuerpo, ancho);
   doc.text(lineas, margen, y, { lineHeightFactor: 1.7 });
   y += lineas.length * 7 + 8;
