@@ -3738,6 +3738,24 @@ async function renderMiCalendario() {
     .gte('fecha_hasta', fechaDesde.toISOString().split('T')[0])
     .lte('fecha_desde', fechaHasta.toISOString().split('T')[0]);
 
+  // Asistencias_detalle del mes — para detectar faltas (ausente/falta_fichada)
+  const { data: asisDet } = await sb.from('rrhh_asistencias_detalle')
+    .select('fecha, estado, minutos_banco')
+    .eq('empleado_id', session.empleado_id)
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+  const asisMap = {};
+  (asisDet || []).forEach(d => { asisMap[d.fecha] = d; });
+
+  // Permisos puntuales del mes (pendientes y aprobados) — para saber si ya pidió compensación
+  const { data: permPunt } = await sb.from('rrhh_permisos_puntuales')
+    .select('fecha, estado, tipo, descontar_banco, descontar_vacaciones')
+    .eq('empleado_id', session.empleado_id)
+    .gte('fecha', fechaDesde.toISOString().split('T')[0])
+    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+  const permPuntMap = {};
+  (permPunt || []).forEach(p => { permPuntMap[p.fecha] = p; });
+
   // Permisos aprobados del mes
   const { data: permisos } = await sb.from('rrhh_permisos')
     .select('fecha, hora_desde, hora_hasta, estado, motivo')
@@ -3907,6 +3925,23 @@ async function renderMiCalendario() {
                 return `<div title="Fichadas reales Anviz" style="font-size:9px;margin-top:4px;background:${fichBg};border-radius:4px;padding:2px 3px;line-height:1.3;">✓ ${ent}${sal ? '<br>↳ ' + sal : ''}</div>`;
               })()}
               ${permiso ? `<div style="font-size:9px;margin-top:auto;background:#fef3c7;color:#92400e;border-radius:4px;padding:2px;">⏱ Permiso</div>` : ''}
+              ${(() => {
+                // Mostrar overlay de Falta si el día está ausente/falta_fichada
+                // O si ya hay permiso puntual cargado (estado solicitado o aprobado)
+                const det = asisMap[fecha];
+                const permP = permPuntMap[fecha];
+                if (permP) {
+                  // Ya hay un permiso puntual — mostrar el estado
+                  const cBg = permP.estado === 'aprobado' ? '#d1fae5' : permP.estado === 'pendiente' ? '#dbeafe' : '#fee2e2';
+                  const cFg = permP.estado === 'aprobado' ? '#065f46' : permP.estado === 'pendiente' ? '#1e40af' : '#991b1b';
+                  const lbl = permP.estado === 'aprobado' ? '✓ Compensado' : permP.estado === 'pendiente' ? '⏳ Pendiente' : '✗ Rechazado';
+                  return `<div style="font-size:9px;margin-top:auto;background:${cBg};color:${cFg};border-radius:4px;padding:2px;">${lbl}</div>`;
+                }
+                if (det && ['ausente','falta_fichada'].includes(det.estado)) {
+                  return `<button onclick="abrirCompensarFalta('${fecha}')" title="Compensar esta falta con banco o vacaciones" style="font-size:9px;margin-top:auto;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:2px 4px;cursor:pointer;font-weight:600;">💰 Compensar falta</button>`;
+                }
+                return '';
+              })()}
               ${esHoy ? '<div style="position:absolute;top:4px;right:4px;background:var(--accent2);color:white;border-radius:50%;width:8px;height:8px;"></div>' : ''}
             </div>
           `;
@@ -3956,6 +3991,145 @@ async function renderMiCalendario() {
     </div>
   `;
   return html;
+}
+
+
+// ════════════════════════════════════════════════════════════
+// Compensar falta: vendedora elige banco/vacaciones, encargada aprueba
+// (única vía permitida para fechas pasadas)
+// ════════════════════════════════════════════════════════════
+async function abrirCompensarFalta(fecha) {
+  if (!session.empleado_id) { toast('Tu usuario no está vinculado', 'error'); return; }
+
+  // Saldo del banco al cierre de esa fecha
+  const { data: detsBanco } = await sb.from('rrhh_asistencias_detalle')
+    .select('minutos_banco')
+    .eq('empleado_id', session.empleado_id)
+    .lte('fecha', fecha);
+  const saldoBanco = (detsBanco || []).reduce((s, d) => s + Number(d.minutos_banco || 0), 0);
+
+  // Saldo de vacaciones del año
+  const año = parseInt(fecha.substring(0, 4), 10);
+  const { data: saldoVac } = await sb.from('rrhh_vacaciones')
+    .select('dias_pendientes').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
+  const diasDisp = saldoVac?.dias_pendientes || 0;
+
+  // Minutos de jornada estimada según turno (para sugerir el descuento del banco)
+  const { data: turno } = await sb.from('rrhh_turnos')
+    .select('hora_inicio, hora_fin, es_franco')
+    .eq('empleado_id', session.empleado_id).eq('fecha', fecha).maybeSingle();
+  let minutosJornada = 0;
+  if (turno && turno.hora_inicio && turno.hora_fin && !turno.es_franco) {
+    const [h1, m1] = turno.hora_inicio.split(':').map(Number);
+    const [h2, m2] = turno.hora_fin.split(':').map(Number);
+    // Restamos buffer 15 min como dijo JP (no se contabilizan)
+    minutosJornada = Math.max(0, (h2*60+m2) - (h1*60+m1) - 15);
+  }
+
+  const fmtBancoTxt = (m) => {
+    const abs = Math.abs(m);
+    return (m >= 0 ? '+' : '-') + Math.floor(abs/60) + 'h' + String(abs%60).padStart(2,'0') + 'm';
+  };
+  const fechaFmt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+
+  const html = `
+    <div class="modal-bg" id="comp-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 4px;">💰 Compensar falta</h3>
+        <p style="margin:0 0 14px;color:var(--muted);font-size:13px;">Falta del <strong>${fechaFmt}</strong>. Elegí cómo cubrirla para que no se descuente del sueldo. La encargada lo va a tener que aprobar.</p>
+
+        <div style="background:#eff6ff;padding:12px;border-radius:8px;border:1px solid #bfdbfe;margin-bottom:14px;">
+          <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer;margin-bottom:10px;">
+            <input type="radio" name="comp-tipo" value="banco" checked onchange="compToggle()">
+            <div>
+              <strong>💵 Banco de minutos</strong>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">Saldo a la fecha: <strong>${fmtBancoTxt(saldoBanco)}</strong> · Jornada del día: <strong>${minutosJornada} min</strong></div>
+            </div>
+          </label>
+          <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer;">
+            <input type="radio" name="comp-tipo" value="vacaciones" onchange="compToggle()">
+            <div>
+              <strong>🌴 Día(s) de vacaciones</strong>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">Saldo del ${año}: <strong>${diasDisp} días pendientes</strong></div>
+            </div>
+          </label>
+        </div>
+
+        <div id="comp-banco-row" style="margin-bottom:12px;">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos a descontar del banco</label>
+          <input type="number" id="comp-minutos" value="${minutosJornada}" min="0" step="15"
+                 style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+        </div>
+        <div id="comp-vac-row" style="display:none;margin-bottom:12px;">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Días de vacaciones a usar</label>
+          <input type="number" id="comp-dias" value="1" min="0" step="1"
+                 style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo / comentario</label>
+          <textarea id="comp-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="¿Por qué faltaste? (opcional)"></textarea>
+        </div>
+
+        <div style="background:#fef3c7;padding:10px;border-radius:8px;font-size:11px;color:#92400e;margin-bottom:12px;">
+          ⏳ Tu solicitud queda <strong>pendiente</strong> hasta que la encargada la apruebe.
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn" onclick="document.getElementById('comp-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="enviarCompensarFalta('${fecha}', ${saldoBanco}, ${diasDisp})">Enviar solicitud</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function compToggle() {
+  const sel = document.querySelector('input[name="comp-tipo"]:checked');
+  const valor = sel ? sel.value : 'banco';
+  document.getElementById('comp-banco-row').style.display = (valor === 'banco') ? 'block' : 'none';
+  document.getElementById('comp-vac-row').style.display   = (valor === 'vacaciones') ? 'block' : 'none';
+}
+
+async function enviarCompensarFalta(fecha, saldoBanco, diasDisp) {
+  const sel = document.querySelector('input[name="comp-tipo"]:checked');
+  const tipoComp = sel ? sel.value : 'banco';
+  const motivo = (document.getElementById('comp-motivo').value || '').trim() || null;
+
+  let descontar_banco = false, descontar_vacaciones = false;
+  let minutos_descontar = 0, dias_descontar = 0;
+
+  if (tipoComp === 'banco') {
+    minutos_descontar = parseInt(document.getElementById('comp-minutos').value, 10) || 0;
+    if (minutos_descontar <= 0) { toast('Indicá los minutos a descontar', 'error'); return; }
+    descontar_banco = true;
+  } else {
+    dias_descontar = parseInt(document.getElementById('comp-dias').value, 10) || 0;
+    if (dias_descontar <= 0) { toast('Indicá los días a descontar', 'error'); return; }
+    if (dias_descontar > diasDisp) { toast(`Solo tenés ${diasDisp} días pendientes`, 'error'); return; }
+    descontar_vacaciones = true;
+  }
+
+  const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
+    empleado_id: session.empleado_id,
+    fecha,
+    tipo: 'dia_completo',
+    motivo: motivo || 'Compensación de falta',
+    estado: 'pendiente',
+    solicitado_por: session.email,
+    descontar_banco, minutos_descontar,
+    descontar_vacaciones, dias_descontar,
+  }).select().single();
+  if (error) {
+    toast('Error: ' + error.message, 'error');
+    return;
+  }
+  await auditLog('solicitar_compensacion_falta', 'rrhh_permisos_puntuales', data.id, null, null,
+    `${fecha} · ${tipoComp} (${descontar_banco ? minutos_descontar + ' min' : dias_descontar + ' días'})`);
+  toast('Solicitud enviada ✓ La encargada la va a evaluar', 'success');
+  document.getElementById('comp-modal').remove();
+  switchTab('mi-calendario');
 }
 
 function cambiarMiMes(delta) {
@@ -7628,15 +7802,26 @@ async function abrirNuevoPermisoAdmin() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo</label>
             <textarea id="perm-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Ej: médico, trámite, hijo enfermo..."></textarea>
           </div>
-          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--border);">
+          <div style="background:#eff6ff;padding:12px;border-radius:8px;border:1px solid #bfdbfe;">
+            <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px;">💰 Compensación</div>
             <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
-              <input type="checkbox" id="perm-descontar" checked> Descontar del banco de minutos
+              <input type="checkbox" id="perm-descontar" checked onchange="permAdminToggleComp()"> Descontar del <strong>banco de minutos</strong>
             </label>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <div id="perm-banco-row" style="display:flex;align-items:center;gap:8px;margin-top:6px;margin-left:24px;">
               <span style="font-size:12px;color:var(--muted);">Minutos a descontar:</span>
-              <input type="number" id="perm-minutos" value="0" style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+              <input type="number" id="perm-minutos" value="0" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
             </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:6px;">💡 Si destildás, el permiso se considera justificado sin penalización al banco.</div>
+            <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;margin-top:10px;">
+              <input type="checkbox" id="perm-vacaciones" onchange="permAdminToggleComp()"> Descontar del saldo de <strong>vacaciones</strong>
+            </label>
+            <div id="perm-vac-row" style="display:none;align-items:center;gap:8px;margin-top:6px;margin-left:24px;">
+              <span style="font-size:12px;color:var(--muted);">Días a descontar:</span>
+              <input type="number" id="perm-dias" value="1" min="0" step="1" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+              <span id="perm-vac-saldo" style="font-size:11px;color:var(--muted);"></span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;">
+              💡 <strong>Banco</strong>: usa minutos a favor del banco. <strong>Vacaciones</strong>: descuenta del saldo anual. Si no marcás ninguno, el permiso queda como justificado sin compensación (descuenta sueldo).
+            </div>
           </div>
           <div style="background:#fef3c7;padding:10px;border-radius:8px;font-size:12px;color:#92400e;">
             ℹ Si lo cargás vos (admin/gerente), queda <strong>aprobado</strong> directamente.
@@ -7650,6 +7835,67 @@ async function abrirNuevoPermisoAdmin() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Helper para modal admin: toggle de "descontar vacaciones"
+function permAdminToggleComp() {
+  const ckV = document.getElementById('perm-vacaciones');
+  const ckB = document.getElementById('perm-descontar');
+  const rowV = document.getElementById('perm-vac-row');
+  const rowB = document.getElementById('perm-banco-row');
+  if (rowV) rowV.style.display = ckV.checked ? 'flex' : 'none';
+  if (rowB) rowB.style.display = ckB.checked ? 'flex' : 'none';
+  // Si elige vacaciones, cargar saldo del empleado para mostrar
+  if (ckV.checked) {
+    const empSelect = document.getElementById('perm-emp');
+    const fechaInp = document.getElementById('perm-fecha');
+    if (empSelect && empSelect.value && fechaInp && fechaInp.value) {
+      const empId = parseInt(empSelect.value, 10);
+      const año = parseInt(fechaInp.value.substring(0, 4), 10);
+      sb.from('rrhh_vacaciones')
+        .select('dias_pendientes').eq('empleado_id', empId).eq('año', año).maybeSingle()
+        .then(({ data }) => {
+          const txt = document.getElementById('perm-vac-saldo');
+          if (txt) txt.textContent = data ? `(saldo ${data.dias_pendientes} días)` : '(sin saldo cargado para ' + año + ')';
+        });
+    }
+  }
+}
+
+// Helper para modal vendedora: toggle de compensación
+function permeToggleComp() {
+  const sel = document.querySelector('input[name="perme-comp"]:checked');
+  const valor = sel ? sel.value : 'ninguna';
+  const rowVac = document.getElementById('perme-comp-vac-row');
+  if (rowVac) rowVac.style.display = (valor === 'vacaciones') ? 'block' : 'none';
+
+  // Cargar y mostrar saldos de banco + vacaciones del empleado
+  if (!session.empleado_id) return;
+  const fechaInp = document.getElementById('perme-fecha');
+  if (!fechaInp || !fechaInp.value) return;
+  const año = parseInt(fechaInp.value.substring(0, 4), 10);
+
+  // Banco de minutos: leer del calendario asistencias_detalle del mes/saldo
+  sb.from('rrhh_asistencias_detalle')
+    .select('minutos_banco')
+    .eq('empleado_id', session.empleado_id)
+    .lte('fecha', fechaInp.value)
+    .then(({ data }) => {
+      const totalBanco = (data || []).reduce((s, d) => s + Number(d.minutos_banco || 0), 0);
+      const horas = Math.floor(Math.abs(totalBanco) / 60);
+      const mins  = Math.abs(totalBanco) % 60;
+      const signo = totalBanco >= 0 ? '+' : '-';
+      const txt = document.getElementById('perme-banco-saldo');
+      if (txt) txt.textContent = `(saldo ${signo}${horas}h${String(mins).padStart(2,'0')}m)`;
+    });
+
+  // Saldo vacaciones del año
+  sb.from('rrhh_vacaciones')
+    .select('dias_pendientes').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle()
+    .then(({ data }) => {
+      const txt = document.getElementById('perme-vac-saldo');
+      if (txt) txt.textContent = data ? `(saldo ${data.dias_pendientes} días)` : '(sin saldo cargado)';
+    });
 }
 
 function onTipoChange() {
@@ -7671,10 +7917,13 @@ async function guardarPermisoAdmin() {
   const motivo = document.getElementById('perm-motivo').value.trim();
   const descontar_banco = document.getElementById('perm-descontar').checked;
   const minutos_descontar = parseInt(document.getElementById('perm-minutos').value, 10) || 0;
+  const descontar_vacaciones = document.getElementById('perm-vacaciones').checked;
+  const dias_descontar = parseInt(document.getElementById('perm-dias').value, 10) || 0;
 
   if (!empleado_id) { toast('Falta empleado', 'error'); return; }
   if (!fecha) { toast('Falta fecha', 'error'); return; }
   if (!tipo) { toast('Falta tipo', 'error'); return; }
+  if (descontar_vacaciones && dias_descontar <= 0) { toast('Si compensás con vacaciones, indicá los días', 'error'); return; }
 
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id, fecha, tipo, hora_desde, hora_hasta, motivo,
@@ -7684,6 +7933,8 @@ async function guardarPermisoAdmin() {
     revisado_at:    new Date().toISOString(),
     descontar_banco,
     minutos_descontar: descontar_banco ? minutos_descontar : 0,
+    descontar_vacaciones,
+    dias_descontar: descontar_vacaciones ? dias_descontar : 0,
   }).select().single();
 
   if (error) { toast('Error: ' + error.message, 'error'); return; }
@@ -7815,6 +8066,7 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha * <span style="color:var(--muted);font-size:11px;">(desde hoy en adelante)</span></label>
             <input type="date" id="perme-fecha" min="${hoy}" value="${datos.fecha||''}" onchange="actualizarCalcPermiso()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;">Para compensar una falta vieja usá el botón <strong>💰 Compensar</strong> que aparece en el día desde Mi calendario.</div>
           </div>
           <div id="perme-turno-info" style="display:none;background:#f9fafb;padding:8px 12px;border-radius:6px;border-left:3px solid var(--accent2);font-size:12px;color:var(--muted);"></div>
           <div>
@@ -7838,6 +8090,28 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
             </div>
           </div>
           <div id="perme-calc-box" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:8px;border-left:3px solid #d97706;font-size:13px;color:#92400e;font-weight:600;"></div>
+
+          <!-- ─── Compensación (banco / vacaciones) ─── -->
+          <div id="perme-comp-box" style="background:#eff6ff;padding:12px;border-radius:8px;border:1px solid #bfdbfe;">
+            <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px;">💰 ¿Querés cubrir el descuento del sueldo?</div>
+            <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;margin-bottom:6px;">
+              <input type="radio" name="perme-comp" value="banco" ${(datos.descontar_banco && !datos.descontar_vacaciones)?'checked':''} onchange="permeToggleComp()">
+              <span>💵 <strong>Banco de minutos</strong> <span id="perme-banco-saldo" style="color:var(--muted);font-size:11px;"></span></span>
+            </label>
+            <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;margin-bottom:6px;">
+              <input type="radio" name="perme-comp" value="vacaciones" ${datos.descontar_vacaciones?'checked':''} onchange="permeToggleComp()">
+              <span>🌴 <strong>Día(s) de vacaciones</strong> <span id="perme-vac-saldo" style="color:var(--muted);font-size:11px;"></span></span>
+            </label>
+            <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+              <input type="radio" name="perme-comp" value="ninguna" ${(!datos.descontar_banco && !datos.descontar_vacaciones)?'checked':''} onchange="permeToggleComp()">
+              <span>⚠ <strong>Sin compensar</strong> <span style="color:var(--muted);font-size:11px;">(se descuenta del sueldo si es día completo)</span></span>
+            </label>
+            <div id="perme-comp-vac-row" style="display:none;margin-top:8px;margin-left:24px;">
+              <label style="font-size:12px;color:var(--muted);">Días de vacaciones a usar:</label>
+              <input type="number" id="perme-dias-vac" value="${datos.dias_descontar||1}" min="0" step="1" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;margin-left:6px;">
+            </div>
+          </div>
+
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo *</label>
             <textarea id="perme-motivo" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Contá brevemente el motivo…">${escapeHtml(datos.motivo||'')}</textarea>
@@ -8192,6 +8466,18 @@ async function enviarPermisoEmpleado() {
     }
   }
 
+  // Leer compensación elegida (radio buttons)
+  const compRadio = document.querySelector('input[name="perme-comp"]:checked');
+  const compElegida = compRadio ? compRadio.value : 'ninguna';
+  const descontar_banco = (compElegida === 'banco');
+  const descontar_vacaciones = (compElegida === 'vacaciones');
+  const dias_descontar = descontar_vacaciones
+    ? (parseInt(document.getElementById('perme-dias-vac').value, 10) || 1)
+    : 0;
+  if (descontar_vacaciones && dias_descontar <= 0) {
+    toast('Indicá cuántos días de vacaciones querés usar', 'error'); return;
+  }
+
   if (editandoPermisoId) {
     // UPDATE — la RLS valida (pendiente, o aprobado del mismo día)
     // Si era aprobado, vuelve a pendiente y se limpia la revisión
@@ -8199,6 +8485,7 @@ async function enviarPermisoEmpleado() {
     const updateObj = {
       fecha, tipo, hora_desde, hora_hasta, motivo,
       minutos_descontar: minutosCalc,
+      descontar_banco, descontar_vacaciones, dias_descontar,
     };
     if (eraAprobado) {
       updateObj.estado = 'pendiente';
@@ -8222,6 +8509,7 @@ async function enviarPermisoEmpleado() {
     estado: 'pendiente',
     solicitado_por: session.email,
     minutos_descontar: minutosCalc,
+    descontar_banco, descontar_vacaciones, dias_descontar,
   }).select().single();
 
   if (error) { toast('Error: ' + error.message, 'error'); return; }
