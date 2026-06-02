@@ -11480,13 +11480,37 @@ async function renderLiquidaciones() {
             { id:'puntos',    label:'Pts',        sortKey:'puntos',
               tdRender:(l,c)=>`<td style="padding:8px;${(l.puntos_mes||0)>4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>` },
             { id:'fijo',      label:'Fijo',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.fijo)}</td>` },
+              tdRender:(l,c)=>{
+                const prorr = (l.dias_trabajados||30) < 30;
+                const fijoFull = prorr && l.dias_trabajados > 0 ? (+l.fijo) * (30 / l.dias_trabajados) : 0;
+                const titulo = prorr
+                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(fijoFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.fijo).toLocaleString('es-AR')}`
+                  : '';
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" title="${titulo}">${c.fmt(l.fijo)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+              } },
             { id:'comision',  label:'Comisión',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.comision)}</td>` },
+              tdRender:(l,c)=>{
+                const prorr = (l.dias_trabajados||30) < 30 && (+l.comision) > 0;
+                const comisionFull = prorr && l.dias_trabajados > 0 ? (+l.comision) * (30 / l.dias_trabajados) : 0;
+                const titulo = prorr
+                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(comisionFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.comision).toLocaleString('es-AR')}`
+                  : '';
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" title="${titulo}">${c.fmt(l.comision)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+              } },
             { id:'premios',   label:'Premios',
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};" title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}">${l.premio_cobra?c.fmt(l.premio_monto):'—'}</td>` },
             { id:'viaticos',  label:'Viáticos',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.viaticos)}</td>` },
+              tdRender:(l,c)=>{
+                const prorr = (l.dias_trabajados||30) < 30 && (+l.viaticos) > 0;
+                const viaticosFull = prorr && l.dias_trabajados > 0 ? (+l.viaticos) * (30 / l.dias_trabajados) : 0;
+                const titulo = prorr
+                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(viaticosFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.viaticos).toLocaleString('es-AR')}`
+                  : '';
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" title="${titulo}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+              } },
             { id:'extras',    label:'Extras',
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.extras)}</td>` },
             { id:'feriado',   label:'Feriado',
@@ -16025,41 +16049,59 @@ const salaryWorkflow = (() => {
     // recibo CCT, NO va al LSD AFIP, NO va al F.931. El efectivo extra (si
     // corresponde) se carga manual desde el Liquidador.
     if (emp.monotributista) {
-      const monto = Number(emp.monto_factura_mensual || 0);
+      // ─── MONOTRIBUTISTA (Andrea Adorno) ──────────────────────────────
+      // Modelo correcto:
+      //   * Fijo de configEmp (ej $3.4M) = sueldo total
+      //   * monto_factura_mensual (ej $1M) = lo que va por banco como factura
+      //   * Efectivo = Fijo + Viaticos − monto_factura_mensual (la diferencia)
+      //   * Comision y premio NO aplican (config tiene fraccion_comision=0 y premio=0)
+      //   * Se prorratea fijo y viaticos por dias_trabajados/30 (sin goce/ausentes)
       const periodoFull = periodo + '-01';
-      // Buscar liquidación existente o crear
+      const configMono = await cargarConfigEmpleada(empleadoId, periodo);
+      if (!configMono) throw new Error(`Monotributista ${emp.nombre_completo} sin config en rrhh_sueldo_empleada_config`);
+      const fijoFull = Number(configMono.fijo || 0);
+      const viaticosFull = Number(configMono.viaticos || 0);
+      const banco = Number(emp.monto_factura_mensual || 0);
+      // Prorrateo por sin goce/ausentes (igual que empleadas en relacion de dependencia)
+      const diasNoPagos = await cargarDiasNoPagos(empleadoId, periodo);
+      const diasTrabajados = Math.max(0, 30 - diasNoPagos);
+      const fijo = fijoFull * (diasTrabajados / 30);
+      const viaticos = viaticosFull * (diasTrabajados / 30);
+      const totalNegro = fijo + viaticos;
+      const efectivo = Math.max(0, totalNegro - banco);
       const { data: existing } = await sb.from('rrhh_liquidacion')
-        .select('id, efectivo, ajuste, observaciones')
+        .select('id, ajuste, observaciones')
         .eq('empleado_id', empleadoId).eq('periodo', periodoFull).limit(1);
       const payload = {
         empleado_id: empleadoId, periodo: periodoFull, local: emp.local,
         estado: 'borrador',
-        dias_trabajados: 30,
+        dias_trabajados: diasTrabajados,
         mercaderia: 0,
         ajuste: existing?.[0]?.ajuste || 0,
         uniforme_ok: true, puntos_mes: 0,
-        observaciones: existing?.[0]?.observaciones || 'Monotributista — factura por banco',
-        // Recibo CCT: todo en 0 (no aplica)
+        observaciones: existing?.[0]?.observaciones || `Monotributista — factura $${banco.toLocaleString('es-AR')} por banco + diferencia en efectivo`,
+        // Recibo CCT: todo en 0 (no aplica), excepto recibo_neto = banco (lo facturado)
         recibo_basico: 0, recibo_antiguedad: 0, recibo_presentismo: 0,
         recibo_sumafija_nr: 0, recibo_antig_nr: 0, recibo_pres_nr: 0, recibo_recompos_nr: 0,
         recibo_otros_rem: 0,
         recibo_jubilacion: 0, recibo_ley19032: 0, recibo_obra_social: 0,
         recibo_sec: 0, recibo_faecys: 0,
         recibo_total_rem: 0, recibo_total_nr: 0, recibo_bruto: 0,
-        recibo_descuentos: 0, recibo_neto: monto,    // ← monto facturado va acá (lo que se transfiere por banco)
-        // Negro: total_negro = monto facturado (sería el "Total a cobrar"), efectivo extra manual
-        fijo: monto, comision: 0, premio_cobra: false, premio_monto: 0,
-        viaticos: 0, extras: 0, feriado_dias: 0, feriado_monto: 0,
-        prestamo_interes: 0, total_negro: monto + Number(existing?.[0]?.efectivo || 0),
-        efectivo: Number(existing?.[0]?.efectivo || 0),
+        recibo_descuentos: 0,
+        recibo_neto: banco,       // ← lo que va por banco (factura monotributo)
+        // Negro/Total
+        fijo: fijo, comision: 0, premio_cobra: false, premio_monto: 0,
+        viaticos: viaticos, extras: 0, feriado_dias: 0, feriado_monto: 0,
+        prestamo_interes: 0,
+        total_negro: totalNegro,
+        efectivo: efectivo,
       };
       if (existing?.[0]) {
         await sb.from('rrhh_liquidacion').update(payload).eq('id', existing[0].id);
       } else {
         await sb.from('rrhh_liquidacion').insert(payload);
       }
-      // No insertamos conceptos (no hay recibo CCT)
-      return { recibo: null, monotributista: true, monto };
+      return { recibo: null, monotributista: true, fijo, viaticos, banco, efectivo, totalNegro };
     }
 
     if (!configEmp) throw new Error(`Empleada ${emp.nombre_completo} no tiene config de sueldo`);
