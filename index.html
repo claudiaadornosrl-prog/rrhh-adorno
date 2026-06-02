@@ -16866,6 +16866,22 @@ const salaryWorkflow = (() => {
       .in('estado', ['vacaciones','licencia','ausente']);
     if (!dias || dias.length === 0) return 0;
 
+    // ── COMPENSACIÓN — días con permiso aprobado NO descuentan sueldo ──
+    // Si el día tiene permiso 'dia_completo' aprobado (compensado con banco o
+    // vacaciones), no cuenta como falta. El descuento real lo hace
+    // (a) la lógica del banco de minutos, o (b) el saldo de vacaciones.
+    const { data: permisosAprobados } = await sb.from('rrhh_permisos_puntuales')
+      .select('fecha, descontar_banco, descontar_vacaciones')
+      .eq('empleado_id', empleadoId)
+      .eq('estado', 'aprobado')
+      .eq('tipo', 'dia_completo')
+      .gte('fecha', desde).lte('fecha', hasta);
+    const fechasCompensadas = new Set(
+      (permisosAprobados || [])
+        .filter(p => p.descontar_banco || p.descontar_vacaciones)
+        .map(p => p.fecha)
+    );
+
     // Para los dias con licencia, consultar rrhh_licencias para saber si es paga o no
     const fechasLic = dias.filter(d => d.estado === 'licencia').map(d => d.fecha);
     const licMap = {}; // fecha -> paga (boolean)
@@ -16887,6 +16903,7 @@ const salaryWorkflow = (() => {
 
     let count = 0;
     for (const d of dias) {
+      if (fechasCompensadas.has(d.fecha)) continue;  // Compensado con banco/vacaciones → no descontar fijo
       if (d.estado === 'ausente') count++;
       else if (d.estado === 'licencia' && licMap[d.fecha] === false) count++;
       // vacaciones y licencia con goce: no suman
