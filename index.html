@@ -11338,6 +11338,7 @@ async function renderLiquidaciones() {
           ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
         `}
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#10b981;color:white;border-color:#10b981;" onclick="liqSyncVentasFromSheets('${local}','${periodo}')" title="Tira las ventas de Google Sheets a Supabase ya mismo (solo si G1=OK). Idempotente, podes correrlo cuantas veces quieras.">🔄 Sync ventas Sheets</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
         ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="liqCargarFirmadosBulk()" title="Subir PDF escaneado con varios recibos firmados — el sistema los detecta por QR y los procesa automáticamente">📥 Cargar firmados</button>` : ''}
@@ -11891,6 +11892,34 @@ async function liqGuardarVentas(local, periodo) {
     await sb.from('rrhh_ventas_local_mes').insert({ local, periodo: periodo + '-01', monto_ventas: monto, origen: 'manual' });
   }
   toast('Ventas guardadas ✓', 'success');
+}
+
+// Llama la Edge Function sync-ventas-sheets para tirar ventas Google Sheets -> Supabase
+// sin tener que ir a la PC principal a correr sync_ventas.py.
+async function liqSyncVentasFromSheets(local, periodo) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  toast('🔄 Sincronizando ventas desde Sheets...', 'info');
+  try {
+    const { data, error } = await sb.functions.invoke('sync-ventas-sheets', {
+      body: { periodo }
+    });
+    if (error) { toast('Error invoke: ' + error.message, 'error'); return; }
+    if (!data?.ok && data?.error) { toast('Error fn: ' + data.error, 'error'); return; }
+    const results = data?.results || [];
+    const ok = results.filter(r => r.status === 'ok');
+    const paused = results.filter(r => r.status === 'paused');
+    const errs = results.filter(r => r.status === 'error' || r.status === 'skip');
+    const parts = [];
+    if (ok.length) parts.push(`✓ ${ok.map(r => `${r.local} $${Number(r.monto).toLocaleString('es-AR')}`).join(', ')}`);
+    if (paused.length) parts.push(`⏸ ${paused.map(r => `${r.local}: ${r.msg}`).join(' · ')}`);
+    if (errs.length) parts.push(`✗ ${errs.map(r => `${r.local}: ${r.msg}`).join(' · ')}`);
+    const tipo = ok.length > 0 ? (paused.length || errs.length ? 'warning' : 'success') : 'error';
+    toast(parts.join(' | ') || 'Sin resultados', tipo);
+    // Refrescar la pantalla con los nuevos valores
+    setTimeout(() => { try { switchTab('liquidaciones'); } catch(_){} }, 1200);
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function liqGenerarMes(local, periodo) {
