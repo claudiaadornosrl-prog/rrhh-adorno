@@ -12987,7 +12987,10 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
         fraccion_comision:         prev.fraccion_comision,
         modo_prorrateo_comision:   prev.modo_prorrateo_comision,
         activa_en_modulo:          prev.activa_en_modulo,
-        notas:                     `Aumento aplicado por ${session.email || 'encargada'} desde panel — envío #${envioId}`,
+        // Conservar la nota previa (puede contener info de aumentos V+P u otros)
+        // y agregar la marca de este envío para que la heurística la detecte
+        notas:                     ((prev.notas || '').trim() ? (prev.notas.trim() + ' | ') : '') +
+                                   `Fijo aumentado por ${session.email || 'encargada'} (envío #${envioId})`,
       };
       // Campos opcionales (doble_blanco)
       if (prev.modo_liquidacion !== undefined) payload.modo_liquidacion = prev.modo_liquidacion;
