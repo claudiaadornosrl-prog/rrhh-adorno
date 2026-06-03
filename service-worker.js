@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v83-banco-minutos-correcto';
+const CACHE_VERSION = 'rrhh-v84-signup-vendedoras';
 const ASSETS = [
   './',
   './index.html',

@@ -377,7 +377,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
       <div class="subtitle">Portal de RRHH · v0.1</div>
     </div>
     <div class="login-card">
-      <h2>Iniciar sesión</h2>
+      <h2 id="login-title">Iniciar sesión</h2>
       <form id="login-form" autocomplete="on">
         <div class="login-field">
           <label for="login-email">Email</label>
@@ -387,12 +387,21 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
           <label for="login-pass">Contraseña</label>
           <input type="password" id="login-pass" required autocomplete="current-password" placeholder="••••••••">
         </div>
+        <div class="login-field" id="login-pass2-wrap" style="display:none;">
+          <label for="login-pass2">Repetí la contraseña</label>
+          <input type="password" id="login-pass2" autocomplete="new-password" placeholder="••••••••">
+        </div>
         <button type="submit" class="login-btn" id="login-submit">Ingresar</button>
         <div class="login-error" id="login-error"></div>
       </form>
     </div>
-    <div class="login-footer">
-      ¿Olvidaste tu contraseña? <a id="forgot-link">Recuperar</a>
+    <div class="login-footer" id="login-footer-signup">
+      ¿Primera vez? <a id="signup-link" style="cursor:pointer;font-weight:600;">Crear mi cuenta</a>
+      &nbsp;·&nbsp;
+      ¿Olvidaste tu contraseña? <a id="forgot-link" style="cursor:pointer;">Recuperar</a>
+    </div>
+    <div class="login-footer" id="login-footer-back" style="display:none;">
+      ¿Ya tenés cuenta? <a id="back-to-login-link" style="cursor:pointer;font-weight:600;">Volver al login</a>
     </div>
   </div>
 </div>
@@ -1448,12 +1457,85 @@ function hideLoginError() {
   document.getElementById('login-error').classList.remove('show');
 }
 
+// Toggle entre login y signup
+let _loginMode = 'login';   // 'login' | 'signup'
+function setLoginMode(mode) {
+  _loginMode = mode;
+  const title = document.getElementById('login-title');
+  const btn = document.getElementById('login-submit');
+  const pass2Wrap = document.getElementById('login-pass2-wrap');
+  const pass = document.getElementById('login-pass');
+  const footerSignup = document.getElementById('login-footer-signup');
+  const footerBack = document.getElementById('login-footer-back');
+  if (mode === 'signup') {
+    title.textContent = 'Crear mi cuenta';
+    btn.textContent = 'Crear cuenta';
+    pass2Wrap.style.display = '';
+    pass.setAttribute('autocomplete','new-password');
+    pass.placeholder = 'Elegí una contraseña';
+    footerSignup.style.display = 'none';
+    footerBack.style.display = '';
+  } else {
+    title.textContent = 'Iniciar sesión';
+    btn.textContent = 'Ingresar';
+    pass2Wrap.style.display = 'none';
+    pass.setAttribute('autocomplete','current-password');
+    pass.placeholder = '••••••••';
+    footerSignup.style.display = '';
+    footerBack.style.display = 'none';
+  }
+  hideLoginError();
+}
+
+document.getElementById('signup-link')?.addEventListener('click', () => setLoginMode('signup'));
+document.getElementById('back-to-login-link')?.addEventListener('click', () => setLoginMode('login'));
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   hideLoginError();
-  const email = document.getElementById('login-email').value.trim();
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
   const pass  = document.getElementById('login-pass').value;
+  const pass2 = document.getElementById('login-pass2')?.value || '';
   const btn   = document.getElementById('login-submit');
+
+  if (_loginMode === 'signup') {
+    if (pass.length < 6) { showLoginError('La contraseña tiene que tener al menos 6 caracteres.'); return; }
+    if (pass !== pass2)  { showLoginError('Las contraseñas no coinciden.'); return; }
+    btn.disabled = true; btn.textContent = 'Creando cuenta…';
+    try {
+      console.log('[SIGNUP] sb.auth.signUp con email', email);
+      const { data, error } = await sb.auth.signUp({ email, password: pass });
+      if (error) throw error;
+      // Algunos proyectos requieren confirmación por email → no hay session aún.
+      if (data?.session) {
+        // Auto-login directo
+        await onLoggedIn(data.user);
+      } else {
+        // Caso "confirmación por email" — intentamos signIn directo (si está deshabilitado el email confirm va a andar)
+        const r2 = await sb.auth.signInWithPassword({ email, password: pass });
+        if (r2.error) {
+          // Pedimos que confirme por mail
+          showLoginError('Cuenta creada. Revisá tu mail para confirmar y después volvé a entrar.');
+          setLoginMode('login');
+          btn.disabled = false; btn.textContent = 'Ingresar';
+          return;
+        }
+        await onLoggedIn(r2.data.user);
+      }
+    } catch (err) {
+      console.error('[SIGNUP] error:', err);
+      const msg = (err.message||'').toLowerCase();
+      if (msg.includes('already') || msg.includes('exists') || msg.includes('registered')) {
+        showLoginError('Ese email ya está registrado. Andá a "Volver al login" e ingresá con tu contraseña.');
+      } else {
+        showLoginError(err.message || 'No pude crear la cuenta. Probá de nuevo o avisame.');
+      }
+      btn.disabled = false; btn.textContent = 'Crear cuenta';
+    }
+    return;
+  }
+
+  // Modo login normal
   btn.disabled = true; btn.textContent = 'Ingresando…';
   try {
     console.log('[LOGIN] signInWithPassword...');
@@ -1461,7 +1543,6 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     console.log('[LOGIN] signIn result:', { hasUser: !!data?.user, error });
     if (error) throw error;
     if (!data?.user) throw new Error('No se obtuvo usuario');
-    // Llamar onLoggedIn directamente (no depender de onAuthStateChange)
     await onLoggedIn(data.user);
   } catch (err) {
     console.error('[LOGIN] error:', err);
