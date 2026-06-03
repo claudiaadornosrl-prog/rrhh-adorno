@@ -11958,7 +11958,8 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="liqCargarFirmadosBulk()" title="Subir PDF escaneado con varios recibos firmados — el sistema los detecta por QR y los procesa automáticamente">📥 Cargar firmados</button>` : ''}
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período. Si hay empleados de más de una jurisdicción (CABA + BsAs), descarga 2 archivos automáticamente.">📄 LSD AFIP</button>` : ''}
-        ${isAdmin ? `<button class="btn primary" onclick="liqGenerarMes('${local}','${periodo}')">🧮 ${local === 'todos' ? 'Generar / Recalcular TODOS' : 'Generar / Recalcular mes'}</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#f59e0b;color:white;border-color:#f59e0b;" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales (faltas, suspensiones).">📋 Proforma</button>` : ''}
+        ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Valida ventas + asistencias + aumentos. Despues podras modificar pero con aviso.">🔒 Cerrar mes</button>` : ''}
       </div>
     </div>
@@ -12670,6 +12671,342 @@ async function liqSyncVentasFromSheets(local, periodo) {
   } catch (e) {
     toast('Error: ' + e.message, 'error');
   }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  WORKFLOW PROFORMA → DEFINITIVO
+//  Flujo de 2 etapas para manejar paritarias que se publican sobre el
+//  fin de mes y obligan a re-liquidar después de transferir.
+// ════════════════════════════════════════════════════════════════════
+
+// Paso 1: Generar PROFORMA — base para transferir el último día del mes
+async function liqGenerarProforma(local, periodo) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  // 1) Cargar empleadas del local (para el modal de descuentos especiales)
+  const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+  const { data: emps } = await sb.from('rrhh_empleados')
+    .select('id, apellido, nombre, nombre_completo, local')
+    .eq('estado', 'activo')
+    .in('local', locales)
+    .order('apellido');
+
+  // 2) Modal: preguntar por descuentos especiales (faltas, suspensiones)
+  const html = `
+    <div style="padding:20px;max-width:780px;width:100%;">
+      <h3 style="margin:0 0 6px;">📋 Generar liquidación PROFORMA</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;padding:10px;border-radius:8px;font-size:12px;color:#92400e;margin-bottom:14px;">
+        💡 La <strong>proforma</strong> es el cálculo base para transferir los sueldos por banco el último día del mes.
+        No genera PDFs ni notifica a las empleadas. Después del cierre del mes vas a generar el
+        <strong>definitivo</strong> que aplica la paritaria final y produce los recibos firmables.
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">¿Hay descuentos especiales para este mes?</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+          Cargá días de falta/suspensión que NO estén ya en el sistema. Los días marcados como
+          <em>ausente</em> en Asistencias ya se descuentan automáticamente — esto es para casos extra.
+        </div>
+        <div id="prof-descuentos-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+          <table style="width:100%;font-size:12px;">
+            <thead style="background:#f9fafb;position:sticky;top:0;">
+              <tr>
+                <th style="padding:6px 10px;text-align:left;">Empleada</th>
+                <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
+                <th style="padding:6px 10px;text-align:right;width:90px;">Días extra a descontar</th>
+                <th style="padding:6px 10px;text-align:left;width:220px;">Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(emps || []).map(e => `
+                <tr style="border-top:1px solid var(--border);">
+                  <td style="padding:6px 10px;">${escapeHtml(e.nombre_completo)}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${e.local}</td>
+                  <td style="padding:6px 10px;text-align:right;">
+                    <input type="number" min="0" step="1" value="0" id="prof-dias-${e.id}"
+                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;">
+                  </td>
+                  <td style="padding:6px 10px;">
+                    <input type="text" placeholder="Ej: suspensión 17/05" id="prof-mot-${e.id}"
+                           style="width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;">
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="liqGenerarProformaConfirmar('${local}','${periodo}')">📋 Generar PROFORMA</button>
+      </div>
+    </div>
+  `;
+  openModal(html, '820px');
+}
+
+async function liqGenerarProformaConfirmar(local, periodo) {
+  // Leer descuentos especiales del modal
+  const inputs = document.querySelectorAll('[id^="prof-dias-"]');
+  const descuentosPorEmp = {};
+  inputs.forEach(inp => {
+    const empId = Number(inp.id.replace('prof-dias-', ''));
+    const dias = Number(inp.value) || 0;
+    const motivoEl = document.getElementById('prof-mot-' + empId);
+    const motivo = (motivoEl?.value || '').trim();
+    if (dias > 0) {
+      descuentosPorEmp[empId] = { dias_extra: dias, motivo: motivo || 'Sin motivo' };
+    }
+  });
+
+  const empsConDescuentos = Object.keys(descuentosPorEmp).length;
+  const msg = `¿Generar PROFORMA de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\n` +
+              (empsConDescuentos > 0 ? `Con descuentos especiales para ${empsConDescuentos} empleada(s).` : 'Sin descuentos especiales adicionales.') +
+              '\n\nLas liquidaciones en estado borrador se sobrescribirán como tipo=proforma.';
+  if (!confirm(msg)) return;
+  closeModal();
+  toast('Generando proforma…', '');
+
+  try {
+    const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+    let totalOk = 0;
+    const todosErrores = [];
+    for (const loc of locales) {
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, {
+        tipo: 'proforma',
+        descuentosEspeciales: descuentosPorEmp,
+      });
+      totalOk += r.ok.length;
+      r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
+    }
+    let msgFin = `✓ ${totalOk} liquidaciones PROFORMA generadas`;
+    if (todosErrores.length) msgFin += ` · ⚠ ${todosErrores.length} errores`;
+    toast(msgFin, todosErrores.length ? 'error' : 'success');
+    if (todosErrores.length) {
+      console.error('Errores proforma:', todosErrores);
+    }
+    switchTab('liquidaciones');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// Paso 2: Generar DEFINITIVO — recalcula con paritaria actual, compara con proforma
+async function liqGenerarDefinitivo(local, periodo) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+
+  // ¿Hay proforma previa para este período?
+  const periodoFull = periodo + '-01';
+  let qProf = sb.from('rrhh_liquidacion')
+    .select('id, empleado_id, local, tipo, proforma_snapshot, fijo, comision, viaticos, premio_monto, feriado_monto, recibo_neto, total_negro, ajuste, empleado:rrhh_empleados(nombre_completo)')
+    .eq('periodo', periodoFull)
+    .not('proforma_generada_at', 'is', null);
+  if (local !== 'todos') qProf = qProf.eq('local', local);
+  const { data: proformasPrevias } = await qProf;
+  const huboProforma = (proformasPrevias || []).length > 0;
+
+  const msgConfirm = huboProforma
+    ? `¿Generar DEFINITIVO de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\n` +
+      `Hay ${proformasPrevias.length} proforma(s) previa(s). El sistema va a recalcular con la paritaria vigente y comparar contra la proforma.\n\n` +
+      `Si hay diferencias, vas a poder generar un XLSX Galicia con el ajuste.`
+    : `¿Generar DEFINITIVO de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\n` +
+      `⚠ No hay proforma previa. Vas directo al cálculo final (sin comparación).`;
+  if (!confirm(msgConfirm)) return;
+
+  toast('Calculando definitivo…', '');
+  try {
+    const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+    let totalOk = 0;
+    const todosErrores = [];
+    for (const loc of locales) {
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, { tipo: 'definitivo' });
+      totalOk += r.ok.length;
+      r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
+    }
+    let msgFin = `✓ ${totalOk} liquidaciones DEFINITIVAS generadas`;
+    if (todosErrores.length) msgFin += ` · ⚠ ${todosErrores.length} errores`;
+    toast(msgFin, todosErrores.length ? 'error' : 'success');
+
+    // Si había proforma, mostrar diferencias
+    if (huboProforma) {
+      await liqMostrarDiferenciasProformaDefinitivo(local, periodo);
+    } else {
+      switchTab('liquidaciones');
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function liqMostrarDiferenciasProformaDefinitivo(local, periodo) {
+  const periodoFull = periodo + '-01';
+  let q = sb.from('rrhh_liquidacion')
+    .select('id, empleado_id, local, tipo, proforma_snapshot, fijo, comision, viaticos, premio_monto, feriado_monto, recibo_neto, ajuste, total_negro, empleado:rrhh_empleados(nombre_completo)')
+    .eq('periodo', periodoFull)
+    .not('proforma_snapshot', 'is', null);
+  if (local !== 'todos') q = q.eq('local', local);
+  const { data: liqs } = await q;
+
+  if (!liqs || liqs.length === 0) {
+    toast('No hay proformas para comparar', 'info');
+    switchTab('liquidaciones');
+    return;
+  }
+
+  const fmt = (n) => '$' + Math.round(Number(n || 0)).toLocaleString('es-AR');
+  const filas = liqs.map(l => {
+    const snap = l.proforma_snapshot || {};
+    const reciboProf = Number(snap.recibo_neto || 0);
+    const reciboDef  = Number(l.recibo_neto || 0);
+    const diff = reciboDef - reciboProf;
+    return { l, snap, reciboProf, reciboDef, diff };
+  }).filter(x => Math.abs(x.diff) > 1);
+
+  const aFavorEmpleada = filas.filter(x => x.diff > 0);
+  const aFavorEmpresa  = filas.filter(x => x.diff < 0);
+  const totalAFavorEmp = aFavorEmpleada.reduce((s, x) => s + x.diff, 0);
+  const totalAFavorEmpresa = Math.abs(aFavorEmpresa.reduce((s, x) => s + x.diff, 0));
+
+  if (filas.length === 0) {
+    toast('✓ Definitivo idéntico a proforma — sin diferencias', 'success');
+    switchTab('liquidaciones');
+    return;
+  }
+
+  const html = `
+    <div style="padding:20px;max-width:880px;width:100%;">
+      <h3 style="margin:0 0 6px;">🔀 Diferencias proforma → definitivo</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+        ${filas.length} empleada(s) con diferencias en el recibo neto.
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div style="background:#d1fae5;border:1px solid #86efac;padding:10px;border-radius:8px;">
+          <div style="font-size:11px;color:#065f46;text-transform:uppercase;font-weight:600;">A favor de empleada(s)</div>
+          <div style="font-size:18px;font-weight:600;color:#065f46;margin-top:4px;">${fmt(totalAFavorEmp)}</div>
+          <div style="font-size:11px;color:#065f46;">${aFavorEmpleada.length} caso(s) — generar XLSX Galicia ajuste</div>
+        </div>
+        <div style="background:#fee2e2;border:1px solid #fca5a5;padding:10px;border-radius:8px;">
+          <div style="font-size:11px;color:#991b1b;text-transform:uppercase;font-weight:600;">A favor de la empresa</div>
+          <div style="font-size:18px;font-weight:600;color:#991b1b;margin-top:4px;">${fmt(totalAFavorEmpresa)}</div>
+          <div style="font-size:11px;color:#991b1b;">${aFavorEmpresa.length} caso(s) — se aplica como crédito el próximo mes</div>
+        </div>
+      </div>
+
+      <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <thead><tr style="background:#f9fafb;">
+          <th style="padding:6px 10px;text-align:left;">Empleada</th>
+          <th style="padding:6px 10px;text-align:right;">Recibo proforma</th>
+          <th style="padding:6px 10px;text-align:right;">Recibo definitivo</th>
+          <th style="padding:6px 10px;text-align:right;">Diferencia</th>
+        </tr></thead>
+        <tbody>
+          ${filas.map(x => {
+            const color = x.diff > 0 ? '#065f46' : '#991b1b';
+            const bg    = x.diff > 0 ? '#d1fae5' : '#fee2e2';
+            const signo = x.diff > 0 ? '+' : '−';
+            return `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:6px 10px;">${escapeHtml(x.l.empleado?.nombre_completo || '')}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt(x.reciboProf)}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;">${fmt(x.reciboDef)}</td>
+              <td style="padding:6px 10px;text-align:right;font-family:monospace;background:${bg};color:${color};font-weight:600;">${signo}${fmt(Math.abs(x.diff))}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;">
+        <div></div>
+        <div style="display:flex;gap:8px;">
+          ${aFavorEmpleada.length > 0 ? `<button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="liqGenerarGaliciaAjuste('${local}','${periodo}')">📤 XLSX Galicia ajuste</button>` : ''}
+          ${aFavorEmpresa.length > 0  ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqRegistrarCreditosEmpresa('${local}','${periodo}')">💰 Marcar como crédito próximo mes</button>` : ''}
+          <button class="btn primary" onclick="closeModal();switchTab('liquidaciones');">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  openModal(html, '900px');
+}
+
+async function liqGenerarGaliciaAjuste(local, periodo) {
+  const periodoFull = periodo + '-01';
+  let q = sb.from('rrhh_liquidacion')
+    .select('id, empleado_id, local, proforma_snapshot, recibo_neto, empleado:rrhh_empleados(apellido, nombre, nombre_completo, cbu)')
+    .eq('periodo', periodoFull)
+    .not('proforma_snapshot', 'is', null);
+  if (local !== 'todos') q = q.eq('local', local);
+  const { data: liqs } = await q;
+  if (!window.XLSX) { toast('Falta SheetJS', 'error'); return; }
+
+  const filas = [];
+  const sinCuenta = [];
+  for (const l of liqs || []) {
+    const reciboProf = Number(l.proforma_snapshot?.recibo_neto || 0);
+    const reciboDef = Number(l.recibo_neto || 0);
+    const diff = reciboDef - reciboProf;
+    if (diff <= 1) continue;
+    const e = l.empleado;
+    if (!e) continue;
+    const ape = (e.apellido || '').toUpperCase();
+    const nom = (e.nombre || '').toUpperCase();
+    if (!e.cbu) { sinCuenta.push(`${ape}, ${nom}`); continue; }
+    const [py, pm] = periodo.split('-').map(Number);
+    const ultDia = new Date(py, pm, 0);
+    const fechaAcred = `${String(ultDia.getDate()).padStart(2,'0')}/${String(ultDia.getMonth()+1).padStart(2,'0')}/${ultDia.getFullYear()}`;
+    filas.push({
+      'Nombre': `${ape}, ${nom}`,
+      'NroCuenta | CBU': e.cbu,
+      'Fecha de Acred.': fechaAcred,
+      'Importe': Math.round(diff),
+      'Estado': '',
+      'Email': '',
+      'Observaciones': `Ajuste paritaria ${periodo}`,
+    });
+  }
+  if (filas.length === 0) { toast('Sin diferencias positivas para exportar', 'warning'); return; }
+  if (sinCuenta.length > 0) {
+    if (!confirm(`⚠ ${sinCuenta.length} empleadas sin CBU quedan fuera:\n\n  • ${sinCuenta.join('\n  • ')}\n\n¿Generar archivo con las ${filas.length} restantes?`)) return;
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(filas, {
+    header: ['Nombre','NroCuenta | CBU','Fecha de Acred.','Importe','Estado','Email','Observaciones']
+  });
+  ws['!cols'] = [{wch:32},{wch:22},{wch:14},{wch:14},{wch:12},{wch:18},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Ajuste');
+  XLSX.writeFile(wb, `Galicia_Ajuste_${periodo}_${local}.xlsx`);
+  toast(`✓ XLSX ajuste generado · ${filas.length} empleadas`, 'success');
+}
+
+async function liqRegistrarCreditosEmpresa(local, periodo) {
+  if (!confirm('¿Registrar los créditos a favor de la empresa? Se van a aplicar como ajuste negativo automático en la liquidación del próximo mes.')) return;
+  const periodoFull = periodo + '-01';
+  let q = sb.from('rrhh_liquidacion')
+    .select('id, empleado_id, proforma_snapshot, recibo_neto')
+    .eq('periodo', periodoFull)
+    .not('proforma_snapshot', 'is', null);
+  if (local !== 'todos') q = q.eq('local', local);
+  const { data: liqs } = await q;
+
+  const creditos = [];
+  for (const l of liqs || []) {
+    const diff = Number(l.recibo_neto || 0) - Number(l.proforma_snapshot?.recibo_neto || 0);
+    if (diff >= -1) continue;  // Solo si dif favorable a empresa (negativa)
+    creditos.push({
+      empleado_id: l.empleado_id,
+      origen_liq_id: l.id,
+      periodo_origen: periodoFull,
+      monto: Math.abs(diff),
+      motivo: `Sobrepago proforma ${periodo}`,
+    });
+  }
+  if (creditos.length === 0) { toast('Sin créditos para registrar', 'info'); return; }
+  const { error } = await sb.from('rrhh_credito_empresa').insert(creditos);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast(`✓ ${creditos.length} crédito(s) registrado(s) — se aplican el próximo mes`, 'success');
 }
 
 async function liqGenerarMes(local, periodo) {
@@ -17583,7 +17920,10 @@ const salaryWorkflow = (() => {
     if (!cfgLocal) throw new Error('Local sin config de sueldo: ' + emp.local);
 
     // Días del mes y días no trabajados
-    const diasNoTrab = await cargarDiasNoTrabajados(empleadoId, periodo);
+    let diasNoTrab = await cargarDiasNoTrabajados(empleadoId, periodo);
+    // Descuento especial (faltas/suspensiones extra ingresadas al armar la proforma)
+    const diasExtraDescuento = Number(inputs.descuento_especial?.dias_extra || 0);
+    if (diasExtraDescuento > 0) diasNoTrab += diasExtraDescuento;
     const diasMes = diasDelMes(periodo);
     let diasTrabajadosInferidos = Math.max(0, 30 - diasNoTrab);
 
@@ -17909,7 +18249,31 @@ const salaryWorkflow = (() => {
       efectivo, ajuste_blanco,
       calculado_at: new Date().toISOString(),
       overrides_manuales: overridesPrev,
+      tipo: inputs.tipo || 'definitivo',
     };
+
+    // Snapshot/timestamps según tipo
+    if (inputs.tipo === 'proforma') {
+      filaLiq.proforma_generada_at = new Date().toISOString();
+      filaLiq.proforma_snapshot = {
+        fijo, comision, viaticos,
+        premio_monto: premio,
+        feriado_monto, ajuste,
+        recibo_neto: t.neto,
+        recibo_bruto: t.bruto,
+        recibo_total_rem: t.total_rem,
+        total_negro: total_negro_esperado,
+        efectivo,
+        descuento_especial: inputs.descuento_especial || null,
+        paritaria_id: paritaria?.id || null,
+        snapshot_at: new Date().toISOString(),
+      };
+      if (inputs.descuento_especial) {
+        filaLiq.descuentos_especiales = inputs.descuento_especial;
+      }
+    } else if (inputs.tipo === 'definitivo') {
+      filaLiq.definitivo_generado_at = new Date().toISOString();
+    }
 
     // Aplicar los overrides al filaLiq pisando los campos automáticos
     Object.keys(valoresOverride).forEach(k => {
@@ -17973,8 +18337,13 @@ const salaryWorkflow = (() => {
    * Liquida todas las empleadas activas del módulo en un local para un período.
    * Devuelve { ok: [...], errores: [{empleado, error}] }
    */
-  async function liquidarMes(local, periodo, inputsPorEmpleado = {}) {
-    // Empleadas activas del módulo de ese local
+  async function liquidarMes(local, periodo, opts = {}) {
+    // opts puede ser: { tipo: 'proforma'|'definitivo', descuentosEspeciales: {empId: {dias_extra, motivo}}, inputsPorEmpleado: {empId: {...}} }
+    // Backwards-compat: si opts es {empId: {...}} (formato viejo), tratarlo como inputsPorEmpleado
+    const tipo = opts.tipo || 'definitivo';
+    const descuentosEspeciales = opts.descuentosEspeciales || {};
+    const inputsPorEmpleado = opts.inputsPorEmpleado || (Object.keys(opts).some(k => /^\d+$/.test(k)) ? opts : {});
+
     const periodoFull = periodo + '-01';
     const { data: configs } = await sb.from('rrhh_sueldo_empleada_config')
       .select('empleado_id, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
@@ -17984,7 +18353,6 @@ const salaryWorkflow = (() => {
     const empleadas = (configs || [])
       .filter(c => c.rrhh_empleados?.local === local && c.rrhh_empleados?.estado === 'activo')
       .map(c => c.rrhh_empleados);
-    // Dedup (puede haber varias configs históricas)
     const uniq = {};
     empleadas.forEach(e => { uniq[e.id] = e; });
     const lista = Object.values(uniq);
@@ -17992,7 +18360,11 @@ const salaryWorkflow = (() => {
     const ok = [], errores = [];
     for (const e of lista) {
       try {
-        const r = await liquidarEmpleada(e.id, periodo, inputsPorEmpleado[e.id] || {});
+        const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo };
+        if (descuentosEspeciales[e.id]) {
+          empInputs.descuento_especial = descuentosEspeciales[e.id];
+        }
+        const r = await liquidarEmpleada(e.id, periodo, empInputs);
         ok.push({ empleado: e, resultado: r });
       } catch (err) {
         errores.push({ empleado: e, error: err.message });
