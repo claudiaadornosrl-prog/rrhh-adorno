@@ -12683,58 +12683,125 @@ async function liqSyncVentasFromSheets(local, periodo) {
 async function liqGenerarProforma(local, periodo) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
-  // 1) Cargar empleadas del local (para el modal de descuentos especiales)
+  // 1) Cargar empleadas del local
   const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, nombre_completo, local')
     .eq('estado', 'activo')
     .in('local', locales)
     .order('apellido');
+  const empIds = (emps || []).map(e => e.id);
 
-  // 2) Modal: preguntar por descuentos especiales (faltas, suspensiones)
+  // 2) Detectar faltas no justificadas hasta hoy (no incluir días futuros)
+  const hoyStr = new Date().toISOString().split('T')[0];
+  const periodoStart = periodo + '-01';
+  const [yPer, mPer] = periodo.split('-').map(Number);
+  const ultimoDiaMes = new Date(yPer, mPer, 0).toISOString().split('T')[0];
+  const limiteDeteccion = hoyStr < ultimoDiaMes ? hoyStr : ultimoDiaMes;
+
+  let asistencias = [];
+  let permisosComp = [];
+  if (empIds.length > 0) {
+    const r1 = await sb.from('rrhh_asistencias_detalle')
+      .select('empleado_id, fecha, estado, entrada, salida')
+      .in('empleado_id', empIds)
+      .gte('fecha', periodoStart).lte('fecha', limiteDeteccion);
+    asistencias = r1.data || [];
+    const r2 = await sb.from('rrhh_permisos_puntuales')
+      .select('empleado_id, fecha, descontar_banco, descontar_vacaciones, tipo')
+      .in('empleado_id', empIds)
+      .gte('fecha', periodoStart).lte('fecha', limiteDeteccion)
+      .eq('estado', 'aprobado');
+    permisosComp = r2.data || [];
+  }
+
+  // Calcular sugerencias: días con estado ausente o falta_fichada (sin fichadas) sin permiso compensatorio
+  const sugerencias = {};
+  const detalleSugerencias = {};
+  for (const a of asistencias) {
+    let esFalta = false;
+    if (a.estado === 'ausente') esFalta = true;
+    else if (a.estado === 'falta_fichada' && !a.entrada && !a.salida) esFalta = true;
+    if (!esFalta) continue;
+    const compensado = permisosComp.some(p =>
+      p.empleado_id === a.empleado_id &&
+      p.fecha === a.fecha &&
+      p.tipo === 'dia_completo' &&
+      (p.descontar_banco || p.descontar_vacaciones)
+    );
+    if (compensado) continue;
+    sugerencias[a.empleado_id] = (sugerencias[a.empleado_id] || 0) + 1;
+    detalleSugerencias[a.empleado_id] = detalleSugerencias[a.empleado_id] || [];
+    detalleSugerencias[a.empleado_id].push(a.fecha);
+  }
+
+  const totalSugerencias = Object.values(sugerencias).reduce((s,n) => s+n, 0);
+  const cantConSugerencia = Object.keys(sugerencias).length;
+
+  // 3) Modal: preguntar por conceptos a descontar (con sugerencias pre-cargadas)
   const html = `
-    <div style="padding:20px;max-width:780px;width:100%;">
+    <div style="padding:20px;max-width:880px;width:100%;">
       <h3 style="margin:0 0 6px;">📋 Generar liquidación PROFORMA</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
-        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas
+        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas · Detección hasta ${limiteDeteccion}
       </div>
       <div style="background:#fef3c7;border:1px solid #fcd34d;padding:10px;border-radius:8px;font-size:12px;color:#92400e;margin-bottom:14px;">
-        💡 La <strong>proforma</strong> es el cálculo base para transferir los sueldos por banco el último día del mes.
-        No genera PDFs ni notifica a las empleadas. Después del cierre del mes vas a generar el
-        <strong>definitivo</strong> que aplica la paritaria final y produce los recibos firmables.
+        💡 La <strong>proforma</strong> es el cálculo base para transferir los sueldos el último día del mes.
+        No genera PDFs ni notifica a las empleadas. Después del cierre vas a generar el
+        <strong>definitivo</strong> que aplica la paritaria final.
       </div>
 
-      <div style="margin-bottom:14px;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">¿Hay descuentos especiales para este mes?</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
-          Cargá días de falta/suspensión que NO estén ya en el sistema. Los días marcados como
-          <em>ausente</em> en Asistencias ya se descuentan automáticamente — esto es para casos extra.
+      ${totalSugerencias > 0 ? `
+        <div style="background:#fee2e2;border:1px solid #fca5a5;padding:10px;border-radius:8px;font-size:13px;color:#991b1b;margin-bottom:14px;">
+          🚨 <strong>${totalSugerencias} falta(s) detectada(s) sin justificación</strong> en ${cantConSugerencia} empleada(s) hasta ${limiteDeteccion}.
+          El sistema ya las pre-cargó en la columna abajo como sugerencia.
         </div>
-        <div id="prof-descuentos-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+      ` : `
+        <div style="background:#d1fae5;border:1px solid #86efac;padding:10px;border-radius:8px;font-size:13px;color:#065f46;margin-bottom:14px;">
+          ✓ Sin faltas no justificadas detectadas hasta ${limiteDeteccion}.
+        </div>
+      `}
+
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Conceptos a descontar</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+          Sugerencias auto-detectadas: faltas (estado <em>ausente</em> o <em>falta_fichada</em> sin fichadas) sin permiso compensatorio aprobado.
+          Editá libremente — el valor cargado se aplica como descuento adicional al cálculo automático.
+        </div>
+        <div id="prof-descuentos-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
           <table style="width:100%;font-size:12px;">
             <thead style="background:#f9fafb;position:sticky;top:0;">
               <tr>
                 <th style="padding:6px 10px;text-align:left;">Empleada</th>
                 <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
-                <th style="padding:6px 10px;text-align:right;width:90px;">Días extra a descontar</th>
+                <th style="padding:6px 10px;text-align:left;width:170px;">Faltas detectadas</th>
+                <th style="padding:6px 10px;text-align:right;width:90px;">Días a descontar</th>
                 <th style="padding:6px 10px;text-align:left;width:220px;">Motivo</th>
               </tr>
             </thead>
             <tbody>
-              ${(emps || []).map(e => `
-                <tr style="border-top:1px solid var(--border);">
+              ${(emps || []).map(e => {
+                const sug = sugerencias[e.id] || 0;
+                const dets = detalleSugerencias[e.id] || [];
+                const detsTxt = dets.map(d => d.slice(8)).join(', ');  // solo día
+                const filaBg = sug > 0 ? 'background:#fef3c7;' : '';
+                const inputBg = sug > 0 ? 'background:#fed7aa;font-weight:600;color:#7c2d12;' : '';
+                const motivoSug = sug > 0 ? `${sug} falta(s) sin justificar (${detsTxt})` : '';
+                return `<tr style="border-top:1px solid var(--border);${filaBg}">
                   <td style="padding:6px 10px;">${escapeHtml(e.nombre_completo)}</td>
                   <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${e.local}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#991b1b':'var(--muted)'};">${sug > 0 ? `🚨 ${sug} día(s): ${detsTxt}` : '—'}</td>
                   <td style="padding:6px 10px;text-align:right;">
-                    <input type="number" min="0" step="1" value="0" id="prof-dias-${e.id}"
-                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;">
+                    <input type="number" min="0" step="1" value="${sug}" id="prof-dias-${e.id}"
+                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${inputBg}">
                   </td>
                   <td style="padding:6px 10px;">
                     <input type="text" placeholder="Ej: suspensión 17/05" id="prof-mot-${e.id}"
+                           value="${escapeHtml(motivoSug)}"
                            style="width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;">
                   </td>
-                </tr>
-              `).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -12746,7 +12813,7 @@ async function liqGenerarProforma(local, periodo) {
       </div>
     </div>
   `;
-  openModal(html, '820px');
+  openModal(html, '920px');
 }
 
 async function liqGenerarProformaConfirmar(local, periodo) {
