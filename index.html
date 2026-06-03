@@ -14877,19 +14877,17 @@ async function aumPuntualAplicar() {
 
   if (!confirm(`¿Aplicar aumento puntual a ${nombreEmp}?\n\nFijo actual: $${Number(actual.fijo).toLocaleString('es-AR')}\nFijo nuevo:  $${fijoNuevo.toLocaleString('es-AR')}\nDiferencia:  $${diff.toLocaleString('es-AR')} (${pct.toFixed(2)}%)\nVigente desde: ${vigencia}`)) return;
 
-  // Insertar nueva fila con el fijo nuevo + copiar resto de campos
+  // Insertar nueva fila copiando TODOS los campos de la config vigente
+  // (preserva modo_liquidacion, dias_prorrateo_modo, fraccion_no_rem, etc.)
+  // y sobrescribe solo lo que cambia: fijo, vigente_desde, notas.
   const notas = `[Aumento puntual] ${motivo || 'Caso especial'} · Fijo anterior: $${Number(actual.fijo).toLocaleString('es-AR')}`;
-  const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert({
-    empleado_id: empId,
-    vigente_desde: vigencia,
-    fijo: fijoNuevo,
-    viaticos: actual.viaticos,
-    premio_fichadas_uniforme: actual.premio_fichadas_uniforme,
-    fraccion_comision: actual.fraccion_comision,
-    modo_prorrateo_comision: actual.modo_prorrateo_comision,
-    activa_en_modulo: actual.activa_en_modulo,
-    notas: notas,
-  });
+  const nuevaFila = { ...actual };
+  delete nuevaFila.id;
+  delete nuevaFila.creado_at;
+  nuevaFila.fijo = fijoNuevo;
+  nuevaFila.vigente_desde = vigencia;
+  nuevaFila.notas = notas;
+  const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert(nuevaFila);
   if (eIns) {
     if (eIns.code === '23505') {
       toast('Ya existe una config vigente desde esa fecha para esta empleada. Elegí otra fecha.', 'error');
@@ -15059,17 +15057,17 @@ async function aumExtrasAplicar() {
   let okEmp = 0, errEmp = 0, okLoc = 0, errLoc = 0;
   if (p.aplicaViaticos || p.aplicaPremio) {
     for (const c of p.empleadas) {
-      const payload = {
-        empleado_id: c.empleado_id,
-        vigente_desde: p.vigencia,
-        fijo: c.fijo,
-        viaticos: p.aplicaViaticos ? c._viaticos_nuevo : c.viaticos,
-        premio_fichadas_uniforme: p.aplicaPremio ? c._premio_nuevo : c.premio_fichadas_uniforme,
-        fraccion_comision: c.fraccion_comision,
-        modo_prorrateo_comision: c.modo_prorrateo_comision,
-        activa_en_modulo: c.activa_en_modulo,
-        notas: `[Aumento admin ${p.pct}% ${[p.aplicaViaticos?'V':'', p.aplicaPremio?'P':''].filter(Boolean).join('+')}] anterior: V $${Number(c.viaticos).toLocaleString('es-AR')} P $${Number(c.premio_fichadas_uniforme).toLocaleString('es-AR')}`,
-      };
+      // Spread para preservar modo_liquidacion, dias_prorrateo_modo, etc.
+      const payload = { ...c };
+      delete payload.id;
+      delete payload.creado_at;
+      delete payload.rrhh_empleados;  // por si vino el join
+      payload.vigente_desde = p.vigencia;
+      if (p.aplicaViaticos) payload.viaticos = c._viaticos_nuevo;
+      if (p.aplicaPremio)   payload.premio_fichadas_uniforme = c._premio_nuevo;
+      // limpiar campos auxiliares prefijados con _
+      Object.keys(payload).forEach(k => { if (k.startsWith('_')) delete payload[k]; });
+      payload.notas = `[Aumento admin ${p.pct}% ${[p.aplicaViaticos?'V':'', p.aplicaPremio?'P':''].filter(Boolean).join('+')}] anterior: V $${Number(c.viaticos).toLocaleString('es-AR')} P $${Number(c.premio_fichadas_uniforme).toLocaleString('es-AR')}`;
       const { error } = await sb.from('rrhh_sueldo_empleada_config').insert(payload);
       if (error) { console.warn('aumExtras emp', c.empleado_id, error); errEmp++; }
       else { okEmp++; }
@@ -15846,7 +15844,11 @@ async function aumAplicar(pedidoId) {
     const nuevaCfg = { ...cfgVieja };
     delete nuevaCfg.id;
     delete nuevaCfg.creado_at;
-    nuevaCfg.fijo_mensual = d.fijo_nuevo;
+    // Columna real es 'fijo', no 'fijo_mensual'. Bug histórico: si el INSERT
+    // no falla, la nueva fila quedaba con el fijo VIEJO (porque {...cfgVieja}
+    // ya trae fijo) y el aumento no se aplicaba realmente.
+    nuevaCfg.fijo = d.fijo_nuevo;
+    delete nuevaCfg.fijo_mensual;
     nuevaCfg.vigente_desde = ped.fecha_vigencia;
     const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert(nuevaCfg);
     if (eIns) { errores++; continue; }
