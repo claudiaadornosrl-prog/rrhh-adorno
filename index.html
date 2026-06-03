@@ -116,10 +116,14 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   padding: 20px 12px; display: flex; flex-direction: column; gap: 4px;
 }
 body.layout-directora .sidebar,
-body.layout-directora #sidebar { display: none !important; }
-body.layout-directora .layout { grid-template-columns: 1fr !important; }
+body.layout-directora #sidebar,
+body.layout-directora aside.sidebar,
+body.layout-directora nav.sidebar { display: none !important; visibility: hidden !important; width: 0 !important; }
+body.layout-directora .layout,
+body.layout-directora .app-layout { grid-template-columns: 1fr !important; }
 body.layout-directora .app-main,
-body.layout-directora #main { margin-left: 0 !important; }
+body.layout-directora #main,
+body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !important; width: 100% !important; max-width: 100% !important; }
 
 .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px;
@@ -784,6 +788,9 @@ async function onLoggedIn(user) {
 
   console.log('[LOGIN] renderUserInfo...');
   renderUserInfo();
+  // Aplicar clase del layout antes de render (evita flash visual)
+  if (session.rol === 'directora') document.body.classList.add('layout-directora');
+  else document.body.classList.remove('layout-directora');
   console.log('[LOGIN] renderSidebar...');
   renderSidebar();
   // Tab inicial según rol — directora no tiene NAV items así que forzamos liquidaciones
@@ -12118,16 +12125,29 @@ async function renderLiquidaciones() {
     d.setMonth(d.getMonth() - i);
     periodos.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
   }
-  // Para directora: filtrar solo meses cerrados
+  // Para directora: filtrar solo meses cerrados — early return si no hay ninguno
   if (isDirectora) {
     const { data: cerrados } = await sb.from('rrhh_meses_cerrados_sueldos')
       .select('periodo').order('periodo', { ascending: false });
     const setCerrados = new Set((cerrados || []).map(r => r.periodo.substring(0,7)));
     periodos = periodos.filter(p => setCerrados.has(p));
-    if (periodos.length === 0) periodos.push('—');
-    // Forzar el periodo actual a uno cerrado si el default no está
+    if (periodos.length === 0) {
+      const main = document.getElementById('main');
+      if (main) main.innerHTML = `
+        <div class="page-header"><h2>Liquidación del mes</h2></div>
+        <div class="card" style="padding:60px;text-align:center;">
+          <div style="font-size:56px;margin-bottom:14px;">📊</div>
+          <h3 style="margin:0 0 8px;font-size:18px;">Todavía no hay meses cerrados</h3>
+          <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto;">
+            Cuando se cierre formalmente el primer mes vas a recibir una notificación
+            y vas a poder ver el liquidador completo desde acá.
+          </p>
+        </div>
+      `;
+      return '';
+    }
     if (!setCerrados.has(liqState.periodo)) {
-      liqState.periodo = periodos[0] !== '—' ? periodos[0] : liqState.periodo;
+      liqState.periodo = periodos[0];
     }
   }
   const labelMes = (p) => {
