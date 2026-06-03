@@ -4586,43 +4586,95 @@ async function subirMiFoto(inputEl) {
 }
 
 async function renderMisRecibos() {
-  // Listar archivos del bucket rrhh-recibos bajo {empleado_id}/
-  const { data: files, error } = await sb.storage.from('rrhh-recibos').list(String(session.empleado_id), { limit: 200, sortBy: { column: 'name', order: 'desc' } });
+  // Liquidaciones DEFINITIVAS (las únicas firmables) de la empleada — últimas 12
+  const { data: liqs, error } = await sb.from('rrhh_liquidacion')
+    .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_enviado_at, calculado_at, total_negro')
+    .eq('empleado_id', session.empleado_id)
+    .eq('tipo', 'definitivo')
+    .order('periodo', { ascending: false })
+    .limit(12);
   if (error) {
     return `<div class="page-header"><h2>Mis recibos</h2></div><div class="card" style="color:var(--danger)">${error.message}</div>`;
   }
 
-  // También intentar leer la tabla rrhh_sueldos
-  const { data: sueldos } = await sb.from('rrhh_sueldos')
-    .select('id, periodo, neto, recibo_url, fecha_pago').eq('empleado_id', session.empleado_id)
-    .order('periodo', { ascending: false }).limit(12);
+  const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const labelMes = (iso) => {
+    if (!iso) return '—';
+    const [y, m] = iso.split('-').map(Number);
+    const lbl = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+    return lbl.charAt(0).toUpperCase() + lbl.slice(1);
+  };
 
-  // Regla (JP): cada empleada ve solo sus últimos 12 recibos
+  // Archivos legacy del bucket (si los hay) — para empleadas con histórico anterior
+  const { data: files } = await sb.storage.from('rrhh-recibos').list(String(session.empleado_id), { limit: 200, sortBy: { column: 'name', order: 'desc' } });
   const archivos = (files || []).filter(f => f.name && !f.name.startsWith('.')).slice(0, 12);
 
   return `
     <div class="page-header">
       <h2>Mis recibos de sueldo</h2>
-      <div class="subtitle">Tus últimos 12 recibos · ${archivos.length} archivos · ${(sueldos||[]).length} liquidaciones</div>
+      <div class="subtitle">${(liqs||[]).length} recibo(s) definitivo(s) disponibles${archivos.length > 0 ? ` · ${archivos.length} archivos del histórico` : ''}</div>
     </div>
 
-    ${(sueldos||[]).length > 0 ? `
-      <div class="section-title">Liquidaciones</div>
-      <ul class="simple-list">
-        ${sueldos.map(s => `
-          <li>
-            <div>
-              <strong>${s.periodo}</strong>
-              <div class="meta">Pagado ${fmtFecha(s.fecha_pago)} · Neto $${(s.neto||0).toLocaleString('es-AR')}</div>
-            </div>
-            ${s.recibo_url ? `<button class="btn small" onclick="descargarRecibo('${s.recibo_url}')">Descargar PDF</button>` : ''}
-          </li>
-        `).join('')}
-      </ul>
-    ` : ''}
+    <div class="card" style="background:#eff6ff;border-left:4px solid #3b82f6;padding:14px;margin-bottom:14px;font-size:13px;color:#1e40af;">
+      💡 Acá ves tus recibos definitivos del mes. Cuando cerramos el mes y se genera el recibo final:
+      <ol style="margin:6px 0 0 18px;line-height:1.6;">
+        <li>Descargás el PDF tocando el botón 📄</li>
+        <li>Lo imprimís y lo firmás</li>
+        <li>Lo escaneás (o le sacás foto bien clara) y lo mandás por mail a <strong>claudiaadornosrl@gmail.com</strong></li>
+        <li>El sistema lo detecta por el código QR y queda archivado ✓</li>
+      </ol>
+    </div>
+
+    ${(liqs||[]).length > 0 ? `
+      <div class="card" style="padding:0;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f9fafb;text-align:left;">
+            <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Mes</th>
+            <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Neto recibo</th>
+            <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Estado</th>
+            <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Acción</th>
+          </tr></thead>
+          <tbody>
+            ${liqs.map(l => {
+              let estado, bgEs, fgEs;
+              if (l.pdf_firmado_at) {
+                const fmtFecha = new Date(l.pdf_firmado_at).toLocaleDateString('es-AR');
+                estado = `✓ Firmado ${fmtFecha}`;
+                bgEs = '#d1fae5'; fgEs = '#065f46';
+              } else if (l.pdf_enviado_at) {
+                estado = '⏳ Falta firmar';
+                bgEs = '#fef3c7'; fgEs = '#92400e';
+              } else {
+                estado = '📄 Listo para descargar';
+                bgEs = '#dbeafe'; fgEs = '#1e40af';
+              }
+              return `<tr style="border-top:1px solid var(--border);">
+                <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">${labelMes(l.periodo)}</td>
+                <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(l.recibo_neto)}</td>
+                <td style="padding:10px 14px;text-align:center;">
+                  <span style="background:${bgEs};color:${fgEs};padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;">${estado}</span>
+                </td>
+                <td style="padding:10px 14px;text-align:right;">
+                  <button class="btn small primary" onclick="generarPDFRecibo(${l.id})">📄 Descargar PDF</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : `
+      <div class="card" style="padding:40px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:10px;">📊</div>
+        <h3 style="margin:0 0 4px;">Todavía no tenés recibos definitivos</h3>
+        <p style="color:var(--muted);font-size:13px;margin:0;">
+          Cuando se cierre el mes y se genere el recibo final, va a aparecer acá para que lo descargues y firmes.
+        </p>
+      </div>
+    `}
 
     ${archivos.length > 0 ? `
-      <div class="section-title">Archivos (bucket)</div>
+      <div class="section-title" style="margin-top:24px;">Histórico</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Recibos viejos cargados manualmente al sistema.</div>
       <ul class="simple-list">
         ${archivos.map(f => `
           <li>
@@ -4631,7 +4683,7 @@ async function renderMisRecibos() {
           </li>
         `).join('')}
       </ul>
-    ` : (sueldos||[]).length === 0 ? '<div class="emp-empty">Todavía no hay recibos cargados para vos.</div>' : ''}
+    ` : ''}
   `;
 }
 
