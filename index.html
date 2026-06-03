@@ -10035,7 +10035,30 @@ async function renderMiBanco() {
     .order('created_at', { ascending: false })
     .limit(100);
 
+  // ── Movimientos PENDIENTES DE CIERRE: días con minutos_banco != 0 que aún
+  // no se materializaron como rows de rrhh_banco_minutos (porque el mes no
+  // se cerró). Mostramos como "pendientes" para que la empleada vea su saldo
+  // proyectado sin esperar al cierre. ──
+  const { data: dets } = await sb.from('rrhh_asistencias_detalle')
+    .select('id, fecha, estado, minutos_banco, error_salvado')
+    .eq('empleado_id', session.empleado_id)
+    .neq('minutos_banco', 0)
+    .order('fecha', { ascending: false })
+    .limit(100);
+
+  const idsConMovimiento = new Set((movs||[])
+    .filter(m => m.referencia_tipo === 'asistencia' && m.referencia_id)
+    .map(m => m.referencia_id));
+  const pendientes = (dets || []).filter(d =>
+    !d.error_salvado &&
+    !idsConMovimiento.has(d.id) &&
+    Number(d.minutos_banco || 0) !== 0
+  );
+
   const saldoMin = saldo?.saldo_minutos || 0;
+  const pendientesSum = pendientes.reduce((s, d) => s + Number(d.minutos_banco || 0), 0);
+  const saldoProyectado = saldoMin + pendientesSum;
+
   const positivos = (movs||[]).filter(m => (m.minutos||0) > 0).reduce((s,m) => s + m.minutos, 0);
   const negativos = (movs||[]).filter(m => (m.minutos||0) < 0).reduce((s,m) => s + m.minutos, 0);
 
@@ -10050,11 +10073,16 @@ async function renderMiBanco() {
       <div class="subtitle">Saldo de minutos a favor / en contra</div>
     </div>
 
-    <div class="card" style="background:${saldoMin>=0?'linear-gradient(135deg, #d1faf1, #a7f3d0)':'linear-gradient(135deg, #fee2e2, #fecaca)'};padding:30px;text-align:center;">
-      <div style="font-size:12px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Tu saldo actual</div>
-      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${(saldo?.saldo_minutos||0)} min</div>
-      <div style="font-size:13px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;font-style:italic;">
-        ${saldoMin >= 480 ? `≈ ${Math.floor(saldoMin/480)} día${Math.floor(saldoMin/480)!==1?'s':''} a favor` : (saldoMin <= -480 ? `≈ ${Math.floor(Math.abs(saldoMin)/480)} día${Math.floor(Math.abs(saldoMin)/480)!==1?'s':''} en contra` : '')}
+    <div class="card" style="background:${saldoProyectado>=0?'linear-gradient(135deg, #d1faf1, #a7f3d0)':'linear-gradient(135deg, #fee2e2, #fecaca)'};padding:30px;text-align:center;">
+      <div style="font-size:12px;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Tu saldo actual</div>
+      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${saldoProyectado} min</div>
+      ${pendientes.length > 0 ? `
+        <div style="font-size:11px;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};margin-top:6px;">
+          Confirmado: ${saldoMin} min · Pendiente de cierre: ${pendientesSum >= 0 ? '+' : ''}${pendientesSum} min
+        </div>
+      ` : ''}
+      <div style="font-size:13px;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};margin-top:8px;font-style:italic;">
+        ${saldoProyectado >= 480 ? `≈ ${Math.floor(saldoProyectado/480)} día${Math.floor(saldoProyectado/480)!==1?'s':''} a favor` : (saldoProyectado <= -480 ? `≈ ${Math.floor(Math.abs(saldoProyectado)/480)} día${Math.floor(Math.abs(saldoProyectado)/480)!==1?'s':''} en contra` : '')}
       </div>
     </div>
 
@@ -10089,6 +10117,34 @@ async function renderMiBanco() {
         </tbody>
       </table>`}
     </div>
+
+    ${pendientes.length > 0 ? `
+      <div class="card" style="margin-top:16px;padding:14px;border:1px solid #fcd34d;background:#fffbeb;">
+        <h3 style="margin:0 0 10px;font-size:14px;color:#92400e;">⏳ Movimientos pendientes de cierre del mes</h3>
+        <div style="font-size:11px;color:#92400e;margin-bottom:10px;">
+          Estos movimientos ya están registrados en tus asistencias pero se van a aplicar al banco cuando la encargada cierre el mes.
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#fef3c7;text-align:left;">
+              <th style="padding:8px 10px;font-size:11px;color:#92400e;">Fecha</th>
+              <th style="padding:8px 10px;font-size:11px;color:#92400e;">Estado</th>
+              <th style="padding:8px 10px;font-size:11px;color:#92400e;text-align:right;">Minutos</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pendientes.slice(0,30).map(d => `
+              <tr style="border-top:1px solid #fde68a;">
+                <td style="padding:8px 10px;font-family:monospace;font-size:12px;">${d.fecha}</td>
+                <td style="padding:8px 10px;font-size:12px;text-transform:capitalize;">${d.estado}</td>
+                <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:600;color:${(d.minutos_banco||0)>=0?'var(--success)':'var(--danger)'};">${(d.minutos_banco>=0?'+':'')}${d.minutos_banco} min</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ${pendientes.length > 30 ? `<div style="font-size:11px;color:#92400e;margin-top:8px;text-align:center;">y ${pendientes.length - 30} más…</div>` : ''}
+      </div>
+    ` : ''}
 
     <div class="card" style="margin-top:16px;padding:14px;background:#fef3c7;border-left:4px solid #d97706;">
       <div style="font-size:13px;color:#92400e;">
