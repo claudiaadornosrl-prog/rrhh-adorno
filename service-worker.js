@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v74-sw-auto-update-aggressive';
+const CACHE_VERSION = 'rrhh-v75-definitivo-no-duplicar-faltas';
 const ASSETS = [
   './',
   './index.html',

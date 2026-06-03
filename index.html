@@ -13539,7 +13539,7 @@ async function liqGenerarDefinitivo(local, periodo) {
 
   const periodoFull = periodo + '-01';
   let qProf = sb.from('rrhh_liquidacion')
-    .select('id, empleado_id, local, tipo, descuentos_especiales, proforma_snapshot, fijo, comision, viaticos, premio_monto, feriado_monto, recibo_neto, total_negro, ajuste, empleado:rrhh_empleados(nombre_completo)')
+    .select('id, empleado_id, local, tipo, descuentos_especiales, proforma_snapshot, proforma_generada_at, fijo, comision, viaticos, premio_monto, feriado_monto, recibo_neto, total_negro, ajuste, empleado:rrhh_empleados(nombre_completo)')
     .eq('periodo', periodoFull)
     .not('proforma_generada_at', 'is', null);
   if (local !== 'todos') qProf = qProf.eq('local', local);
@@ -13548,7 +13548,13 @@ async function liqGenerarDefinitivo(local, periodo) {
 
   // Heredados de proforma (si existen) — mapa empId → {dias_extra, motivo}
   const heredados = {};
+  // Fecha de la proforma por empleado (para filtrar sugerencias y NO duplicar faltas
+  // que ya estaban consideradas cuando se generó la proforma).
+  const fechaProformaPorEmp = {};
   (proformasPrevias || []).forEach(p => {
+    if (p.proforma_generada_at) {
+      fechaProformaPorEmp[p.empleado_id] = p.proforma_generada_at.slice(0, 10);
+    }
     if (p.descuentos_especiales && p.descuentos_especiales.dias_extra > 0) {
       heredados[p.empleado_id] = {
         dias_extra: Number(p.descuentos_especiales.dias_extra || 0),
@@ -13597,6 +13603,10 @@ async function liqGenerarDefinitivo(local, periodo) {
       p.tipo === 'dia_completo' && (p.descontar_banco || p.descontar_vacaciones)
     );
     if (compensado) continue;
+    // Si hay proforma para esta empleada, solo contar faltas DESPUÉS de su fecha de generación
+    // (las anteriores ya fueron consideradas cuando se cargó la proforma → evitamos duplicar).
+    const fechaProf = fechaProformaPorEmp[a.empleado_id];
+    if (fechaProf && a.fecha <= fechaProf) continue;
     sugerencias[a.empleado_id] = (sugerencias[a.empleado_id] || 0) + 1;
     detalleSugerencias[a.empleado_id] = detalleSugerencias[a.empleado_id] || [];
     detalleSugerencias[a.empleado_id].push(a.fecha);
