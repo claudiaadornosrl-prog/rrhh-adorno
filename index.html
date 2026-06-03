@@ -13499,39 +13499,177 @@ async function liqGenerarProformaConfirmar(local, periodo) {
 async function liqGenerarDefinitivo(local, periodo) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
-  // ¿Hay proforma previa para este período?
   const periodoFull = periodo + '-01';
   let qProf = sb.from('rrhh_liquidacion')
-    .select('id, empleado_id, local, tipo, proforma_snapshot, fijo, comision, viaticos, premio_monto, feriado_monto, recibo_neto, total_negro, ajuste, empleado:rrhh_empleados(nombre_completo)')
+    .select('id, empleado_id, local, tipo, descuentos_especiales, proforma_snapshot, fijo, comision, viaticos, premio_monto, feriado_monto, recibo_neto, total_negro, ajuste, empleado:rrhh_empleados(nombre_completo)')
     .eq('periodo', periodoFull)
     .not('proforma_generada_at', 'is', null);
   if (local !== 'todos') qProf = qProf.eq('local', local);
   const { data: proformasPrevias } = await qProf;
   const huboProforma = (proformasPrevias || []).length > 0;
 
-  const msgConfirm = huboProforma
-    ? `¿Generar DEFINITIVO de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\n` +
-      `Hay ${proformasPrevias.length} proforma(s) previa(s). El sistema va a recalcular con la paritaria vigente y comparar contra la proforma.\n\n` +
-      `Si hay diferencias, vas a poder generar un XLSX Galicia con el ajuste.`
-    : `¿Generar DEFINITIVO de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\n` +
-      `⚠ No hay proforma previa. Vas directo al cálculo final (sin comparación).`;
-  if (!confirm(msgConfirm)) return;
+  if (huboProforma) {
+    if (!confirm(`¿Generar DEFINITIVO de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\nHay ${proformasPrevias.length} proforma(s) previa(s). Hereda los descuentos especiales y recalcula con paritaria vigente.\n\nSi hay diferencias, podrás generar XLSX Galicia ajuste.`)) return;
+    const descuentosHeredados = {};
+    (proformasPrevias || []).forEach(p => {
+      if (p.descuentos_especiales && p.descuentos_especiales.dias_extra > 0) {
+        descuentosHeredados[p.empleado_id] = {
+          dias_extra: Number(p.descuentos_especiales.dias_extra || 0),
+          motivo: p.descuentos_especiales.motivo || '',
+        };
+      }
+    });
+    await ejecutarDefinitivo(local, periodo, descuentosHeredados, true);
+    return;
+  }
 
+  // Sin proforma previa — abrir modal de conceptos a descontar
+  const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+  const { data: emps } = await sb.from('rrhh_empleados')
+    .select('id, apellido, nombre, nombre_completo, local')
+    .eq('estado', 'activo').in('local', locales).order('apellido');
+  const empIds = (emps || []).map(e => e.id);
+
+  const hoyStr = new Date().toISOString().split('T')[0];
+  const periodoStart = periodo + '-01';
+  const [yPer, mPer] = periodo.split('-').map(Number);
+  const ultimoDiaMes = new Date(yPer, mPer, 0).toISOString().split('T')[0];
+  const limiteDeteccion = hoyStr < ultimoDiaMes ? hoyStr : ultimoDiaMes;
+
+  let asistencias = [], permisosComp = [];
+  if (empIds.length > 0) {
+    const r1 = await sb.from('rrhh_asistencias_detalle')
+      .select('empleado_id, fecha, estado, entrada, salida')
+      .in('empleado_id', empIds).gte('fecha', periodoStart).lte('fecha', limiteDeteccion);
+    asistencias = r1.data || [];
+    const r2 = await sb.from('rrhh_permisos_puntuales')
+      .select('empleado_id, fecha, descontar_banco, descontar_vacaciones, tipo')
+      .in('empleado_id', empIds).gte('fecha', periodoStart).lte('fecha', limiteDeteccion)
+      .eq('estado', 'aprobado');
+    permisosComp = r2.data || [];
+  }
+
+  const sugerencias = {};
+  const detalleSugerencias = {};
+  for (const a of asistencias) {
+    let esFalta = false;
+    if (a.estado === 'ausente') esFalta = true;
+    else if (a.estado === 'falta_fichada' && !a.entrada && !a.salida) esFalta = true;
+    if (!esFalta) continue;
+    const compensado = permisosComp.some(p =>
+      p.empleado_id === a.empleado_id && p.fecha === a.fecha &&
+      p.tipo === 'dia_completo' && (p.descontar_banco || p.descontar_vacaciones)
+    );
+    if (compensado) continue;
+    sugerencias[a.empleado_id] = (sugerencias[a.empleado_id] || 0) + 1;
+    detalleSugerencias[a.empleado_id] = detalleSugerencias[a.empleado_id] || [];
+    detalleSugerencias[a.empleado_id].push(a.fecha);
+  }
+
+  const totalSug = Object.values(sugerencias).reduce((s,n) => s+n, 0);
+  const cantConSug = Object.keys(sugerencias).length;
+
+  const html = `
+    <div style="padding:20px;max-width:880px;width:100%;">
+      <h3 style="margin:0 0 6px;">✅ Generar liquidación DEFINITIVA (sin proforma previa)</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
+        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas
+      </div>
+      <div style="background:#dbeafe;border:1px solid #93c5fd;padding:10px;border-radius:8px;font-size:12px;color:#1e40af;margin-bottom:14px;">
+        💡 No hay proforma previa. Estás generando el <strong>cálculo final</strong> directamente — va a producir los PDFs firmables y aparecer en Mis recibos de las empleadas.
+      </div>
+      ${totalSug > 0 ? `
+        <div style="background:#fee2e2;border:1px solid #fca5a5;padding:10px;border-radius:8px;font-size:13px;color:#991b1b;margin-bottom:14px;">
+          🚨 <strong>${totalSug} falta(s) detectada(s) sin justificación</strong> en ${cantConSug} empleada(s) hasta ${limiteDeteccion}.
+        </div>
+      ` : `
+        <div style="background:#d1fae5;border:1px solid #86efac;padding:10px;border-radius:8px;font-size:13px;color:#065f46;margin-bottom:14px;">
+          ✓ Sin faltas no justificadas detectadas hasta ${limiteDeteccion}.
+        </div>
+      `}
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Conceptos a descontar</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+          Sugerencias auto-detectadas: faltas sin permiso compensatorio aprobado. Editá libremente.
+        </div>
+        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+          <table style="width:100%;font-size:12px;">
+            <thead style="background:#f9fafb;position:sticky;top:0;">
+              <tr>
+                <th style="padding:6px 10px;text-align:left;">Empleada</th>
+                <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
+                <th style="padding:6px 10px;text-align:left;width:170px;">Faltas detectadas</th>
+                <th style="padding:6px 10px;text-align:right;width:90px;">Días a descontar</th>
+                <th style="padding:6px 10px;text-align:left;width:220px;">Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(emps || []).map(e => {
+                const sug = sugerencias[e.id] || 0;
+                const dets = detalleSugerencias[e.id] || [];
+                const detsTxt = dets.map(d => d.slice(8)).join(', ');
+                const filaBg = sug > 0 ? 'background:#fef3c7;' : '';
+                const inputBg = sug > 0 ? 'background:#fed7aa;font-weight:600;color:#7c2d12;' : '';
+                const motivoSug = sug > 0 ? `${sug} falta(s) sin justificar (${detsTxt})` : '';
+                return `<tr style="border-top:1px solid var(--border);${filaBg}">
+                  <td style="padding:6px 10px;">${escapeHtml(e.nombre_completo)}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${e.local}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#991b1b':'var(--muted)'};">${sug > 0 ? `🚨 ${sug} día(s): ${detsTxt}` : '—'}</td>
+                  <td style="padding:6px 10px;text-align:right;">
+                    <input type="number" min="0" step="1" value="${sug}" id="def-dias-${e.id}"
+                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${inputBg}">
+                  </td>
+                  <td style="padding:6px 10px;">
+                    <input type="text" placeholder="Ej: suspensión" id="def-mot-${e.id}"
+                           value="${escapeHtml(motivoSug)}"
+                           style="width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;">
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="liqGenerarDefinitivoConfirmar('${local}','${periodo}')">✅ Generar DEFINITIVO</button>
+      </div>
+    </div>
+  `;
+  openModal(html, '920px');
+}
+
+async function liqGenerarDefinitivoConfirmar(local, periodo) {
+  const inputs = document.querySelectorAll('[id^="def-dias-"]');
+  const descuentosPorEmp = {};
+  inputs.forEach(inp => {
+    const empId = Number(inp.id.replace('def-dias-', ''));
+    const dias = Number(inp.value) || 0;
+    const motivoEl = document.getElementById('def-mot-' + empId);
+    const motivo = (motivoEl?.value || '').trim();
+    if (dias > 0) descuentosPorEmp[empId] = { dias_extra: dias, motivo: motivo || 'Sin motivo' };
+  });
+  closeModal();
+  await ejecutarDefinitivo(local, periodo, descuentosPorEmp, false);
+}
+
+async function ejecutarDefinitivo(local, periodo, descuentosPorEmp, huboProforma) {
   toast('Calculando definitivo…', '');
   try {
     const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
     let totalOk = 0;
     const todosErrores = [];
     for (const loc of locales) {
-      const r = await salaryWorkflow.liquidarMes(loc, periodo, { tipo: 'definitivo' });
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, {
+        tipo: 'definitivo',
+        descuentosEspeciales: descuentosPorEmp,
+      });
       totalOk += r.ok.length;
       r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
     }
     let msgFin = `✓ ${totalOk} liquidaciones DEFINITIVAS generadas`;
     if (todosErrores.length) msgFin += ` · ⚠ ${todosErrores.length} errores`;
     toast(msgFin, todosErrores.length ? 'error' : 'success');
-
-    // Si había proforma, mostrar diferencias
     if (huboProforma) {
       await liqMostrarDiferenciasProformaDefinitivo(local, periodo);
     } else {
