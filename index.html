@@ -12015,6 +12015,22 @@ async function renderLiquidaciones() {
       <div class="card" style="overflow-x:auto;">
         ${(() => {
           // ── Definición de TODAS las columnas posibles del Liquidador ──
+          // ─── Helper para renderizar celdas editables con override visual ───
+          const renderEditableCell = (l, c, campo, valor, opts = {}) => {
+            const ov = l.overrides_manuales && l.overrides_manuales[campo];
+            const isOverride = !!ov;
+            const bgBase = opts.bg || '';
+            const bgOverride = isOverride ? 'background:#f3e8ff !important;border-left:3px solid #9333ea;' : (bgBase ? `background:${bgBase};` : '');
+            const cursor = c.isAdmin ? 'cursor:pointer;' : '';
+            const clickHandler = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, '${campo}', '${opts.label || campo}', ${Number(valor || 0)})"` : '';
+            const titleAttr = isOverride
+              ? `title="✏️ Editado manualmente por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. Motivo: ${ov.motivo || '—'}. Click para volver a editar."`
+              : (c.isAdmin ? 'title="Click para editar manualmente"' : '');
+            const txtFmt = (valor != null && valor !== '') ? c.fmt(valor) : '—';
+            const styleExtra = opts.styleExtra || '';
+            return `<td style="padding:8px;font-family:monospace;${bgOverride}${cursor}${styleExtra}" ${clickHandler} ${titleAttr}>${isOverride ? '✏️ ' : ''}${txtFmt}</td>`;
+          };
+
           const ALL_COLS = [
             { id:'empleada',  label:'Empleada',   sortKey:'empleada', thOpts:{align:'text-align:left'},
               tdRender:(l,c)=>{
@@ -12033,40 +12049,74 @@ async function renderLiquidaciones() {
               tdRender:(l,c)=>`<td style="padding:8px;${(l.puntos_mes||0)>4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>` },
             { id:'fijo',      label:'Fijo',
               tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['fijo'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'fijo', 'Fijo', ${+l.fijo})"`:''} title="${t}">✏️ ${c.fmt(l.fijo)}</td>`;
+                }
                 const prorr = (l.dias_trabajados||30) < 30;
                 const fijoFull = prorr && l.dias_trabajados > 0 ? (+l.fijo) * (30 / l.dias_trabajados) : 0;
                 const titulo = prorr
                   ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(fijoFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.fijo).toLocaleString('es-AR')}`
-                  : '';
-                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" title="${titulo}">${c.fmt(l.fijo)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                  : (c.isAdmin ? 'Click para editar manualmente' : '');
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
+                const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'fijo', 'Fijo', ${+l.fijo})"` : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.fijo)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
               } },
             { id:'comision',  label:'Comisión',
               tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['comision'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'comision', 'Comisión', ${+l.comision})"`:''} title="${t}">✏️ ${c.fmt(l.comision)}</td>`;
+                }
                 const prorr = (l.dias_trabajados||30) < 30 && (+l.comision) > 0;
-                const comisionFull = prorr && l.dias_trabajados > 0 ? (+l.comision) * (30 / l.dias_trabajados) : 0;
                 const titulo = prorr
-                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(comisionFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.comision).toLocaleString('es-AR')}`
-                  : '';
-                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" title="${titulo}">${c.fmt(l.comision)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
+                  : (c.isAdmin ? 'Click para editar manualmente' : '');
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
+                const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'comision', 'Comisión', ${+l.comision})"` : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.comision)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
               } },
             { id:'premios',   label:'Premios',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};" title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}">${l.premio_cobra?c.fmt(l.premio_monto):'—'}</td>` },
+              tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['premio_monto'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'premio_monto', 'Premio', ${+l.premio_monto})"`:''} title="${t}">✏️ ${c.fmt(l.premio_monto)}</td>`;
+                }
+                const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'premio_monto', 'Premio', ${+l.premio_monto})"` : '';
+                const cursor = c.isAdmin ? 'cursor:pointer;' : '';
+                return `<td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};${cursor}" ${click} title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}${c.isAdmin?'. Click para editar.':''}">${l.premio_cobra?c.fmt(l.premio_monto):'—'}</td>`;
+              } },
             { id:'viaticos',  label:'Viáticos',
               tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['viaticos'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"`:''} title="${t}">✏️ ${c.fmt(l.viaticos)}</td>`;
+                }
                 const prorr = (l.dias_trabajados||30) < 30 && (+l.viaticos) > 0;
-                const viaticosFull = prorr && l.dias_trabajados > 0 ? (+l.viaticos) * (30 / l.dias_trabajados) : 0;
                 const titulo = prorr
-                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(viaticosFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.viaticos).toLocaleString('es-AR')}`
-                  : '';
-                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" title="${titulo}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
+                  : (c.isAdmin ? 'Click para editar manualmente' : '');
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
+                const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"` : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
               } },
             { id:'extras',    label:'Extras',
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.extras)}</td>` },
             { id:'feriado',   label:'Feriado',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;" title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}">${(+l.feriado_monto)>0?c.fmt(l.feriado_monto):'—'}</td>` },
+              tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['feriado_monto'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'feriado_monto', 'Feriado', ${+l.feriado_monto})"`:''} title="${t}">✏️ ${c.fmt(l.feriado_monto)}</td>`;
+                }
+                const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'feriado_monto', 'Feriado', ${+l.feriado_monto})"` : '';
+                const cursor = c.isAdmin ? 'cursor:pointer;' : '';
+                return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}${c.isAdmin?'. Click para editar.':''}">${(+l.feriado_monto)>0?c.fmt(l.feriado_monto):'—'}</td>`;
+              } },
             { id:'sac',       label:'SAC',        condition:c=>c.esMesSAC, thOpts:{title:'SAC = mejor bruto del semestre / 12 × meses trabajados'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};" title="${sac>0?'SAC auto = mejor bruto semestre / 12 × meses trabajados':'Sin SAC (sin liquidaciones previas en el semestre)'}">${sac>0?c.fmt(sac):'—'}</td>`; } },
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Extras + Feriado'},
@@ -12086,7 +12136,16 @@ async function renderLiquidaciones() {
                 return `<td style="padding:8px;font-family:monospace;background:#ecfccb;font-weight:600;" title="Subtotal del efectivo = Total a pagar − Recibo CCT. Es la base sobre la que se aplican mercadería/intereses/ajustes.">${subtotal>0?c.fmt(subtotal):'—'}</td>`;
               } },
             { id:'mercaderia', label:'Mercadería',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.mercaderia)}</td>` },
+              tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['mercaderia'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'mercaderia', 'Mercadería', ${+l.mercaderia})"`:''} title="${t}">✏️ ${c.fmt(l.mercaderia)}</td>`;
+                }
+                const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'mercaderia', 'Mercadería', ${+l.mercaderia})"` : '';
+                const cursor = c.isAdmin ? 'cursor:pointer;' : '';
+                return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} ${c.isAdmin?'title="Click para editar"':''}>${c.fmt(l.mercaderia)}</td>`;
+              } },
             { id:'intereses', label:'Intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
               tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):'—'}</td>`; } },
             { id:'ajustes',   label:'Ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
@@ -16723,6 +16782,98 @@ async function liqVerPrestamoEmp(empleadoId) {
   openModal(html, '760px');
 }
 
+// ════════════════════════════════════════════════════════════
+// EDITAR celda manual: abre modal, guarda override en overrides_manuales
+// ════════════════════════════════════════════════════════════
+async function liqEditarCelda(liqId, campo, label, valorActual) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  // Cargar overrides actuales para saber si ya existe
+  const { data: liq } = await sb.from('rrhh_liquidacion')
+    .select('id, ' + campo + ', overrides_manuales, empleado:rrhh_empleados(nombre_completo)')
+    .eq('id', liqId).single();
+  if (!liq) { toast('No encontrada', 'error'); return; }
+  const ovActual = (liq.overrides_manuales && liq.overrides_manuales[campo]) || null;
+
+  const html = `
+    <div class="modal-bg" id="ledit-cel-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:500px;width:100%;">
+        <h3 style="margin:0 0 6px;">✏️ Editar ${escapeHtml(label)}</h3>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${escapeHtml(liq.empleado?.nombre_completo || '')}</div>
+        ${ovActual ? `
+          <div style="background:#f3e8ff;border:1px solid #d8b4fe;padding:10px;border-radius:8px;font-size:12px;color:#6b21a8;margin-bottom:12px;">
+            ⚠ Ya hay un override manual previo. Original automático: <strong>$${Math.round(ovActual.old).toLocaleString('es-AR')}</strong> · Editado por ${escapeHtml(ovActual.by)} el ${new Date(ovActual.at).toLocaleString('es-AR')}.
+            ${ovActual.motivo ? '<br>Motivo: ' + escapeHtml(ovActual.motivo) : ''}
+          </div>` : ''}
+        <div style="margin-bottom:12px;">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Valor actual</label>
+          <input type="number" id="ledit-cel-valor" step="0.01" value="${Number(valorActual||0)}"
+            style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:monospace;font-size:14px;">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo (opcional pero recomendado)</label>
+          <textarea id="ledit-cel-motivo" rows="2" placeholder="Ej: comisión sobre días trabajados, ajuste por feriado, etc."
+            style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;">${ovActual ? escapeHtml(ovActual.motivo || '') : ''}</textarea>
+        </div>
+        <div style="background:#fef3c7;padding:8px;border-radius:6px;font-size:11px;color:#92400e;margin-bottom:12px;">
+          💡 Esta celda quedará marcada en violeta. El recálculo automático <strong>NO va a sobreescribir</strong> este valor hasta que limpies el override.
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:8px;">
+          ${ovActual ? `<button class="btn" style="color:#dc2626;" onclick="liqLimpiarOverride(${liqId}, '${campo}')">🗑 Quitar override (restaurar automático)</button>` : '<div></div>'}
+          <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="document.getElementById('ledit-cel-modal').remove()">Cancelar</button>
+            <button class="btn primary" onclick="liqGuardarOverride(${liqId}, '${campo}', ${Number(valorActual || 0)})">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function liqGuardarOverride(liqId, campo, valorAnterior) {
+  const nuevoValor = Number(document.getElementById('ledit-cel-valor').value);
+  const motivo = document.getElementById('ledit-cel-motivo').value.trim() || null;
+  if (!Number.isFinite(nuevoValor)) { toast('Valor inválido', 'error'); return; }
+
+  const { data: liq } = await sb.from('rrhh_liquidacion')
+    .select('overrides_manuales').eq('id', liqId).single();
+  const ovsActuales = liq?.overrides_manuales || {};
+  // Si ya hay override previo, mantenemos su "old" original; sino, el valor anterior actual
+  const oldOriginal = ovsActuales[campo]?.old ?? valorAnterior;
+
+  const ovsNuevos = {
+    ...ovsActuales,
+    [campo]: {
+      old: oldOriginal,
+      new: nuevoValor,
+      by: session.email,
+      at: new Date().toISOString(),
+      motivo: motivo,
+    },
+  };
+
+  const updateObj = { [campo]: nuevoValor, overrides_manuales: ovsNuevos };
+  const { error } = await sb.from('rrhh_liquidacion').update(updateObj).eq('id', liqId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  try { await auditLog('editar_celda_manual', 'rrhh_liquidacion', liqId, campo, oldOriginal, nuevoValor); } catch(_){}
+  toast('Override guardado ✓', 'success');
+  document.getElementById('ledit-cel-modal').remove();
+  switchTab('liquidaciones');
+}
+
+async function liqLimpiarOverride(liqId, campo) {
+  if (!confirm('¿Quitar el override y restaurar el valor automático? Al próximo recálculo se va a recalcular.')) return;
+  const { data: liq } = await sb.from('rrhh_liquidacion')
+    .select('overrides_manuales').eq('id', liqId).single();
+  const ovs = { ...(liq?.overrides_manuales || {}) };
+  delete ovs[campo];
+  const { error } = await sb.from('rrhh_liquidacion').update({ overrides_manuales: ovs }).eq('id', liqId);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Override quitado. Recalculá la liquidación para restaurar el valor automático.', 'success');
+  document.getElementById('ledit-cel-modal').remove();
+  switchTab('liquidaciones');
+}
+
 async function liqEditarAjuste(liqId, empleadoId) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
@@ -17340,17 +17491,18 @@ const salaryWorkflow = (() => {
     }
     const mercaderia = inputs.mercaderia ?? mercaderia_auto;
 
-    // ── Preservar ajuste manual existente al recalcular ──
-    // Si ya hay una liquidación previa con ajuste cargado (ej. comisión Escasany
-    // manual o cualquier ajuste manual del admin), conservarlo. Sólo lo
-    // sobreescribe si viene explícito en inputs.ajuste.
+    // ── Preservar ajuste manual + overrides_manuales existentes al recalcular ──
+    // Si la fila ya tiene overrides marcados en JSONB, NO los sobreescribimos.
+    // Ej: si admin editó la comisión a $480.334 manualmente, el recálculo
+    // automático no la pisa hasta que el admin "limpie" el override.
     const { data: existingAjuste } = await sb.from('rrhh_liquidacion')
-      .select('ajuste, ajuste_comentario')
+      .select('ajuste, ajuste_comentario, overrides_manuales, fijo, comision, viaticos, premio_monto, feriado_monto, mercaderia')
       .eq('empleado_id', empleadoId)
       .eq('periodo', periodo + '-01')
       .limit(1);
     const ajustePrev = Number(existingAjuste?.[0]?.ajuste || 0);
     const ajusteComentPrev = existingAjuste?.[0]?.ajuste_comentario || null;
+    const overridesPrev = existingAjuste?.[0]?.overrides_manuales || {};
     const ajuste = inputs.ajuste ?? ajustePrev;
     const extras = inputs.extras ?? 0;
     const otros_rem = inputs.otros_remunerativos ?? 0;
@@ -17591,6 +17743,17 @@ const salaryWorkflow = (() => {
       efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste - prestamo_interes);
     }
 
+    // ── Aplicar overrides_manuales: preservar campos editados manualmente ──
+    // Si admin editó algún campo a mano, NO lo pisamos con el cálculo automático.
+    // Mantenemos también el JSONB overrides_manuales tal cual.
+    const camposOverridables = ['fijo','comision','viaticos','premio_monto','feriado_monto','mercaderia'];
+    const valoresOverride = {};
+    camposOverridables.forEach(k => {
+      if (overridesPrev[k]) {
+        valoresOverride[k] = Number(overridesPrev[k].new);
+      }
+    });
+
     // ── UPSERT en rrhh_liquidacion ──
     const t = reciboFinal.totales;
     const filaLiq = {
@@ -17614,7 +17777,22 @@ const salaryWorkflow = (() => {
       total_negro: total_negro_esperado,
       efectivo, ajuste_blanco,
       calculado_at: new Date().toISOString(),
+      overrides_manuales: overridesPrev,
     };
+
+    // Aplicar los overrides al filaLiq pisando los campos automáticos
+    Object.keys(valoresOverride).forEach(k => {
+      // Mapeo de claves del filaLiq: igual (fijo, comision, viaticos, mercaderia, feriado_monto)
+      // premio_monto es campo directo en filaLiq
+      filaLiq[k] = valoresOverride[k];
+    });
+
+    // Recalcular total_negro respetando overrides
+    filaLiq.total_negro = (filaLiq.fijo || 0) + (filaLiq.comision || 0) + (filaLiq.premio_monto || 0)
+                       + (filaLiq.viaticos || 0) + (filaLiq.extras || 0) + (filaLiq.feriado_monto || 0);
+    // Recalcular efectivo: subtotal - mercaderia - intereses - ajuste
+    const subtotalEfMan = Math.max(0, (filaLiq.total_negro || 0) - (filaLiq.recibo_neto || 0));
+    filaLiq.efectivo = Math.max(0, subtotalEfMan - (filaLiq.mercaderia || 0) - (prestamo_interes || 0) - (filaLiq.ajuste || 0));
 
     // Upsert por (empleado_id, periodo)
     const { data: existing } = await sb.from('rrhh_liquidacion')
