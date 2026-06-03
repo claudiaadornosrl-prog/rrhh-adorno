@@ -17407,13 +17407,6 @@ const salaryWorkflow = (() => {
     const maxErroresEmp = (configEmp.max_errores_premio_override != null && configEmp.max_errores_premio_override !== undefined)
       ? Number(configEmp.max_errores_premio_override)
       : Number(cfgLocal.umbral_premio);
-    const cobraPremio = uniforme_ok && (puntos_mes <= maxErroresEmp);
-    // Premio: si está en modo 'dias_local', se prorratea proporcional. En modo 'mes_30' va full.
-    const premioBase = Number(configEmp.premio_fichadas_uniforme);
-    const premio = cobraPremio
-      ? (configEmp.dias_prorrateo_modo === 'dias_local' ? premioBase * ratio : premioBase)
-      : 0;
-
     // ─── Denominador del prorrateo ───
     // - 'mes_30' (default): siempre /30 → empleadas que trabajan mes completo
     // - 'dias_local' (Escasany franquera): /promedio dias_trabajados de vendedoras del local
@@ -17438,6 +17431,13 @@ const salaryWorkflow = (() => {
       }
     }
     const ratio = dias_trabajados / dias_referencia;
+
+    const cobraPremio = uniforme_ok && (puntos_mes <= maxErroresEmp);
+    // Premio: si está en modo 'dias_local', se prorratea proporcional. En modo 'mes_30' va full.
+    const premioBase = Number(configEmp.premio_fichadas_uniforme);
+    const premio = cobraPremio
+      ? (configEmp.dias_prorrateo_modo === 'dias_local' ? premioBase * ratio : premioBase)
+      : 0;
 
     // Comisión: ventas_local × tasa × fraccion × ratio.
     // Para Escasany (modo 'dias_local'), ratio = sus_dias / promedio_local → solo
