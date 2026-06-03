@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v81-fix-path-dni-rls';
+const CACHE_VERSION = 'rrhh-v82-fnac-editable-empleada';
 const ASSETS = [
   './',
   './index.html',

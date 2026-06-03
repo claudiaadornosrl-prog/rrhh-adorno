@@ -4336,7 +4336,9 @@ async function renderMiLegajo() {
         <div class="form-row readonly"><label>Apellido y nombre</label><input value="${escapeHtml(full?.nombre_completo||'')}" disabled></div>
         <div class="form-row readonly"><label>DNI</label><input value="${escapeHtml(full?.dni||'—')}" disabled></div>
         <div class="form-row readonly"><label>CUIL</label><input value="${escapeHtml(full?.cuil||'—')}" disabled></div>
-        <div class="form-row readonly"><label>Fecha de nacimiento</label><input value="${full?.fecha_nacimiento ? fmtFecha(full.fecha_nacimiento) : '—'}" disabled></div>
+        ${full?.fecha_nacimiento
+          ? `<div class="form-row readonly"><label>Fecha de nacimiento</label><input value="${fmtFecha(full.fecha_nacimiento)}" disabled></div>`
+          : `<div class="form-row"><label>Fecha de nacimiento <span style="color:var(--muted);font-size:11px;">(cargá una sola vez)</span></label><input type="date" id="self-fnac" value=""></div>`}
       </div>
 
       <div class="section-title">Laboral</div>
@@ -4437,6 +4439,9 @@ async function guardarMisDatos() {
     obra_social_plan:            document.getElementById('self-os-plan')?.value.trim() || null,
     obra_social_numero_afiliado: document.getElementById('self-os-numafil')?.value.trim() || null,
   };
+  // Fecha de nacimiento: solo si no estaba cargada antes (el input solo existe en ese caso)
+  const fnacInput = document.getElementById('self-fnac');
+  if (fnacInput && fnacInput.value) newFields.fecha_nacimiento = fnacInput.value;
   const { error: e2 } = await sb.from('rrhh_empleados').update(newFields).eq('id', session.empleado_id);
   if (e2) { toast('Error guardando datos extra: ' + e2.message, 'error'); return; }
 
