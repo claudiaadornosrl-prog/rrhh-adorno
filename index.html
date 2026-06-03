@@ -17832,6 +17832,9 @@ const salaryEngine = (() => {
       // opcional: forzar otra fracción para las sumas no rem (caso franquera Escasany
       // donde MEMOSOFT prorratea básico a 16/30 y no rem a 50%)
       fraccion_no_rem_override = null,
+      // opcional: { codigo, nombre, unidades_pct } reemplaza el código 0073 default.
+      // Usado por doble_blanco para imprimir 'Comisiones' código 0018.
+      otros_rem_concepto = null,
     } = input;
 
     const periodoFull = /^\d{4}-\d{2}$/.test(periodo) ? `${periodo}-01` : periodo;
@@ -17858,7 +17861,13 @@ const salaryEngine = (() => {
 
     const otrosRem = otros_remunerativos || 0;
     if (otrosRem > 0) {
-      conceptos.push(concepto(40, '0073', 'A cuenta de futuros aumentos', null, null, otrosRem, true));
+      if (otros_rem_concepto && otros_rem_concepto.codigo) {
+        conceptos.push(concepto(40, otros_rem_concepto.codigo, otros_rem_concepto.nombre || 'Otros remunerativos',
+          null, otros_rem_concepto.unidades_pct != null ? otros_rem_concepto.unidades_pct : null,
+          otrosRem, true));
+      } else {
+        conceptos.push(concepto(40, '0073', 'A cuenta de futuros aumentos', null, null, otrosRem, true));
+      }
     }
 
     const total_rem = basico + antiguedad + presentismo + otrosRem;
@@ -17998,6 +18007,38 @@ const salaryEngine = (() => {
       );
     }
     return basico_escala;
+  }
+
+
+  /**
+   * Solver inverso v2 (doble_blanco): cuánto bruto agregar al ítem 'Comisiones código 0018'
+   * para que el neto del recibo termine matcheando el neto objetivo.
+   *
+   * El ítem es REMUNERATIVO directo (no lleva antigüedad ni presentismo, igual que un
+   * otros_remunerativos cualquiera). Las cargas son las mismas que se aplican a total_rem.
+   *
+   *   neto' = bruto' (1-cb) - total_rem' cr
+   *         = neto_base + X (1 - cb - cr)
+   *
+   *   X = (neto_objetivo - neto_base) / (1 - cb - cr)
+   *
+   * Si neto_objetivo <= neto_base devuelve 0 (no hace falta agregar nada).
+   */
+  function calcularComisionVentaParaNeto(input) {
+    const {
+      neto_objetivo,
+      neto_recibo_base,
+      obra_social_codigo = '',
+      fuera_convenio = false,
+    } = input;
+    const isOsecac = (obra_social_codigo || '').toLowerCase() === 'osecac';
+    const cb = (isOsecac ? PCT.OS : 0) + (fuera_convenio ? 0 : (PCT.SEC + PCT.FAECYS));
+    const cr = PCT.JUB + PCT.LEY19032 + (isOsecac ? 0 : PCT.OS);
+    const denom = 1 - cb - cr;
+    if (denom <= 0) throw new Error('Solver comisión: denominador <= 0 (revisar coeficientes)');
+    const delta_neto = Number(neto_objetivo || 0) - Number(neto_recibo_base || 0);
+    if (delta_neto <= 0) return 0;
+    return delta_neto / denom;
   }
 
   return { calcularReciboCCT, aniosCumplidosAlPeriodo, calcularBasicoParaNeto, PCT };
@@ -19015,34 +19056,9 @@ const salaryWorkflow = (() => {
     let ajuste_blanco = 0;
     let efectivo = 0;
     let reciboFinal = recibo;
-    if (configEmp.modo_liquidacion === 'doble_blanco') {
-      const neto_objetivo = total_negro_esperado - mercaderia - ajuste;
-      const basicoAjustado = salaryEngine.calcularBasicoParaNeto({
-        neto_objetivo,
-        fecha_ingreso: emp.fecha_ingreso,
-        periodo, dias_trabajados,
-        obra_social_codigo: emp.obra_social_codigo || '',
-        suma_fija_nr: Number(paritaria.suma_fija_nr),
-        recompos_nr: Number(paritaria.recompos_nr),
-        fuera_convenio, otros_remunerativos: otros_rem,
-        fraccion_no_rem_override: fraccionNR,
-      });
-      // Recalcular el recibo con el básico ajustado
-      reciboFinal = salaryEngine.calcularReciboCCT({
-        basico_escala: basicoAjustado,
-        fecha_ingreso: emp.fecha_ingreso,
-        periodo, dias_trabajados,
-        obra_social_codigo: emp.obra_social_codigo || '',
-        suma_fija_nr: Number(paritaria.suma_fija_nr),
-        recompos_nr: Number(paritaria.recompos_nr),
-        fuera_convenio, otros_remunerativos: otros_rem,
-        fraccion_no_rem_override: fraccionNR,
-      });
-      efectivo = 0;
-      // Snapshot del delta para trazabilidad: cuánto se modificó el básico
-      // respecto del escalafón puro (positivo si subió, negativo si bajó).
-      ajuste_blanco = Number((reciboFinal.totales.basico - recibo.totales.basico).toFixed(2));
-    } else {
+    // Cálculo provisorio del efectivo para cct_negro. En doble_blanco se recalcula
+    // todo más abajo (después de tener prestamo_interes para descontarlo del recibo).
+    if (configEmp.modo_liquidacion !== 'doble_blanco') {
       efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste);
     }
     // Usar reciboFinal (con básico ajustado si doble_blanco, sino el original)
@@ -19067,6 +19083,43 @@ const salaryWorkflow = (() => {
     //   - INTERÉS → se descuenta del EFECTIVO (no figura en el recibo blanco).
     if (configEmp.modo_liquidacion !== 'doble_blanco') {
       efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste - prestamo_interes);
+    } else {
+      // ── doble_blanco V2 (junio 2026) ────────────────────────────────────
+      // Básico CCT escala pura + concepto 'Comisiones' código 0018 calculado vía
+      // solver inverso para que neto_recibo = (total adorno − mercadería − ajuste
+      // − intereses préstamo). De ese modo todo el "efectivo" del CCT normal queda
+      // absorbido en el recibo blanco. Reemplaza la v1 que inflaba el básico
+      // (rompía LSD ARCA porque el básico salía de escalafón).
+      const neto_objetivo_db = total_negro_esperado - mercaderia - ajuste - prestamo_interes;
+      const comisionVentaBruta = salaryEngine.calcularComisionVentaParaNeto({
+        neto_objetivo: neto_objetivo_db,
+        neto_recibo_base: recibo.totales.neto,
+        obra_social_codigo: emp.obra_social_codigo || '',
+        fuera_convenio,
+      });
+      // Recalcular recibo agregando la comisión venta como otros_remunerativos
+      // (suma al total_rem, no lleva antigüedad ni presentismo) pero imprimiéndolo
+      // como concepto 'Comisiones' código 0018 (como hace el estudio contable).
+      reciboFinal = salaryEngine.calcularReciboCCT({
+        basico_escala,
+        fecha_ingreso: emp.fecha_ingreso,
+        periodo, dias_trabajados,
+        obra_social_codigo: emp.obra_social_codigo || '',
+        suma_fija_nr: Number(paritaria.suma_fija_nr),
+        recompos_nr: Number(paritaria.recompos_nr),
+        fuera_convenio,
+        otros_remunerativos: (otros_rem || 0) + comisionVentaBruta,
+        fraccion_no_rem_override: fraccionNR,
+        otros_rem_concepto: {
+          codigo: '0018',
+          nombre: 'Comisiones',
+          unidades_pct: dias_trabajados,
+        },
+      });
+      efectivo = 0;
+      // ajuste_blanco ahora = bruto del ítem 'Comisiones 0018' agregado por solver
+      // (cambio de significado vs v1 que era delta del básico, mismo campo en DB).
+      ajuste_blanco = Number(comisionVentaBruta.toFixed(2));
     }
 
     // ── Aplicar overrides_manuales: preservar campos editados manualmente ──
