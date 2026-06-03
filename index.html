@@ -7074,8 +7074,8 @@ async function procesarMes(periodo, local = null) {
 
         if (!hayFichada) {
           estado = 'ausente';
-          // -minutos del turno completo al banco (salvo que esté salvado)
-          if (ti != null && tf != null && !salvadosMap[k]) minBanco = -(tf - ti);
+          // Ausencias NO van al banco — se descuentan directo del sueldo (días no pagos).
+          // (mantenido el estado para tracking en grilla; minBanco queda 0)
         } else if (fichs.length === 1) {
           estado = 'falta_fichada';
           entrada = fichs[0];
@@ -7119,14 +7119,11 @@ async function procesarMes(periodo, local = null) {
             estado = 'puntual';
           }
 
-          // Banco — las tardanzas se acumulan, NO se descuentan día a día.
-          //         Al final del mes, si superan el umbral, descuento el excedente.
-          //         Las salidas tempranas SI se descuentan día a día (siguen siendo error puntual).
-          if (minTemp > (tol.minutos_temprano || 5)) {
-            minBanco -= (minTemp - (tol.minutos_temprano || 5));
-          }
+          // Banco — tardanzas Y salidas tempranas se acumulan, NO se descuentan día a día.
+          //         Al final del mes, si superan el umbral mensual, descuento TODO el acumulado.
+          //         Solo extras autorizadas y permisos compensatorios tocan el banco día a día.
           if (extrasMap[k]) {
-            // Extras autorizadas suman al banco
+            // Extras autorizadas (cargadas por encargada/admin) suman al banco
             minBanco += extrasMap[k];
           }
         }
@@ -7142,8 +7139,18 @@ async function procesarMes(periodo, local = null) {
       // - El umbral diario (5 min) determina si cuenta como error de premio, NO si entra a la suma.
       // - Excluye días salvados.
       const eraSalvado = !!salvadosMap[k];
-      if (minTarde > 0 && !eraSalvado) {
-        tardanzaAcum[emp.id] = (tardanzaAcum[emp.id] || 0) + minTarde;
+      if (!eraSalvado) {
+        // Acumular tardanzas Y salidas tempranas para el descuento mensual.
+        // Si la suma supera el umbral (60 min), se descuenta TODO al cierre del mes.
+        const tolEmpTarde = (tols[emp.local] || {}).minutos_tarde || 5;
+        const tolEmpTemp = (tols[emp.local] || {}).minutos_temprano || 5;
+        // Solo cuentan los minutos que excedan la tolerancia diaria
+        const tardeReal = minTarde > tolEmpTarde ? minTarde : 0;
+        const tempReal = minTemp > tolEmpTemp ? (minTemp - tolEmpTemp) : 0;
+        const aSumar = tardeReal + tempReal;
+        if (aSumar > 0) {
+          tardanzaAcum[emp.id] = (tardanzaAcum[emp.id] || 0) + aSumar;
+        }
       }
 
       // Permisos (restan del banco si están aprobados)
@@ -7195,7 +7202,7 @@ async function procesarMes(periodo, local = null) {
         minutos: descuento,
         tipo: 'tarde',
         referencia_tipo: 'tarde_mensual',
-        observaciones: `Tardanzas del mes: ${acum} min (supera umbral ${umbral}). Descuento total: ${Math.abs(descuento)} min.`,
+        observaciones: `Tardanzas + salidas tempranas del mes: ${acum} min (supera umbral ${umbral}). Descuento total: ${Math.abs(descuento)} min.`,
         creado_por: 'sistema-cruce',
       });
     }
