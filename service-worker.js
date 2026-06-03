@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v84-signup-vendedoras';
+const CACHE_VERSION = 'rrhh-v85-boton-recalcular';
 const ASSETS = [
   './',
   './index.html',
