@@ -4451,7 +4451,7 @@ async function subirMiDniFoto(input, lado) {
   const file = input.files[0];
   if (!session.empleado_id) { toast('Sin empleado vinculado', 'error'); return; }
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const path = `dni/${session.empleado_id}_${lado}_${Date.now()}.${ext}`;
+  const path = `${session.empleado_id}/dni-${lado}-${Date.now()}.${ext}`;
   toast('Subiendo…', 'info');
   const { data, error } = await sb.storage.from('legajos').upload(path, file, { upsert: true });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
@@ -19223,6 +19223,7 @@ const salaryWorkflow = (() => {
       dias_trabajados, mercaderia, ajuste, uniforme_ok,
       puntos_mes, observaciones: inputs.observaciones || null,
       prestamo_capital, prestamo_interes,
+      modo_liquidacion: configEmp.modo_liquidacion || 'cct_negro',
       // recibo
       recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
       recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
