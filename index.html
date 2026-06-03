@@ -475,9 +475,47 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 // PWA · Service worker + botón Instalar
 // ════════════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./service-worker.js')
-      .catch(err => console.warn('[SW] error al registrar:', err));
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('./service-worker.js');
+      // Forzar chequeo de actualización al cargar
+      reg.update().catch(() => {});
+
+      // Si hay nuevo SW esperando — activarlo de una y recargar la página
+      const tryActivate = () => {
+        if (reg.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+      };
+
+      // Cuando aparece un SW nuevo en estado installed, activarlo
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('[SW] Nueva versión instalada, activando…');
+            tryActivate();
+          }
+        });
+      });
+
+      // Cuando el SW activo cambia (porque acaba de activarse el nuevo), recargar
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        console.log('[SW] Controller cambió, recargando para tomar nueva versión…');
+        window.location.reload();
+      });
+
+      // Re-chequear actualizaciones cuando la ventana gana foco
+      window.addEventListener('focus', () => reg.update().catch(() => {}));
+      // Y cada 5 minutos por las dudas
+      setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000);
+    } catch (err) {
+      console.warn('[SW] error al registrar:', err);
+    }
   });
 }
 
