@@ -13508,22 +13508,20 @@ async function liqGenerarDefinitivo(local, periodo) {
   const { data: proformasPrevias } = await qProf;
   const huboProforma = (proformasPrevias || []).length > 0;
 
-  if (huboProforma) {
-    if (!confirm(`¿Generar DEFINITIVO de ${periodo} para ${local === 'todos' ? 'TODOS los locales' : local}?\n\nHay ${proformasPrevias.length} proforma(s) previa(s). Hereda los descuentos especiales y recalcula con paritaria vigente.\n\nSi hay diferencias, podrás generar XLSX Galicia ajuste.`)) return;
-    const descuentosHeredados = {};
-    (proformasPrevias || []).forEach(p => {
-      if (p.descuentos_especiales && p.descuentos_especiales.dias_extra > 0) {
-        descuentosHeredados[p.empleado_id] = {
-          dias_extra: Number(p.descuentos_especiales.dias_extra || 0),
-          motivo: p.descuentos_especiales.motivo || '',
-        };
-      }
-    });
-    await ejecutarDefinitivo(local, periodo, descuentosHeredados, true);
-    return;
-  }
+  // Heredados de proforma (si existen) — mapa empId → {dias_extra, motivo}
+  const heredados = {};
+  (proformasPrevias || []).forEach(p => {
+    if (p.descuentos_especiales && p.descuentos_especiales.dias_extra > 0) {
+      heredados[p.empleado_id] = {
+        dias_extra: Number(p.descuentos_especiales.dias_extra || 0),
+        motivo: p.descuentos_especiales.motivo || '',
+      };
+    }
+  });
 
-  // Sin proforma previa — abrir modal de conceptos a descontar
+  // Siempre abrimos el modal (con proforma o sin) — la diferencia es solo
+  // el contenido pre-cargado: con proforma incluye los heredados + nuevas faltas
+  // detectadas entre la fecha de la proforma y hoy.
   const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, nombre_completo, local')
@@ -13569,15 +13567,28 @@ async function liqGenerarDefinitivo(local, periodo) {
   const totalSug = Object.values(sugerencias).reduce((s,n) => s+n, 0);
   const cantConSug = Object.keys(sugerencias).length;
 
+  const cantHeredados = Object.keys(heredados).length;
+  const totalDiasHeredados = Object.values(heredados).reduce((s,h) => s + Number(h.dias_extra||0), 0);
+
+  const tieneProforma = (proformasPrevias || []).length > 0;
+  const headerTitulo = tieneProforma
+    ? '✅ Generar DEFINITIVO (heredando de proforma)'
+    : '✅ Generar liquidación DEFINITIVA (sin proforma previa)';
+  const headerInfo = tieneProforma
+    ? `<div style="background:#fef3c7;border:1px solid #fbbf24;padding:10px;border-radius:8px;font-size:12px;color:#78350f;margin-bottom:14px;">
+         📋 <strong>${proformasPrevias.length} proforma(s)</strong> previa(s) con <strong>${totalDiasHeredados} día(s)</strong> descontados en ${cantHeredados} empleada(s). Los valores ya están pre-cargados; editá si entre proforma y definitivo hubo más faltas, suspensiones o ajustes.
+       </div>`
+    : `<div style="background:#dbeafe;border:1px solid #93c5fd;padding:10px;border-radius:8px;font-size:12px;color:#1e40af;margin-bottom:14px;">
+         💡 No hay proforma previa. Estás generando el <strong>cálculo final</strong> directamente — va a producir los PDFs firmables y aparecer en Mis recibos de las empleadas.
+       </div>`;
+
   const html = `
-    <div style="padding:20px;max-width:880px;width:100%;">
-      <h3 style="margin:0 0 6px;">✅ Generar liquidación DEFINITIVA (sin proforma previa)</h3>
+    <div style="padding:20px;max-width:980px;width:100%;">
+      <h3 style="margin:0 0 6px;">${headerTitulo}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
         Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas
       </div>
-      <div style="background:#dbeafe;border:1px solid #93c5fd;padding:10px;border-radius:8px;font-size:12px;color:#1e40af;margin-bottom:14px;">
-        💡 No hay proforma previa. Estás generando el <strong>cálculo final</strong> directamente — va a producir los PDFs firmables y aparecer en Mis recibos de las empleadas.
-      </div>
+      ${headerInfo}
       ${totalSug > 0 ? `
         <div style="background:#fee2e2;border:1px solid #fca5a5;padding:10px;border-radius:8px;font-size:13px;color:#991b1b;margin-bottom:14px;">
           🚨 <strong>${totalSug} falta(s) detectada(s) sin justificación</strong> en ${cantConSug} empleada(s) hasta ${limiteDeteccion}.
@@ -13590,7 +13601,9 @@ async function liqGenerarDefinitivo(local, periodo) {
       <div style="margin-bottom:14px;">
         <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Conceptos a descontar</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
-          Sugerencias auto-detectadas: faltas sin permiso compensatorio aprobado. Editá libremente.
+          ${tieneProforma
+            ? 'Los días heredados de la proforma + nuevas faltas detectadas están pre-cargados. Sumá manualmente suspensiones o ajustes adicionales si corresponde.'
+            : 'Sugerencias auto-detectadas: faltas sin permiso compensatorio aprobado. Editá libremente.'}
         </div>
         <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
           <table style="width:100%;font-size:12px;">
@@ -13598,30 +13611,39 @@ async function liqGenerarDefinitivo(local, periodo) {
               <tr>
                 <th style="padding:6px 10px;text-align:left;">Empleada</th>
                 <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
-                <th style="padding:6px 10px;text-align:left;width:170px;">Faltas detectadas</th>
-                <th style="padding:6px 10px;text-align:right;width:90px;">Días a descontar</th>
+                <th style="padding:6px 10px;text-align:right;width:90px;">Heredado<br>proforma</th>
+                <th style="padding:6px 10px;text-align:left;width:160px;">Faltas detectadas<br>(post-proforma)</th>
+                <th style="padding:6px 10px;text-align:right;width:90px;">Días<br>a descontar</th>
                 <th style="padding:6px 10px;text-align:left;width:220px;">Motivo</th>
               </tr>
             </thead>
             <tbody>
               ${(emps || []).map(e => {
+                const her = heredados[e.id];
+                const herDias = her ? Number(her.dias_extra || 0) : 0;
+                const herMot  = her ? (her.motivo || '') : '';
                 const sug = sugerencias[e.id] || 0;
                 const dets = detalleSugerencias[e.id] || [];
                 const detsTxt = dets.map(d => d.slice(8)).join(', ');
-                const filaBg = sug > 0 ? 'background:#fef3c7;' : '';
-                const inputBg = sug > 0 ? 'background:#fed7aa;font-weight:600;color:#7c2d12;' : '';
-                const motivoSug = sug > 0 ? `${sug} falta(s) sin justificar (${detsTxt})` : '';
+                const totalDias = herDias + sug;
+                const filaBg = totalDias > 0 ? 'background:#fef3c7;' : '';
+                const inputBg = totalDias > 0 ? 'background:#fed7aa;font-weight:600;color:#7c2d12;' : '';
+                const motivoCombo = [
+                  herMot ? `[Proforma] ${herMot}` : '',
+                  sug > 0 ? `${sug} falta(s) post-proforma (${detsTxt})` : '',
+                ].filter(Boolean).join(' · ');
                 return `<tr style="border-top:1px solid var(--border);${filaBg}">
                   <td style="padding:6px 10px;">${escapeHtml(e.nombre_completo)}</td>
                   <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${e.local}</td>
-                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#991b1b':'var(--muted)'};">${sug > 0 ? `🚨 ${sug} día(s): ${detsTxt}` : '—'}</td>
+                  <td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;color:${herDias>0?'#78350f':'var(--muted)'};">${herDias > 0 ? herDias : '—'}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#991b1b':'var(--muted)'};">${sug > 0 ? `🚨 ${sug}: ${detsTxt}` : '—'}</td>
                   <td style="padding:6px 10px;text-align:right;">
-                    <input type="number" min="0" step="1" value="${sug}" id="def-dias-${e.id}"
+                    <input type="number" min="0" step="1" value="${totalDias}" id="def-dias-${e.id}"
                            style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${inputBg}">
                   </td>
                   <td style="padding:6px 10px;">
                     <input type="text" placeholder="Ej: suspensión" id="def-mot-${e.id}"
-                           value="${escapeHtml(motivoSug)}"
+                           value="${escapeHtml(motivoCombo)}"
                            style="width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;">
                   </td>
                 </tr>`;
@@ -13632,14 +13654,14 @@ async function liqGenerarDefinitivo(local, periodo) {
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button class="btn" onclick="closeModal()">Cancelar</button>
-        <button class="btn primary" onclick="liqGenerarDefinitivoConfirmar('${local}','${periodo}')">✅ Generar DEFINITIVO</button>
+        <button class="btn primary" onclick="liqGenerarDefinitivoConfirmar('${local}','${periodo}', ${tieneProforma})">✅ Generar DEFINITIVO</button>
       </div>
     </div>
   `;
-  openModal(html, '920px');
+  openModal(html, '1020px');
 }
 
-async function liqGenerarDefinitivoConfirmar(local, periodo) {
+async function liqGenerarDefinitivoConfirmar(local, periodo, huboProforma = false) {
   const inputs = document.querySelectorAll('[id^="def-dias-"]');
   const descuentosPorEmp = {};
   inputs.forEach(inp => {
@@ -13650,7 +13672,7 @@ async function liqGenerarDefinitivoConfirmar(local, periodo) {
     if (dias > 0) descuentosPorEmp[empId] = { dias_extra: dias, motivo: motivo || 'Sin motivo' };
   });
   closeModal();
-  await ejecutarDefinitivo(local, periodo, descuentosPorEmp, false);
+  await ejecutarDefinitivo(local, periodo, descuentosPorEmp, huboProforma);
 }
 
 async function ejecutarDefinitivo(local, periodo, descuentosPorEmp, huboProforma) {
