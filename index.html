@@ -17303,7 +17303,29 @@ const salaryWorkflow = (() => {
     // Días del mes y días no trabajados
     const diasNoTrab = await cargarDiasNoTrabajados(empleadoId, periodo);
     const diasMes = diasDelMes(periodo);
-    const diasTrabajadosInferidos = Math.max(0, 30 - diasNoTrab);
+    let diasTrabajadosInferidos = Math.max(0, 30 - diasNoTrab);
+
+    // Para empleadas con dias_prorrateo_modo='dias_local' (caso Escasany):
+    // contar los días que EFECTIVAMENTE trabajó (no 30 - ausentes).
+    // Una franquera viene solo unos días, así que el resto NO son 'ausente',
+    // simplemente no estaba agendada. Acá los descartamos correctamente.
+    if (configEmp.dias_prorrateo_modo === 'dias_local') {
+      const [yEsc, mEsc] = periodo.split('-').map(Number);
+      const desdeEsc = `${periodo}-01`;
+      const hastaEsc = `${yEsc}-${String(mEsc).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+      const { data: detsEsc } = await sb.from('rrhh_asistencias_detalle')
+        .select('fecha, estado, entrada, salida')
+        .eq('empleado_id', empleadoId)
+        .gte('fecha', desdeEsc).lte('fecha', hastaEsc);
+      // Contar solo días con trabajo efectivo (excluye feriado no trabajado, ausente, licencia, vacaciones)
+      diasTrabajadosInferidos = (detsEsc || []).filter(d => {
+        if (['ausente','licencia','vacaciones'].includes(d.estado)) return false;
+        if (d.estado === 'feriado' && !d.entrada && !d.salida) return false;
+        // Cualquier otro estado con fichada o estado de trabajado cuenta
+        return !!d.entrada || !!d.salida || ['puntual','tarde','falta_fichada','feriado'].includes(d.estado);
+      }).length;
+    }
+
     const dias_trabajados = inputs.dias_trabajados ?? diasTrabajadosInferidos;
     // Mercadería: si no se pasa input explícito, sumar los retiros cargados por la encargada
     let mercaderia_auto = 0;
@@ -17451,8 +17473,14 @@ const salaryWorkflow = (() => {
     }
     let comision = comision_base * Number(configEmp.fraccion_comision) * ratio;
 
-    // Fijo: siempre se prorratea sobre 30. El fijo es contractual mensual.
-    const fijo = Number(configEmp.fijo) * (dias_trabajados / 30);
+    // Fijo:
+    //  - empleadas en mes_30 (vendedoras normales): se prorratea por dias_trabajados/30.
+    //    Si trabajó todo el mes: ratio=1 → cobra full. Con ausencias sin goce: baja.
+    //  - empleadas en dias_local (Escasany franquera): cobra el fijo COMPLETO siempre,
+    //    porque su fijo ya está calibrado al perfil de "trabaja pocos días al mes".
+    const fijo = (configEmp.dias_prorrateo_modo === 'dias_local')
+      ? Number(configEmp.fijo)
+      : Number(configEmp.fijo) * (dias_trabajados / 30);
 
     // Viáticos: prorrateados sobre dias_referencia (mismo criterio que comisión).
     const viaticos_full = Number(configEmp.viaticos);
