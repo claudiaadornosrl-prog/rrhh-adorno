@@ -19158,11 +19158,11 @@ const salaryWorkflow = (() => {
     } else {
       // ── doble_blanco V2 (junio 2026) ────────────────────────────────────
       // Básico CCT escala pura + concepto 'Comisiones' código 0018 calculado vía
-      // solver inverso para que neto_recibo = (total adorno − mercadería − ajuste
-      // − intereses préstamo). De ese modo todo el "efectivo" del CCT normal queda
-      // absorbido en el recibo blanco. Reemplaza la v1 que inflaba el básico
-      // (rompía LSD ARCA porque el básico salía de escalafón).
-      const neto_objetivo_db = total_negro_esperado - mercaderia - ajuste - prestamo_interes;
+      // solver inverso para que neto_recibo = Total Adorno COMPLETO (sin restar nada).
+      // Mercadería + ajuste + intereses se descuentan después en la columna 'A acreditar
+      // banco' (junto con préstamo capital), no del recibo. Así el recibo refleja el
+      // verdadero total cobrado por la empleada (legal: ARCA / LSD ve el total).
+      const neto_objetivo_db = total_negro_esperado;
       const comisionVentaBruta = salaryEngine.calcularComisionVentaParaNeto({
         neto_objetivo: neto_objetivo_db,
         neto_recibo_base: recibo.totales.neto,
