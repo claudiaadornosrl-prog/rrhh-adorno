@@ -19162,7 +19162,17 @@ const salaryWorkflow = (() => {
       // Mercadería + ajuste + intereses se descuentan después en la columna 'A acreditar
       // banco' (junto con préstamo capital), no del recibo. Así el recibo refleja el
       // verdadero total cobrado por la empleada (legal: ARCA / LSD ve el total).
-      const neto_objetivo_db = total_negro_esperado;
+      //
+      // CRUCIAL: aplicar overrides_manuales ANTES de calcular el neto_objetivo, sino
+      // el solver apunta al total automático (sin la comisión manual de Escasany, p.ej.)
+      // y deja efectivo > 0.
+      const fijoFinal      = (overridesPrev.fijo?.new      != null) ? Number(overridesPrev.fijo.new)      : fijo;
+      const comisionFinal  = (overridesPrev.comision?.new  != null) ? Number(overridesPrev.comision.new)  : comision;
+      const premioFinal    = (overridesPrev.premio_monto?.new != null) ? Number(overridesPrev.premio_monto.new) : premio;
+      const viaticosFinal  = (overridesPrev.viaticos?.new  != null) ? Number(overridesPrev.viaticos.new)  : viaticos;
+      const feriadoFinal   = (overridesPrev.feriado_monto?.new != null) ? Number(overridesPrev.feriado_monto.new) : feriado_monto;
+      const totalNegroReal = fijoFinal + comisionFinal + premioFinal + viaticosFinal + extras + feriadoFinal;
+      const neto_objetivo_db = totalNegroReal;
       const comisionVentaBruta = salaryEngine.calcularComisionVentaParaNeto({
         neto_objetivo: neto_objetivo_db,
         neto_recibo_base: recibo.totales.neto,
@@ -19266,8 +19276,13 @@ const salaryWorkflow = (() => {
     filaLiq.total_negro = (filaLiq.fijo || 0) + (filaLiq.comision || 0) + (filaLiq.premio_monto || 0)
                        + (filaLiq.viaticos || 0) + (filaLiq.extras || 0) + (filaLiq.feriado_monto || 0);
     // Recalcular efectivo: subtotal - mercaderia - intereses - ajuste
-    const subtotalEfMan = Math.max(0, (filaLiq.total_negro || 0) - (filaLiq.recibo_neto || 0));
-    filaLiq.efectivo = Math.max(0, subtotalEfMan - (filaLiq.mercaderia || 0) - (prestamo_interes || 0) - (filaLiq.ajuste || 0));
+    // EXCEPTO en doble_blanco donde efectivo SIEMPRE es 0 (todo absorbido en el recibo).
+    if (configEmp.modo_liquidacion === 'doble_blanco') {
+      filaLiq.efectivo = 0;
+    } else {
+      const subtotalEfMan = Math.max(0, (filaLiq.total_negro || 0) - (filaLiq.recibo_neto || 0));
+      filaLiq.efectivo = Math.max(0, subtotalEfMan - (filaLiq.mercaderia || 0) - (prestamo_interes || 0) - (filaLiq.ajuste || 0));
+    }
 
     // Upsert por (empleado_id, periodo)
     const { data: existing } = await sb.from('rrhh_liquidacion')
