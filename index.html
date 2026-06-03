@@ -6348,10 +6348,13 @@ async function renderResumenContent() {
   (tols || []).forEach(t => { maxErrPorLocal[t.local] = t.max_errores_premio || 4; });
 
   // Cargar overrides por empleada (caso Escasany = 2) — config vigente al mes
-  const mesFinPeriodo = `${asisState.mes}-31`;  // alcanza con tope inferior; ajustamos abajo
+  // Tope: primer día del mes SIGUIENTE (robusto, no asume 31 días)
+  const [yyMes, mmMes] = asisState.mes.split('-').map(Number);
+  const mesSig = mmMes === 12 ? `${yyMes+1}-01` : `${yyMes}-${String(mmMes+1).padStart(2,'0')}`;
+  const topeVigente = `${mesSig}-01`;
   const { data: overridesCfg } = await sb.from('rrhh_sueldo_empleada_config')
     .select('empleado_id, vigente_desde, max_errores_premio_override')
-    .lte('vigente_desde', `${asisState.mes}-31`)
+    .lt('vigente_desde', topeVigente)
     .order('vigente_desde', { ascending: false });
   // Quedarse con la última config vigente por empleada
   const maxErrPorEmp = {};
