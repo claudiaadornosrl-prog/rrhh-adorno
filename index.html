@@ -679,6 +679,9 @@ const NAV = {
     { id: 'prestamos',   label: 'Préstamos',    icon: '💵', section: null },
     { id: 'liquidaciones', label: 'Liquidación', icon: '🧮', section: null },
   ],
+  directora: [
+    { id: 'liquidaciones', label: 'Liquidación mensual', icon: '🧮', section: null },
+  ],
   empleado: [
     { id: 'mi-calendario', label: 'Mi calendario', icon: '📅', section: null },
     { id: 'mi-legajo',     label: 'Mi legajo',     icon: '👤', section: null },
@@ -777,8 +780,10 @@ async function onLoggedIn(user) {
   renderUserInfo();
   console.log('[LOGIN] renderSidebar...');
   renderSidebar();
-  // Tab inicial según rol
-  const firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
+  // Tab inicial según rol — directora no tiene NAV items así que forzamos liquidaciones
+  let firstTab;
+  if (session.rol === 'directora') firstTab = 'liquidaciones';
+  else firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
   console.log('[LOGIN] switchTab firstTab=', firstTab);
   switchTab(firstTab);
   console.log('[LOGIN] DONE ✓');
@@ -11799,9 +11804,12 @@ async function renderLiquidaciones() {
     const hoy = new Date();
     liqState.periodo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
   }
-  const isAdmin   = session.rol === 'admin';
-  const isGerente = session.rol === 'gerente';
-  if (!liqState.local) liqState.local = isAdmin ? 'todos' : (session.empleadoData?.local || 'alcorta');
+  const isAdmin     = session.rol === 'admin';
+  const isGerente   = session.rol === 'gerente';
+  const isDirectora = session.rol === 'directora';
+  // Directora ve TODOS los locales por default (no puede cambiar)
+  if (!liqState.local) liqState.local = (isAdmin || isDirectora) ? 'todos' : (session.empleadoData?.local || 'alcorta');
+  if (isDirectora) liqState.local = 'todos';
   const local = isGerente ? session.empleadoData.local : liqState.local;
   const periodo = liqState.periodo;
 
@@ -11847,11 +11855,23 @@ async function renderLiquidaciones() {
     catch (e) { console.warn('Ganancias revisión fail:', e); }
   }
 
-  const periodos = [];
+  let periodos = [];
   for (let i = 0; i < 12; i++) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
     periodos.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  // Para directora: filtrar solo meses cerrados
+  if (isDirectora) {
+    const { data: cerrados } = await sb.from('rrhh_meses_cerrados_sueldos')
+      .select('periodo').order('periodo', { ascending: false });
+    const setCerrados = new Set((cerrados || []).map(r => r.periodo.substring(0,7)));
+    periodos = periodos.filter(p => setCerrados.has(p));
+    if (periodos.length === 0) periodos.push('—');
+    // Forzar el periodo actual a uno cerrado si el default no está
+    if (!setCerrados.has(liqState.periodo)) {
+      liqState.periodo = periodos[0] !== '—' ? periodos[0] : liqState.periodo;
+    }
   }
   const labelMes = (p) => {
     const [y,m] = p.split('-').map(Number);
@@ -13409,6 +13429,23 @@ async function liqCerrarMes(local, periodo) {
       okCount++;
     }
   }
+  // Notificar a las directoras: se cerró un mes (pueden ver el liquidador)
+  try {
+    const { data: directoras } = await sb.from('rrhh_usuarios')
+      .select('empleado_id').eq('rol', 'directora').eq('activo', true);
+    const [yMes, mMes] = periodo.split('-').map(Number);
+    const labelMes = new Date(yMes, mMes-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+    for (const d of (directoras || [])) {
+      if (!d.empleado_id) continue;
+      const localTxt = local === 'todos' ? 'todos los locales' : local;
+      enviarPush(
+        d.empleado_id,
+        '📊 Mes cerrado · Liquidación lista',
+        `${labelMes.charAt(0).toUpperCase()+labelMes.slice(1)} se cerró para ${localTxt}. Ya podés ver el liquidador completo.`,
+        { url: './#liquidaciones', tag: 'cierre-mes-' + periodo }
+      );
+    }
+  } catch (e) { console.warn('Push directoras fail:', e); }
   // ─── Aplicar cuotas de préstamo al cerrar ───
   // Las cuotas con mes_descuento = periodo y de préstamos activos del local
   // pasan de 'pendiente' a 'aplicada'. Esto es lo que JP llama "pagar" la cuota.
