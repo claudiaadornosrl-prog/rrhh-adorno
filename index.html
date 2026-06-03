@@ -4215,6 +4215,9 @@ const CAMPOS_LEGAJO_CRITICOS = [
   { campo: 'emergencia_nombre',   label: 'Contacto de emergencia: nombre' },
   { campo: 'emergencia_telefono', label: 'Contacto de emergencia: teléfono' },
   { campo: 'cbu',                 label: 'CBU para cobrar' },
+  { campo: 'foto_url',            label: 'Foto de perfil' },
+  { campo: 'dni_foto_frente_url', label: 'Foto del DNI (frente)' },
+  { campo: 'dni_foto_dorso_url',  label: 'Foto del DNI (dorso)' },
 ];
 
 function legajoIncompleto(emp) {
@@ -4320,6 +4323,46 @@ async function renderMiLegajo() {
         <div class="form-row"><label>Vínculo</label><input type="text" id="self-emer-vinc" value="${escapeHtml(full?.emergencia_vinculo||'')}"></div>
       </div>
 
+      <div class="section-title">Cónyuge <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(opcional — para deducción Ganancias 4ta)</span></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Nombre y apellido</label><input type="text" id="self-con-nombre" value="${escapeHtml(full?.conyuge_nombre||'')}"></div>
+        <div class="form-row"><label>CUIL</label><input type="text" id="self-con-cuil" value="${escapeHtml(full?.conyuge_cuil||'')}" placeholder="20-12345678-9"></div>
+        <div class="form-row"><label>Fecha de nacimiento</label><input type="date" id="self-con-fnac" value="${full?.conyuge_fecha_nacimiento||''}"></div>
+      </div>
+
+      <div class="section-title">Obra social <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(completá tu plan y N° de afiliado)</span></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Código / Nombre</label><input type="text" id="self-os-codigo" value="${escapeHtml(full?.obra_social_codigo||'')}" placeholder="Ej: OSDE, Swiss Medical, OSECAC"></div>
+        <div class="form-row"><label>Plan</label><input type="text" id="self-os-plan" value="${escapeHtml(full?.obra_social_plan||'')}" placeholder="Ej: 210, Black, Gold"></div>
+        <div class="form-row"><label>N° de afiliado</label><input type="text" id="self-os-numafil" value="${escapeHtml(full?.obra_social_numero_afiliado||'')}"></div>
+      </div>
+      <div style="margin-top:6px;font-size:12px;">
+        <button class="btn small" onclick="abrirSolicitarCambioOS()" style="background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;">🔁 Solicitar cambio de obra social</button>
+        <span id="self-os-solicitudes" style="margin-left:10px;color:var(--muted);"></span>
+      </div>
+
+      <div class="section-title">Foto del DNI <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(obligatoria)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Frente</div>
+          ${full?.dni_foto_frente_url ? `
+            <a href="${escapeHtml(full.dni_foto_frente_url)}" target="_blank">
+              <img src="${escapeHtml(full.dni_foto_frente_url)}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;">
+            </a>
+          ` : `<div style="height:120px;background:#fee2e2;border:2px dashed #fca5a5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#991b1b;font-size:13px;">Falta foto</div>`}
+          <input type="file" accept="image/*" onchange="subirMiDniFoto(this, 'frente')" style="margin-top:6px;font-size:12px;width:100%;">
+        </div>
+        <div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Dorso</div>
+          ${full?.dni_foto_dorso_url ? `
+            <a href="${escapeHtml(full.dni_foto_dorso_url)}" target="_blank">
+              <img src="${escapeHtml(full.dni_foto_dorso_url)}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;">
+            </a>
+          ` : `<div style="height:120px;background:#fee2e2;border:2px dashed #fca5a5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#991b1b;font-size:13px;">Falta foto</div>`}
+          <input type="file" accept="image/*" onchange="subirMiDniFoto(this, 'dorso')" style="margin-top:6px;font-size:12px;width:100%;">
+        </div>
+      </div>
+
       <div style="margin-top:20px;text-align:right;">
         <button class="btn primary" onclick="guardarMisDatos()">Guardar cambios</button>
       </div>
@@ -4336,6 +4379,7 @@ async function guardarMisDatos() {
     emergencia_telefono: document.getElementById('self-emer-tel').value.trim() || null,
     emergencia_vinculo: document.getElementById('self-emer-vinc').value.trim() || null,
   };
+  // Llamamos a la RPC para los campos clásicos
   const { error } = await sb.rpc('rrhh_actualizar_mis_datos', {
     p_email: fields.email,
     p_telefono: fields.telefono,
@@ -4345,9 +4389,99 @@ async function guardarMisDatos() {
     p_emergencia_vinculo: fields.emergencia_vinculo,
   });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  if (session.empleadoData) Object.assign(session.empleadoData, fields);
-  await auditLog('editar', 'rrhh_empleados', session.empleado_id, 'self-edit', null, JSON.stringify(fields));
+
+  // Update directo de los campos nuevos (cónyuge, OS, etc.) — RLS valida que sea su propia fila
+  const newFields = {
+    conyuge_nombre:              document.getElementById('self-con-nombre')?.value.trim() || null,
+    conyuge_cuil:                document.getElementById('self-con-cuil')?.value.trim() || null,
+    conyuge_fecha_nacimiento:    document.getElementById('self-con-fnac')?.value || null,
+    obra_social_codigo:          document.getElementById('self-os-codigo')?.value.trim() || null,
+    obra_social_plan:            document.getElementById('self-os-plan')?.value.trim() || null,
+    obra_social_numero_afiliado: document.getElementById('self-os-numafil')?.value.trim() || null,
+  };
+  const { error: e2 } = await sb.from('rrhh_empleados').update(newFields).eq('id', session.empleado_id);
+  if (e2) { toast('Error guardando datos extra: ' + e2.message, 'error'); return; }
+
+  if (session.empleadoData) Object.assign(session.empleadoData, fields, newFields);
+  await auditLog('editar', 'rrhh_empleados', session.empleado_id, 'self-edit', null, JSON.stringify({ ...fields, ...newFields }));
   toast('Datos actualizados ✓', 'success');
+}
+
+// Subir foto de DNI (frente o dorso)
+async function subirMiDniFoto(input, lado) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  if (!session.empleado_id) { toast('Sin empleado vinculado', 'error'); return; }
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const path = `dni/${session.empleado_id}_${lado}_${Date.now()}.${ext}`;
+  toast('Subiendo…', 'info');
+  const { data, error } = await sb.storage.from('legajos').upload(path, file, { upsert: true });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  const { data: pub } = sb.storage.from('legajos').getPublicUrl(path);
+  const campo = lado === 'frente' ? 'dni_foto_frente_url' : 'dni_foto_dorso_url';
+  const { error: e2 } = await sb.from('rrhh_empleados').update({ [campo]: pub.publicUrl }).eq('id', session.empleado_id);
+  if (e2) { toast('Error guardando URL: ' + e2.message, 'error'); return; }
+  if (session.empleadoData) session.empleadoData[campo] = pub.publicUrl;
+  toast('Foto del DNI guardada ✓', 'success');
+  switchTab('mi-legajo');
+}
+
+// Modal: solicitar cambio de obra social
+async function abrirSolicitarCambioOS() {
+  const full = await legajoEmpFull();
+  const html = `
+    <div style="padding:20px;max-width:520px;width:100%;">
+      <h3 style="margin:0 0 6px;">🔁 Solicitar cambio de obra social</h3>
+      <p style="margin:0 0 14px;color:var(--muted);font-size:13px;">
+        Cargá el nombre de la obra social a la que te querés cambiar y el motivo.
+        Tu solicitud queda pendiente — JP la procesa con el sindicato/AFIP.
+      </p>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Obra social ACTUAL</label>
+        <input type="text" disabled value="${escapeHtml(full?.obra_social_codigo || 'No cargada')}"
+               style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:#f9fafb;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Obra social DESTINO *</label>
+        <input type="text" id="cos-destino" placeholder="Ej: OSDE 210"
+               style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo</label>
+        <textarea id="cos-motivo" rows="3" placeholder="Ej: cobertura familiar, mejor servicio, etc."
+                  style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;"></textarea>
+      </div>
+
+      <div style="background:#fef3c7;padding:10px;border-radius:6px;font-size:11px;color:#92400e;margin-bottom:12px;">
+        💡 Después de enviar la solicitud, JP se va a comunicar para coordinar la firma del formulario oficial.
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="enviarSolicitudCambioOS()">📤 Enviar solicitud</button>
+      </div>
+    </div>
+  `;
+  openModal(html);
+}
+
+async function enviarSolicitudCambioOS() {
+  const destino = document.getElementById('cos-destino').value.trim();
+  const motivo = document.getElementById('cos-motivo').value.trim();
+  if (!destino) { toast('Indicá la obra social destino', 'error'); return; }
+  const full = await legajoEmpFull();
+  const { error } = await sb.from('rrhh_cambio_obra_social').insert({
+    empleado_id: session.empleado_id,
+    obra_social_actual: full?.obra_social_codigo || null,
+    obra_social_destino: destino,
+    motivo: motivo || null,
+    estado: 'pendiente',
+    solicitado_por: session.email,
+  });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Solicitud enviada ✓ JP se va a comunicar', 'success');
+  closeModal();
 }
 
 async function renderPushCard() {
