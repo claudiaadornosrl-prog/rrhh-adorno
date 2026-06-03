@@ -6347,6 +6347,28 @@ async function renderResumenContent() {
   const maxErrPorLocal = {};
   (tols || []).forEach(t => { maxErrPorLocal[t.local] = t.max_errores_premio || 4; });
 
+  // Cargar overrides por empleada (caso Escasany = 2) — config vigente al mes
+  const mesFinPeriodo = `${asisState.mes}-31`;  // alcanza con tope inferior; ajustamos abajo
+  const { data: overridesCfg } = await sb.from('rrhh_sueldo_empleada_config')
+    .select('empleado_id, vigente_desde, max_errores_premio_override')
+    .lte('vigente_desde', `${asisState.mes}-31`)
+    .order('vigente_desde', { ascending: false });
+  // Quedarse con la última config vigente por empleada
+  const maxErrPorEmp = {};
+  (overridesCfg || []).forEach(c => {
+    if (maxErrPorEmp[c.empleado_id] === undefined && c.max_errores_premio_override != null) {
+      maxErrPorEmp[c.empleado_id] = Number(c.max_errores_premio_override);
+    } else if (maxErrPorEmp[c.empleado_id] === undefined) {
+      maxErrPorEmp[c.empleado_id] = null;  // marca como "ya leí pero usaba default"
+    }
+  });
+  // Helper: devuelve el max efectivo (override si existe, sino el del local)
+  const getMaxErr = (emp) => {
+    const ov = maxErrPorEmp[emp.id];
+    if (ov != null && ov !== undefined) return ov;
+    return maxErrPorLocal[emp.local] || 4;
+  };
+
   const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
 
   if (lista.length === 0 || Object.keys(porEmp).length === 0) {
@@ -6385,7 +6407,7 @@ async function renderResumenContent() {
         return Object.entries(porEmp).filter(([eid, r]) => {
           const emp = lista.find(e => e.id == eid);
           if (!emp) return false;
-          const max = maxErrPorLocal[emp.local] || 4;
+          const max = getMaxErr(emp);
           return (r.errores || 0) > max;
         }).length;
       })()}</div><div class="hint">empleados con +límite errores</div></div>
@@ -6423,7 +6445,7 @@ async function renderResumenContent() {
               <td style="padding:8px 12px;text-align:right;font-size:13px;">${fmtMin(r.min_extra||0)}</td>
               <td style="padding:8px 12px;text-align:right;font-size:13px;font-weight:600;color:${(r.min_banco||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(r.min_banco||0)}</td>
               <td style="padding:8px 12px;text-align:center;font-size:12px;">${(() => {
-                const max = maxErrPorLocal[e.local] || 4;
+                const max = getMaxErr(e);
                 const err = r.errores || 0;
                 let bg, color, label;
                 if (err > max) { bg = '#fee2e2'; color = '#b91c1c'; label = `✗ Perdió (${err}/${max})`; }
