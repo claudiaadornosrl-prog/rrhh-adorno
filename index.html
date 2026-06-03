@@ -10440,7 +10440,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text('CÓDIGO DE SEGUIMIENTO', segBoxX + segBoxW/2, segBoxY + 6, { align: 'center' });
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
-    doc.setTextColor(...COLOR_PRIMARY);
+    doc.setTextColor(...COLOR_GREEN);
     doc.text(codigoSeg, segBoxX + segBoxW/2, segBoxY + 15, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
@@ -10456,7 +10456,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setTextColor(...COLOR_MUTED);
     doc.text('Una vez firmado, escaneá esta hoja y enviála a', W/2, H - 17, { align: 'center' });
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...COLOR_PRIMARY);
+    doc.setTextColor(...COLOR_GREEN);
     doc.text('claudiaadornosrl@gmail.com', W/2, H - 13.5, { align: 'center' });
 
     // Fecha + liquidación id
@@ -12236,9 +12236,8 @@ async function renderLiquidaciones() {
                 }
                 return `<td style="padding:8px;text-align:center;color:var(--muted);font-size:11px;">—</td>`;
               } },
-            { id:'detalle',   label:'Detalle',
+            { id:'detalle',   label:'Acciones',
               tdRender:(l,c)=>`<td style="padding:8px;white-space:nowrap;">
-                <button class="btn small" onclick="liqVerDetalle(${l.id})" title="Ver detalle">👁️</button>
                 <button class="btn small" onclick="generarPDFRecibo(${l.id})" title="Descargar recibo PDF">📄</button>
                 ${c.isAdmin ? `<button class="btn small" onclick="enviarReciboFirma(${l.id})" title="Enviar para firmar por mail">📧</button>` : ''}
                 ${c.isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
