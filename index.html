@@ -12144,7 +12144,7 @@ async function renderLiquidaciones() {
           </p>
         </div>
       `;
-      return '';
+      return;  // undefined → renderPage NO pisa lo que ya pintamos
     }
     if (!setCerrados.has(liqState.periodo)) {
       liqState.periodo = periodos[0];
