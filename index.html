@@ -19173,7 +19173,7 @@ const salaryWorkflow = (() => {
       // (suma al total_rem, no lleva antigüedad ni presentismo) pero imprimiéndolo
       // como concepto 'Comisiones' código 0018 (como hace el estudio contable).
       reciboFinal = salaryEngine.calcularReciboCCT({
-        basico_escala,
+        basico_escala: Number(emp.categoria.sueldo_basico),
         fecha_ingreso: emp.fecha_ingreso,
         periodo, dias_trabajados,
         obra_social_codigo: emp.obra_social_codigo || '',
