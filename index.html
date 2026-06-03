@@ -115,6 +115,12 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   width: 240px; background: var(--card); border-right: 1px solid var(--border);
   padding: 20px 12px; display: flex; flex-direction: column; gap: 4px;
 }
+body.layout-directora .sidebar,
+body.layout-directora #sidebar { display: none !important; }
+body.layout-directora .layout { grid-template-columns: 1fr !important; }
+body.layout-directora .app-main,
+body.layout-directora #main { margin-left: 0 !important; }
+
 .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px;
   font-size: 14px; color: var(--muted); cursor: pointer; transition: all 0.15s;
