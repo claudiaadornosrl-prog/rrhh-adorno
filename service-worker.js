@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v102-premio-requiere-mes-cerrado';
+const CACHE_VERSION = 'rrhh-v103-notif-cruzada-reabrir-mes';
 const ASSETS = [
   './',
   './index.html',

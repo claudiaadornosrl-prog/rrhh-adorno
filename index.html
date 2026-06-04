@@ -5635,6 +5635,18 @@ async function _buscarAdminIdParaPush() {
   } catch (_) { return null; }
 }
 
+// Devuelve el empleado_id de la encargada activa de un local (para push)
+async function _buscarEncargadaIdParaPush(local) {
+  if (!local) return null;
+  try {
+    const { data } = await sb.from('rrhh_usuarios')
+      .select('empleado_id')
+      .eq('rol', 'gerente').eq('activo', true).eq('local_gerencia', local)
+      .limit(1).maybeSingle();
+    return data?.empleado_id || null;
+  } catch (_) { return null; }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Self-service: solicitar refinanciación
 // ─────────────────────────────────────────────────────────────────────
@@ -6887,6 +6899,36 @@ async function reabrirMesUI() {
 
   await sb.from('rrhh_meses_cerrados').delete().eq('id', cierre.id);
   await auditLog('reabrir_mes', 'rrhh_meses_cerrados', cierre.id, null, null, `${localFiltro} ${periodoStr}`);
+
+  // ── Notificación cruzada: avisar a la otra parte que el mes fue reabierto ──
+  // - Si quien reabre es admin → push a la encargada del local
+  // - Si quien reabre es gerente → push al admin
+  try {
+    const _nomLocal = LOCALES[localFiltro]?.nombre || localFiltro;
+    const _quien = (session.empleadoData?.nombre_completo || session.email || (session.rol === 'admin' ? 'Admin' : 'Encargada'));
+    if (session.rol === 'admin') {
+      const encId = await _buscarEncargadaIdParaPush(localFiltro);
+      if (encId) {
+        enviarPush(
+          encId,
+          `🔓 Mes ${periodoStr} reabierto`,
+          `${_quien} reabrió Asistencias de ${_nomLocal}. Si vas a cargar cambios, re-procesá y cerrá de nuevo cuando termines.`,
+          { url: './#asistencias', tag: 'reabrir-mes-' + localFiltro + '-' + periodoStr }
+        );
+      }
+    } else if (session.rol === 'gerente') {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          `🔓 ${_nomLocal}: mes ${periodoStr} reabierto`,
+          `${_quien} reabrió Asistencias de ${_nomLocal}. Espera el nuevo cierre antes de liquidar.`,
+          { url: './#asistencias', tag: 'reabrir-mes-' + localFiltro + '-' + periodoStr }
+        );
+      }
+    }
+  } catch (_) {}
+
   toast(`Mes reabierto ✓ Re-procesá y cerrá cuando esté listo.`, 'info');
   actualizarBotonesCierreMes();
 }
