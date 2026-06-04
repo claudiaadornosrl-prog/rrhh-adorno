@@ -4327,6 +4327,25 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
   } catch (_) {}
   await auditLog('solicitar_compensacion_falta', 'rrhh_permisos_puntuales', data.id, null, null,
     `${fecha} · ${tipoComp} (${descontar_banco ? minutos_descontar + ' min' : dias_descontar + ' días'})${_esAdminMode ? ' [admin: aprobado directo]' : ''}`);
+
+  // Push informativo a la vendedora cuando la compensación la hizo admin/encargada
+  if (_esAdminMode && _empTarget) {
+    try {
+      const _fmtMin = (m) => Math.floor(m/60) + 'h' + String(m%60).padStart(2,'0') + 'm';
+      const _fechaFmt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+      const _descTxt = descontar_banco
+        ? `${_fmtMin(minutos_descontar)} de tu banco de minutos`
+        : `${dias_descontar} día${dias_descontar > 1 ? 's' : ''} de tus vacaciones`;
+      const _quien = session.empleadoData?.nombre_completo || session.email || 'Admin';
+      enviarPush(
+        _empTarget,
+        '💰 Te cubrieron una falta',
+        `${_quien} compensó tu falta del ${_fechaFmt} con ${_descTxt}. Ya quedó aprobado — no se te descuenta del sueldo.`,
+        { url: './#mi-calendario', tag: 'compensar-falta-' + _empTarget + '-' + fecha }
+      );
+    } catch (_) {}
+  }
+
   toast(_esAdminMode ? '✓ Compensación aplicada — recalculá la liquidación' : 'Solicitud enviada ✓ La encargada la va a evaluar', 'success');
   document.getElementById('comp-modal').remove();
   switchTab('mi-calendario');
