@@ -5230,6 +5230,16 @@ async function renderMisPrestamos() {
     .in('estado', ['pendiente','aprobada']);
   const yaPidioAdelantoEsteMes = (adelantosMes || []).length > 0;
 
+  // ¿Ya tiene solicitud de préstamo pendiente?
+  const { data: prestamosPend } = await sb.from('rrhh_prestamo_solicitud')
+    .select('id, monto_solicitado, cuotas_solicitadas, solicitado_at, motivo')
+    .eq('empleado_id', session.empleado_id)
+    .eq('tipo', 'prestamo_nuevo')
+    .eq('estado', 'pendiente')
+    .order('solicitado_at', { ascending: false });
+  const yaPidioPrestamo = (prestamosPend || []).length > 0;
+  const _solicPendiente = (prestamosPend || [])[0];
+
   return `
     <div class="page-header">
       <h2>Mis préstamos</h2>
@@ -5249,6 +5259,27 @@ async function renderMisPrestamos() {
           : yaPidioAdelantoEsteMes
             ? `<span style="font-size:12px;color:#1e40af;font-weight:600;">Ya pediste un adelanto este mes</span>`
             : `<span style="font-size:12px;color:#1e40af;font-weight:600;">Fuera de ventana (hoy día ${_diaHoy})</span>`
+        }
+      </div>
+    </div>
+
+    <!-- Card: Pedir préstamo -->
+    <div class="card" style="background:#fef3c7;border:1px solid #fcd34d;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#92400e;">🏦 Pedir préstamo</div>
+          <div style="font-size:12px;color:#a16207;margin-top:4px;">
+            Indicá el capital y la cantidad de cuotas que querés. El admin te va a preparar una propuesta con la cuota mensual final.
+          </div>
+          ${yaPidioPrestamo && _solicPendiente ? `
+            <div style="font-size:12px;color:#92400e;margin-top:6px;background:#fde68a;padding:6px 10px;border-radius:4px;">
+              📩 Solicitud pendiente: <strong>${fmt(_solicPendiente.monto_solicitado)}</strong> en <strong>${_solicPendiente.cuotas_solicitadas}</strong> cuotas · enviada ${fmtFecha(_solicPendiente.solicitado_at?.slice(0,10))}
+            </div>
+          ` : ''}
+        </div>
+        ${yaPidioPrestamo
+          ? `<span style="font-size:12px;color:#92400e;font-weight:600;">Esperando respuesta del admin</span>`
+          : `<button class="btn primary" style="background:#d97706;border-color:#d97706;" onclick="abrirPedirPrestamo()">🏦 Solicitar préstamo</button>`
         }
       </div>
     </div>
@@ -5432,6 +5463,86 @@ async function enviarSolicitudAdelantoSueldo() {
           'Solicitud de adelanto 💵',
           `${session.empleadoData?.nombre_completo || 'Una empleada'} pide $${monto.toLocaleString('es-AR')} de adelanto.`,
           { url: './#prestamos', tag: 'solic-prestamo-' + data?.solicitud_id }
+        );
+      }
+    } catch(_) {}
+    closeModal();
+    switchTab('mis-prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+async function abrirPedirPrestamo() {
+  const htmlModal = `
+    <h3 style="margin:0 0 8px;">🏦 Solicitar préstamo</h3>
+    <div style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;margin-bottom:14px;line-height:1.5;">
+      Indicá el capital que querés pedir y en cuántas cuotas. El admin te va a preparar una propuesta con la cuota mensual final (incluye intereses).
+    </div>
+    <div class="form-grid">
+      <div class="form-row full">
+        <label>Capital que querés</label>
+        <input type="text" inputmode="numeric" id="presnuevo-capital" data-money placeholder="$300.000">
+      </div>
+      <div class="form-row full">
+        <label>Cantidad de cuotas (1 a 24)</label>
+        <input type="number" min="1" max="24" id="presnuevo-cuotas" placeholder="6" value="6" oninput="actualizarSimulPrestamo()">
+      </div>
+      <div class="form-row full">
+        <label>Motivo (opcional)</label>
+        <input type="text" id="presnuevo-motivo" placeholder="Ej: arreglo del auto, mudanza, etc.">
+      </div>
+    </div>
+    <div style="margin-top:14px;background:#f3f4f6;padding:10px 12px;border-radius:6px;">
+      <div style="font-size:12px;color:#374151;display:flex;justify-content:space-between;align-items:center;">
+        <span>Cuota mensual <em style="font-size:11px;color:#9ca3af;">(estimado sin intereses)</em></span>
+        <strong id="presnuevo-simul" style="font-size:18px;color:#d97706;font-family:monospace;">$0</strong>
+      </div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px;">⚠️ La cuota final puede ser distinta — el admin define la tasa de interés en la propuesta.</div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" style="background:#d97706;border-color:#d97706;" onclick="enviarSolicitudPrestamo()">📩 Enviar solicitud</button>
+    </div>
+  `;
+  openModal(htmlModal, '520px');
+  setTimeout(() => {
+    wireAllMoneyInputs(document.getElementById('global-modal'));
+    const cap = document.getElementById('presnuevo-capital');
+    if (cap) cap.addEventListener('input', actualizarSimulPrestamo);
+    actualizarSimulPrestamo();
+  }, 0);
+}
+
+function actualizarSimulPrestamo() {
+  const cap = parseMoneyInput(document.getElementById('presnuevo-capital'));
+  const cuotas = Math.max(1, Math.min(24, Number(document.getElementById('presnuevo-cuotas')?.value || 0)));
+  const out = document.getElementById('presnuevo-simul');
+  if (!out) return;
+  const cuotaMensual = (cap > 0 && cuotas > 0) ? Math.round(cap / cuotas) : 0;
+  out.textContent = '$' + cuotaMensual.toLocaleString('es-AR');
+}
+
+async function enviarSolicitudPrestamo() {
+  const capital = parseMoneyInput(document.getElementById('presnuevo-capital'));
+  const cuotas = Number(document.getElementById('presnuevo-cuotas').value || 0);
+  const motivo = (document.getElementById('presnuevo-motivo').value || '').trim() || null;
+  if (!(capital > 0)) { toast('Cargá un capital mayor a 0', 'error'); return; }
+  if (!(cuotas >= 1 && cuotas <= 24)) { toast('Cantidad de cuotas debe estar entre 1 y 24', 'error'); return; }
+  try {
+    const { data, error } = await sb.rpc('rrhh_solicitar_prestamo', {
+      p_capital: capital, p_cuotas: cuotas, p_motivo: motivo
+    });
+    if (error) throw error;
+    toast('Solicitud de préstamo enviada · te avisamos cuando el admin la responda ✓', 'success');
+    try {
+      const adminId = await _buscarAdminIdParaPush();
+      if (adminId) {
+        enviarPush(
+          adminId,
+          'Solicitud de préstamo 🏦',
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} pide $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas.`,
+          { url: './#prestamos', tag: 'solic-prestamo-nuevo-' + data?.solicitud_id }
         );
       }
     } catch(_) {}
