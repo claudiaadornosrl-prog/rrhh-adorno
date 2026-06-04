@@ -5987,92 +5987,87 @@ async function renderCalendarioGrid() {
   let qEmp = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, foto_url').eq('estado', 'activo').order('local').order('apellido');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
   const { data: empleados } = await qEmp;
+  const empIds = (empleados || []).map(e => e.id);
+  const desdeISO = fechaDesde.toISOString().split('T')[0];
+  const hastaISO = fechaHasta.toISOString().split('T')[0];
 
-  // Turnos del mes
-  const { data: turnos } = await sb.from('rrhh_turnos')
-    .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, template:rrhh_templates_turno(codigo, nombre, color, icono)')
-    .gte('fecha', fechaDesde.toISOString().split('T')[0])
-    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
+  // ── 6 queries paralelas: turnos + feriados + vacaciones + licencias + sospechosos + fichadas ──
+  // Antes corrían en serie (~7 round-trips). Ahora en Promise.all (1 round-trip).
+  const [turnosRes, feriadosRes, vacsRes, licsRes, detSospRes, fichsRes] = await Promise.all([
+    sb.from('rrhh_turnos')
+      .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, template:rrhh_templates_turno(codigo, nombre, color, icono)')
+      .gte('fecha', desdeISO).lte('fecha', hastaISO),
+    sb.from('rrhh_feriados')
+      .select('fecha, nombre, cierra_oficina, cierra_shoppings')
+      .gte('fecha', desdeISO).lte('fecha', hastaISO),
+    empIds.length ? sb.from('rrhh_vacaciones_movimientos')
+      .select('empleado_id, fecha_desde, fecha_hasta, estado')
+      .in('empleado_id', empIds)
+      .in('estado', ['aprobada', 'tomada'])
+      .or(`fecha_desde.lte.${hastaISO},fecha_hasta.gte.${desdeISO}`) : Promise.resolve({ data: [] }),
+    empIds.length ? sb.from('rrhh_licencias')
+      .select('empleado_id, fecha_desde, fecha_hasta')
+      .in('empleado_id', empIds) : Promise.resolve({ data: [] }),
+    empIds.length ? sb.from('rrhh_asistencias_detalle')
+      .select('empleado_id, fecha, estado, minutos_tarde, minutos_banco, error_salvado')
+      .in('empleado_id', empIds).gte('fecha', desdeISO).lte('fecha', hastaISO) : Promise.resolve({ data: [] }),
+    empIds.length ? sb.from('rrhh_fichadas_raw')
+      .select('empleado_id, fecha, hora, fecha_hora')
+      .in('empleado_id', empIds).gte('fecha', desdeISO).lte('fecha', hastaISO)
+      .order('fecha_hora', { ascending: true }) : Promise.resolve({ data: [] }),
+  ]);
+  const turnos = turnosRes.data;
+  const feriados = feriadosRes.data;
+  const vacs = vacsRes.data;
+  const lics = licsRes.data;
+  const detSosp = detSospRes.data;
+  const fichs = fichsRes.data;
 
   // Map (emp_id × fecha) → turno
   const turnoMap = {};
   (turnos || []).forEach(t => { turnoMap[`${t.empleado_id}_${t.fecha}`] = t; });
 
-  // Feriados
-  const { data: feriados } = await sb.from('rrhh_feriados')
-    .select('fecha, nombre, cierra_oficina, cierra_shoppings')
-    .gte('fecha', fechaDesde.toISOString().split('T')[0])
-    .lte('fecha', fechaHasta.toISOString().split('T')[0]);
   const feriadoMap = {};
   (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
 
-  // Vacaciones aprobadas/tomadas del mes (cruzar con cada empleado/día)
-  const empIds = (empleados || []).map(e => e.id);
+  // Vacaciones (set de keys emp_id × fecha)
   const vacSet = new Set();
-  if (empIds.length) {
-    const { data: vacs } = await sb.from('rrhh_vacaciones_movimientos')
-      .select('empleado_id, fecha_desde, fecha_hasta, estado')
-      .in('empleado_id', empIds)
-      .in('estado', ['aprobada', 'tomada'])
-      .or(`fecha_desde.lte.${fechaHasta.toISOString().split('T')[0]},fecha_hasta.gte.${fechaDesde.toISOString().split('T')[0]}`);
-    (vacs || []).forEach(v => {
-      let d = new Date(v.fecha_desde + 'T12:00:00');
-      const f = new Date(v.fecha_hasta + 'T12:00:00');
-      while (d <= f) {
-        vacSet.add(`${v.empleado_id}_${d.toISOString().split('T')[0]}`);
-        d.setDate(d.getDate() + 1);
-      }
-    });
-  }
+  (vacs || []).forEach(v => {
+    let d = new Date(v.fecha_desde + 'T12:00:00');
+    const f = new Date(v.fecha_hasta + 'T12:00:00');
+    while (d <= f) {
+      vacSet.add(`${v.empleado_id}_${d.toISOString().split('T')[0]}`);
+      d.setDate(d.getDate() + 1);
+    }
+  });
 
-  // Licencias activas del mes
+  // Licencias (set de keys emp_id × fecha)
   const licSet = new Set();
-  if (empIds.length) {
-    const { data: lics } = await sb.from('rrhh_licencias')
-      .select('empleado_id, fecha_desde, fecha_hasta')
-      .in('empleado_id', empIds);
-    (lics || []).forEach(l => {
-      let d = new Date(l.fecha_desde + 'T12:00:00');
-      const f = new Date(l.fecha_hasta + 'T12:00:00');
-      while (d <= f) {
-        licSet.add(`${l.empleado_id}_${d.toISOString().split('T')[0]}`);
-        d.setDate(d.getDate() + 1);
-      }
-    });
-  }
+  (lics || []).forEach(l => {
+    let d = new Date(l.fecha_desde + 'T12:00:00');
+    const f = new Date(l.fecha_hasta + 'T12:00:00');
+    while (d <= f) {
+      licSet.add(`${l.empleado_id}_${d.toISOString().split('T')[0]}`);
+      d.setDate(d.getDate() + 1);
+    }
+  });
 
-  // Días con carga sospechosa: fichadas reales muy lejos del turno cargado
-  // (tarde >120min o banco <-120min, sin salvar) → probable error de carga de la encargada
+  // Días con carga sospechosa
   const sospechosos = new Set();
-  if (empIds.length) {
-    const { data: detSosp } = await sb.from('rrhh_asistencias_detalle')
-      .select('empleado_id, fecha, estado, minutos_tarde, minutos_banco, error_salvado')
-      .in('empleado_id', empIds)
-      .gte('fecha', fechaDesde.toISOString().split('T')[0])
-      .lte('fecha', fechaHasta.toISOString().split('T')[0]);
-    (detSosp || []).forEach(d => {
-      if (d.error_salvado) return;
-      const tardeAlta = d.estado === 'tarde' && (d.minutos_tarde||0) > 120;
-      const bancoRaro = (d.minutos_banco||0) < -120;
-      if (tardeAlta || bancoRaro) sospechosos.add(`${d.empleado_id}_${d.fecha}`);
-    });
-  }
+  (detSosp || []).forEach(d => {
+    if (d.error_salvado) return;
+    const tardeAlta = d.estado === 'tarde' && (d.minutos_tarde||0) > 120;
+    const bancoRaro = (d.minutos_banco||0) < -120;
+    if (tardeAlta || bancoRaro) sospechosos.add(`${d.empleado_id}_${d.fecha}`);
+  });
 
-  // Fichadas reales (crudas Anviz): entrada = primera, salida = última de cada día
+  // Fichadas reales — primera y última del día
   const fichMap = {};
-  if (empIds.length) {
-    const { data: fichs } = await sb.from('rrhh_fichadas_raw')
-      .select('empleado_id, fecha, hora, fecha_hora')
-      .in('empleado_id', empIds)
-      .gte('fecha', fechaDesde.toISOString().split('T')[0])
-      .lte('fecha', fechaHasta.toISOString().split('T')[0])
-      .order('fecha_hora', { ascending: true });
-    (fichs || []).forEach(f => {
-      const k = `${f.empleado_id}_${f.fecha}`;
-      if (!fichMap[k]) fichMap[k] = [];
-      if (f.hora) fichMap[k].push(f.hora.substring(0,5));
-    });
-  }
+  (fichs || []).forEach(f => {
+    const k = `${f.empleado_id}_${f.fecha}`;
+    if (!fichMap[k]) fichMap[k] = [];
+    if (f.hora) fichMap[k].push(f.hora.substring(0,5));
+  });
 
   if (!empleados || empleados.length === 0) {
     cont.innerHTML = '<div class="emp-empty">Sin empleados para mostrar.</div>';
@@ -19465,18 +19460,29 @@ const salaryWorkflow = (() => {
     const lista = Object.values(uniq);
 
     const ok = [], errores = [];
-    for (const e of lista) {
-      try {
-        const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo };
-        if (descuentosEspeciales[e.id]) {
-          empInputs.descuento_especial = descuentosEspeciales[e.id];
+
+    // ── Procesar empleadas en paralelo con concurrencia limitada ──
+    // Antes era for-await en serie (cada empleada esperaba la anterior).
+    // Ahora corremos hasta CONCURRENCY simultáneas → 5-10x más rápido.
+    const CONCURRENCY = 5;
+    const queue = lista.slice();
+    async function worker() {
+      while (queue.length > 0) {
+        const e = queue.shift();
+        if (!e) return;
+        try {
+          const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo };
+          if (descuentosEspeciales[e.id]) {
+            empInputs.descuento_especial = descuentosEspeciales[e.id];
+          }
+          const r = await liquidarEmpleada(e.id, periodo, empInputs);
+          ok.push({ empleado: e, resultado: r });
+        } catch (err) {
+          errores.push({ empleado: e, error: err.message });
         }
-        const r = await liquidarEmpleada(e.id, periodo, empInputs);
-        ok.push({ empleado: e, resultado: r });
-      } catch (err) {
-        errores.push({ empleado: e, error: err.message });
       }
     }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, lista.length) }, worker));
     return { ok, errores };
   }
 

@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v86-fixes-merc-extras';
+const CACHE_VERSION = 'rrhh-v87-perf-liquidador-paralelo';
 const ASSETS = [
   './',
   './index.html',
