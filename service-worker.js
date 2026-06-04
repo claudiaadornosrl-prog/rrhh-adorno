@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v101-aumentos-boton-max-grilla-gerente';
+const CACHE_VERSION = 'rrhh-v102-premio-requiere-mes-cerrado';
 const ASSETS = [
   './',
   './index.html',
