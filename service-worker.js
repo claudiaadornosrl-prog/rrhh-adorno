@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v88-cache-feriados-paritaria';
+const CACHE_VERSION = 'rrhh-v89-botones-importes-doble-blanco';
 const ASSETS = [
   './',
   './index.html',

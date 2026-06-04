@@ -12717,7 +12717,9 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="liqCargarFirmadosBulk()" title="Subir PDF escaneado con varios recibos firmados — el sistema los detecta por QR y los procesa automáticamente">📥 Cargar firmados</button>` : ''}
         ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período (Libro de Sueldos Digital, ahora bajo ARCA — ex AFIP). Si hay empleados de más de una jurisdicción (CABA + BsAs), descarga 2 archivos automáticamente.">📄 LSD ARCA</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#6366f1;color:white;border-color:#6366f1;" onclick="liqGenerarMes('${local}','${periodo}')" title="Recalcula todas las liquidaciones del mes desde cero (días + ventas + config + puntos + paritaria). Reemplaza las liquidaciones en estado borrador.">🔄 Recalcular</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="liqGenerarImportes('${local}','${periodo}')" title="Recalcula SOLO importes negros (fijo+comisión+premios+viáticos+extras+feriado+mercadería) de empleadas cct_negro. NO toca el recibo CCT. Súper rápido, requiere que la liquidación ya exista.">⚡ Importes</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#9333ea;color:white;border-color:#9333ea;" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
+        ${isAdmin ? `<button class="btn" style="background:#6366f1;color:white;border-color:#6366f1;" onclick="liqGenerarMes('${local}','${periodo}')" title="Recalcula TODAS las liquidaciones del mes desde cero (importes + recibo CCT). Reemplaza borradores. Más lento pero más completo.">🔄 Recalcular</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#f59e0b;color:white;border-color:#f59e0b;" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales (faltas, suspensiones).">📋 Proforma</button>` : ''}
         ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
         ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Valida ventas + asistencias + aumentos. Despues podras modificar pero con aviso.">🔒 Cerrar mes</button>` : ''}
@@ -14013,6 +14015,56 @@ async function liqRegistrarCreditosEmpresa(local, periodo) {
   const { error } = await sb.from('rrhh_credito_empresa').insert(creditos);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast(`✓ ${creditos.length} crédito(s) registrado(s) — se aplican el próximo mes`, 'success');
+}
+
+async function liqGenerarImportes(local, periodo) {
+  const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+  if (!confirm(`⚡ Recalcular SOLO importes negros (fijo+comisión+premios+viáticos+extras+feriado+mercadería) de empleadas cct_negro en ${locales.join(', ')} para ${periodo}?\n\nNo toca el recibo CCT — súper rápido. Las empleadas en doble_blanco (Contreras/Escasany) se ignoran.`)) return;
+  toast('⚡ Recalculando importes…', '');
+  try {
+    let totalOk = 0;
+    const todosErrores = [];
+    for (const loc of locales) {
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, { soloImportes: true });
+      totalOk += r.ok.length;
+      r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
+    }
+    let msg = `⚡ ${totalOk} importes actualizados`;
+    if (todosErrores.length) msg += ` · ⚠ ${todosErrores.length} errores`;
+    toast(msg, todosErrores.length ? 'error' : 'success');
+    if (todosErrores.length) {
+      console.error('Errores importes:', todosErrores);
+      alert('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+    }
+    switchTab('liquidaciones');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function liqGenerarDobleBlanco(local, periodo) {
+  const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+  if (!confirm(`💎 Procesar SOLO empleadas doble_blanco (Contreras, Escasany) en ${locales.join(', ')} para ${periodo}?\n\nRecalcula importes + recibo + solver inverso del ítem 0018 Comisiones.`)) return;
+  toast('💎 Procesando doble blanco…', '');
+  try {
+    let totalOk = 0;
+    const todosErrores = [];
+    for (const loc of locales) {
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, { soloDobleBlanco: true });
+      totalOk += r.ok.length;
+      r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
+    }
+    let msg = `💎 ${totalOk} empleadas doble_blanco recalculadas`;
+    if (todosErrores.length) msg += ` · ⚠ ${todosErrores.length} errores`;
+    toast(msg, todosErrores.length ? 'error' : 'success');
+    if (todosErrores.length) {
+      console.error('Errores doble_blanco:', todosErrores);
+      alert('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+    }
+    switchTab('liquidaciones');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function liqGenerarMes(local, periodo) {
@@ -18991,6 +19043,15 @@ const salaryWorkflow = (() => {
     if (!emp.categoria) throw new Error('Empleada sin categoría CCT asignada');
     if (!paritaria) throw new Error('No hay paritaria vigente para ' + periodo);
 
+    // ── Filtros de scope para botones "⚡ Importes" y "💎 Doble Blanco" ──
+    const esDobleBlanco = configEmp.modo_liquidacion === 'doble_blanco';
+    if (inputs.soloImportes && esDobleBlanco) {
+      return { skipped: true, motivo: 'doble_blanco — usar botón Doble Blanco' };
+    }
+    if (inputs.soloDobleBlanco && !esDobleBlanco) {
+      return { skipped: true, motivo: 'cct_negro — usar botón Importes' };
+    }
+
     const cfgLocal = (_cache.cfgLocal && _cache.local === emp.local)
       ? _cache.cfgLocal
       : await cargarConfigLocal(emp.local, periodo);
@@ -19232,6 +19293,57 @@ const salaryWorkflow = (() => {
     const feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
 
     const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto;
+
+    // ── EARLY RETURN: modo "⚡ Importes" — solo actualizar campos negros sin tocar recibo ──
+    // Requiere que la liquidación YA exista (para reaprovechar recibo_neto). Si no existe,
+    // sale con error para que el admin corra Recalcular/Proforma primero.
+    if (inputs.soloImportes) {
+      const { data: existSolo } = await sb.from('rrhh_liquidacion')
+        .select('id, recibo_neto, ajuste, overrides_manuales, prestamo_capital, prestamo_interes')
+        .eq('empleado_id', empleadoId).eq('periodo', periodo + '-01').limit(1);
+      if (!existSolo?.[0]) {
+        throw new Error('Sin liquidación previa — corré Recalcular o Definitivo primero, después podés usar ⚡ Importes para refrescar.');
+      }
+      const liqExist = existSolo[0];
+      const reciboNetoExist = Number(liqExist.recibo_neto || 0);
+      const ajusteExist = Number(liqExist.ajuste || 0);
+
+      // Cuotas de préstamo del mes (capital + interés) — pueden cambiar
+      const { data: cuotasSolo } = await sb.from('rrhh_prestamo_cuota')
+        .select('monto_capital, monto_interes, estado, prestamo_id, prestamo:rrhh_prestamo!inner(empleado_id, estado)')
+        .eq('mes_descuento', periodo + '-01').neq('estado', 'cancelada');
+      const cuotasSoloEmp = (cuotasSolo || []).filter(c => c.prestamo?.empleado_id === empleadoId && c.prestamo?.estado === 'activo');
+      const prestCapSolo = cuotasSoloEmp.reduce((a, c) => a + Number(c.monto_capital || 0), 0);
+      const prestIntSolo = cuotasSoloEmp.reduce((a, c) => a + Number(c.monto_interes || 0), 0);
+
+      // Aplicar overrides_manuales preservados
+      const overridesSolo = liqExist.overrides_manuales || {};
+      const fijoFinal     = (overridesSolo.fijo?.new      != null) ? Number(overridesSolo.fijo.new)         : fijo;
+      const comFinal      = (overridesSolo.comision?.new  != null) ? Number(overridesSolo.comision.new)     : comision;
+      const premFinal     = (overridesSolo.premio_monto?.new != null) ? Number(overridesSolo.premio_monto.new) : premio;
+      const viatFinal     = (overridesSolo.viaticos?.new  != null) ? Number(overridesSolo.viaticos.new)     : viaticos;
+      const fersFinal     = (overridesSolo.feriado_monto?.new != null) ? Number(overridesSolo.feriado_monto.new) : feriado_monto;
+      const totalNegroFin = fijoFinal + comFinal + premFinal + viatFinal + extras + fersFinal;
+      const efectivoSolo = Math.max(0, totalNegroFin - reciboNetoExist - mercaderia - ajusteExist - prestIntSolo);
+
+      await sb.from('rrhh_liquidacion').update({
+        dias_trabajados, mercaderia,
+        fijo: fijoFinal, comision: comFinal, premio_cobra: cobraPremio, premio_monto: premFinal,
+        viaticos: viatFinal, extras, feriado_dias, feriado_monto: fersFinal,
+        total_negro: totalNegroFin,
+        efectivo: efectivoSolo,
+        prestamo_capital: prestCapSolo, prestamo_interes: prestIntSolo,
+        puntos_mes,
+        calculado_at: new Date().toISOString(),
+      }).eq('id', liqExist.id);
+
+      return {
+        liquidacion_id: liqExist.id,
+        soloImportes: true,
+        totales_negro: { fijo: fijoFinal, comision: comFinal, premio: premFinal, viaticos: viatFinal, extras, total_negro_esperado: totalNegroFin, efectivo: efectivoSolo, ajuste_blanco: 0 },
+        puntos_mes, cobraPremio,
+      };
+    }
 
     // Modo de liquidación: cct_negro (default) vs doble_blanco (recibo ajustado: Contreras/Escasany)
     // En doble_blanco el estudio re-liquida con el básico ajustado para que el neto del único
@@ -19495,7 +19607,11 @@ const salaryWorkflow = (() => {
             empInputs.descuento_especial = descuentosEspeciales[e.id];
           }
           const r = await liquidarEmpleada(e.id, periodo, empInputs);
-          ok.push({ empleado: e, resultado: r });
+          if (r?.skipped) {
+            // empleada fuera del scope del botón usado — ni ok ni error
+          } else {
+            ok.push({ empleado: e, resultado: r });
+          }
         } catch (err) {
           errores.push({ empleado: e, error: err.message });
         }
