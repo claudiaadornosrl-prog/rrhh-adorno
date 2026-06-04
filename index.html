@@ -15090,11 +15090,14 @@ async function aumGerenteRender() {
             <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(e.fijo_actual)}</td>
             <td style="padding:8px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${esEnc ? fmt$(e.rango_max) + ' <span style="font-size:10px;color:#92400e;">MAX</span>' : fmt$(e.rango_min) + ' – ' + fmt$(e.rango_max)}</td>
             <td style="padding:8px;text-align:right;">
-              <input type="number" class="aum-ger-input" placeholder="$0"
-                     min="${Math.round(Number(e.rango_min||0))}" max="${Math.round(Number(e.rango_max||0))}" step="500"
-                     value="${valorSug}"
-                     ${inputDisabled}
-                     style="width:140px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${inputStyle}">
+              <div style="display:inline-flex;gap:4px;align-items:center;">
+                <input type="number" class="aum-ger-input" placeholder="$0"
+                       min="${Math.round(Number(e.rango_min||0))}" max="${Math.round(Number(e.rango_max||0))}" step="500"
+                       value="${valorSug}"
+                       ${inputDisabled}
+                       style="width:140px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${inputStyle}">
+                ${yaAplicada ? '' : `<button type="button" class="btn small aum-ger-max-btn" title="Usar el máximo autorizado (${fmt$(e.rango_max)})" style="background:#16a34a;color:white;border:none;padding:3px 7px;font-size:11px;font-weight:600;">↑ MAX</button>`}
+              </div>
             </td>
             <td style="padding:8px;text-align:center;">
               ${yaAplicada
@@ -15109,7 +15112,10 @@ async function aumGerenteRender() {
       <div style="font-size:12px;color:var(--muted);">
         💡 El fijo nuevo tiene que estar dentro del rango. Si dejás un input vacío, esa empleada queda sin aplicar.
       </div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${cantAplicadas < cantTotal
+          ? `<button class="btn" onclick="aumGerenteUsarMaxTodos()" title="Setea el MAX autorizado a TODAS las empleadas pendientes" style="background:#16a34a;color:white;border-color:#16a34a;font-weight:600;">⚡ Usar MAX en todas</button>`
+          : ''}
         <button class="btn" onclick="aumGerenteCopiarPropuesta()" title="Copiar como texto para WhatsApp/mail">📋 Copiar resumen</button>
         ${cantAplicadas < cantTotal
           ? `<button class="btn primary" onclick="aumGerenteAplicarTodos(${envio.id}, '${envio.periodo_aplica}')">💾 Aplicar aumentos</button>`
@@ -15781,11 +15787,6 @@ async function aumAbrirDetalle(pedidoId) {
         ${ped.notas ? `<div><strong>Notas:</strong> ${escapeHtml(ped.notas)}</div>` : ''}
       </div>
 
-      ${editable ? `
-        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
-          <button type="button" class="btn" onclick="aumUsarMaxTodos()" title="Setea a TODAS las empleadas con el % máximo autorizado (${ped.pct_max}%)" style="background:#16a34a;color:white;border:none;font-weight:600;">⚡ Usar MAX en todas (${ped.pct_max}%)</button>
-        </div>
-      ` : ''}
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
           <th style="padding:8px;">Empleada</th>
@@ -15804,10 +15805,7 @@ async function aumAbrirDetalle(pedidoId) {
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(d.fijo_anterior)}</td>
               <td style="padding:8px;text-align:right;">
                 ${editable
-                  ? `<div style="display:inline-flex;gap:4px;align-items:center;">
-                      <input type="number" id="aum-pct-${d.id}" value="${d.pct_propuesto ?? ''}" min="${ped.pct_min}" max="${ped.pct_max}" step="0.5" style="width:80px;padding:4px;text-align:right;" oninput="aumActualizarFijoNuevo(${d.id}, ${d.fijo_anterior}, ${ped.pct_min}, ${ped.pct_max})">
-                      <button type="button" class="btn small" onclick="aumUsarMax(${d.id}, ${ped.pct_max}, ${d.fijo_anterior}, ${ped.pct_min})" title="Usar el % máximo autorizado (${ped.pct_max}%)" style="background:#16a34a;color:white;border:none;padding:3px 8px;font-size:11px;font-weight:600;">↑ MAX</button>
-                    </div>`
+                  ? `<input type="number" id="aum-pct-${d.id}" value="${d.pct_propuesto ?? ''}" min="${ped.pct_min}" max="${ped.pct_max}" step="0.5" style="width:80px;padding:4px;text-align:right;" oninput="aumActualizarFijoNuevo(${d.id}, ${d.fijo_anterior}, ${ped.pct_min}, ${ped.pct_max})">`
                   : `<span style="font-family:monospace;">${d.pct_propuesto != null ? Number(d.pct_propuesto).toFixed(2)+'%' : '—'}</span>`}
               </td>
               <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;" id="aum-nuevo-${d.id}">${fijoNuevo != null ? fmt$(fijoNuevo) : '—'}</td>
@@ -15849,28 +15847,40 @@ function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
   tgt.textContent = '$' + Math.round(nuevo).toLocaleString('es-AR');
 }
 
-// ── Setea el input al % MAX autorizado para esa empleada y actualiza el cálculo ──
-function aumUsarMax(detId, pmax, fijoAnt, pmin) {
-  const inp = document.getElementById('aum-pct-' + detId);
-  if (!inp) return;
-  inp.value = pmax;
-  aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax);
-}
+// ── Encargada: setea el input al MAX autorizado para una empleada (botón en cada fila) ──
+// Usa event delegation porque los botones se generan dinámicamente con la grilla.
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.aum-ger-max-btn');
+  if (!btn) return;
+  const tr = btn.closest('tr');
+  const inp = tr?.querySelector('.aum-ger-input');
+  if (!inp || inp.disabled) return;
+  const rmax = Number(tr.getAttribute('data-rmax') || inp.getAttribute('max') || 0);
+  if (!(rmax > 0)) return;
+  inp.value = rmax;
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  // feedback visual rápido
+  inp.style.backgroundColor = '#dcfce7';
+  setTimeout(() => { inp.style.backgroundColor = ''; }, 400);
+});
 
-// ── Aplica el MAX a todas las empleadas de la planilla en una sola pasada ──
-function aumUsarMaxTodos() {
-  const inputs = document.querySelectorAll('input[id^="aum-pct-"]');
-  if (inputs.length === 0) { toast('No hay empleadas en la planilla', 'info'); return; }
-  if (!confirm(`¿Aplicar el % máximo autorizado a las ${inputs.length} empleadas?\n\nVas a poder ajustar caso a caso después si querés.`)) return;
+// ── Encargada: aplica el MAX a todas las empleadas pendientes de una sola vez ──
+function aumGerenteUsarMaxTodos() {
+  const filas = document.querySelectorAll('#aum-ger-tbody tr');
+  if (filas.length === 0) { toast('No hay empleadas en la planilla', 'info'); return; }
+  let pendientes = 0;
+  filas.forEach(tr => { if (tr.getAttribute('data-aplicada') !== '1') pendientes++; });
+  if (pendientes === 0) { toast('No quedan empleadas pendientes', 'info'); return; }
+  if (!confirm(`¿Setear el monto MAXIMO autorizado a las ${pendientes} empleadas pendientes?\n\nVas a poder ajustar caso a caso después si querés.`)) return;
   let count = 0;
-  inputs.forEach(inp => {
-    const pmax = Number(inp.getAttribute('max'));
-    if (Number.isFinite(pmax)) {
-      inp.value = pmax;
-      // Dispara el oninput para que se recalcule el fijo nuevo
-      inp.dispatchEvent(new Event('input', { bubbles: true }));
-      count++;
-    }
+  filas.forEach(tr => {
+    if (tr.getAttribute('data-aplicada') === '1') return;
+    const inp = tr.querySelector('.aum-ger-input');
+    const rmax = Number(tr.getAttribute('data-rmax') || 0);
+    if (!inp || inp.disabled || !(rmax > 0)) return;
+    inp.value = rmax;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    count++;
   });
   toast(`✓ ${count} empleada${count!==1?'s':''} seteada${count!==1?'s':''} al máximo`, 'success');
 }
