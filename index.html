@@ -14508,11 +14508,21 @@ async function liqEditarGuardar(liqId) {
   switchTab('liquidaciones');
 }
 
+// State del filtro de mes
+window.retmercState = window.retmercState || (() => {
+  const hoy = new Date();
+  return { periodo: `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}` };
+})();
+
+function retmercCambiarMes(periodo) {
+  window.retmercState.periodo = periodo;
+  switchTab('retiros-mercaderia');
+}
+
 async function renderRetirosMercaderia() {
   const isAdmin   = session.rol === 'admin';
   const localFiltro = isAdmin ? null : session.empleadoData?.local;
-  const hoy = new Date();
-  const periodo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const periodo = window.retmercState.periodo;
   const [y, m] = periodo.split('-').map(Number);
   const desde = `${periodo}-01`;
   const ultimoDia = new Date(y, m, 0).getDate();
@@ -14537,9 +14547,29 @@ async function renderRetirosMercaderia() {
   const opcionesEmp = (empleadas||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
 
   return `
-    <div class="page-header">
-      <h2>Retiros de mercadería</h2>
-      <div class="subtitle">Registrá acá cuando una empleada se lleva mercadería. Se descuentan automáticamente al cerrar el mes en su liquidación.</div>
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h2>Retiros de mercadería</h2>
+        <div class="subtitle">Registrá acá cuando una empleada se lleva mercadería. Se descuentan automáticamente al cerrar el mes en su liquidación.</div>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Mostrar mes</label>
+        <select onchange="retmercCambiarMes(this.value)" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:14px;">
+          ${(() => {
+            const hoy = new Date();
+            const opts = [];
+            // Últimos 24 meses + 1 futuro
+            for (let i = -1; i < 24; i++) {
+              const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+              const p = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+              const label = d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+              const sel = p === periodo ? 'selected' : '';
+              opts.push(`<option value="${p}" ${sel}>${label}</option>`);
+            }
+            return opts.join('');
+          })()}
+        </select>
+      </div>
     </div>
 
     <div class="card" style="padding:16px;">
