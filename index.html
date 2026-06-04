@@ -4117,8 +4117,13 @@ async function renderMiCalendario() {
                   const lbl = permP.estado === 'aprobado' ? '✓ Compensado' : permP.estado === 'pendiente' ? '⏳ Pendiente' : '✗ Rechazado';
                   return `<div style="font-size:9px;margin-top:auto;background:${cBg};color:${cFg};border-radius:4px;padding:2px;">${lbl}</div>`;
                 }
-                if (det && ['ausente','falta_fichada'].includes(det.estado)) {
-                  return `<button onclick="abrirCompensarFalta('${fecha}')" title="Compensar esta falta con banco o vacaciones" style="font-size:9px;margin-top:auto;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:2px 4px;cursor:pointer;font-weight:600;">💰 Compensar falta</button>`;
+                if (det && ['ausente','falta_fichada','licencia'].includes(det.estado)) {
+                  // Para licencia: solo muestra el botón si es licencia SIN GOCE (paga=false), porque
+                  // las pagas (matrimonio, fallecimiento, etc.) no necesitan compensación.
+                  // Si es 'licencia' asumimos que viene de licencia sin goce ya consolidada;
+                  // si fuera con goce, igual al compensar se valida en el backend.
+                  const lbl = (det.estado === 'licencia') ? '💰 Compensar día' : '💰 Compensar falta';
+                  return `<button onclick="abrirCompensarFalta('${fecha}')" title="Compensar este día con banco o vacaciones (para que no se descuente del sueldo)" style="font-size:9px;margin-top:auto;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:2px 4px;cursor:pointer;font-weight:600;">${lbl}</button>`;
                 }
                 return '';
               })()}
@@ -4305,6 +4310,16 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp) {
     toast('Error: ' + error.message, 'error');
     return;
   }
+  // Si el día estaba "salvado" (error_salvado=true por la encargada/admin para no perder
+  // el premio fichadas), des-salvarlo: ahora se compensa con banco/vacaciones, ya no es
+  // un error "perdonado" sino un día efectivamente cubierto.
+  try {
+    await sb.from('rrhh_asistencias_detalle')
+      .update({ error_salvado: false, salvado_motivo: null, salvado_at: null, salvado_por: null })
+      .eq('empleado_id', session.empleado_id)
+      .eq('fecha', fecha)
+      .eq('error_salvado', true);
+  } catch (_) {}
   await auditLog('solicitar_compensacion_falta', 'rrhh_permisos_puntuales', data.id, null, null,
     `${fecha} · ${tipoComp} (${descontar_banco ? minutos_descontar + ' min' : dias_descontar + ' días'})`);
   toast('Solicitud enviada ✓ La encargada la va a evaluar', 'success');
@@ -15080,6 +15095,7 @@ async function aumGerenteRender() {
         🟡 <strong>Pendiente</strong> — para cada empleada elegí el monto exacto del fijo nuevo (dentro del rango)
         y apretá <em>Aplicar aumentos</em>. Una vez aplicado queda registrado para la liquidación del mes.
         ${encargadaId ? '<br>🎯 <strong>Tu fila ya tiene MAX pre-cargado.</strong>' : ''}
+        ${local === 'unicenter' ? '<br>🧹 <strong>Recordatorio:</strong> después de aplicar, avisale a JP para actualizar el sueldo de <strong>Marcelo</strong> (limpieza, monotributo, fuera de planilla).' : ''}
       </div>
     `;
   } else if (cantAplicadas >= cantTotal) {
@@ -15254,7 +15270,10 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
     }
   }
 
-  const resumen = `Aplicados ${ok} ${ok===1?'aumento':'aumentos'}${fail?`, ${fail} con error`:''}.\n\n${detalles.join('\n')}`;
+  const recordatorioMarcelo = (session.empleadoData?.local === 'unicenter')
+    ? '\n\n🧹 RECORDATORIO: Avisale a JP para actualizar el sueldo de Marcelo (limpieza, monotributo, fuera de planilla).'
+    : '';
+  const resumen = `Aplicados ${ok} ${ok===1?'aumento':'aumentos'}${fail?`, ${fail} con error`:''}.\n\n${detalles.join('\n')}${recordatorioMarcelo}`;
   alert(resumen);
   if (ok > 0) toast(`✓ ${ok} aumento${ok===1?'':'s'} aplicado${ok===1?'':'s'}`, 'success');
   aumGerenteRender();
