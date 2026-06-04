@@ -15781,6 +15781,11 @@ async function aumAbrirDetalle(pedidoId) {
         ${ped.notas ? `<div><strong>Notas:</strong> ${escapeHtml(ped.notas)}</div>` : ''}
       </div>
 
+      ${editable ? `
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+          <button type="button" class="btn" onclick="aumUsarMaxTodos()" title="Setea a TODAS las empleadas con el % máximo autorizado (${ped.pct_max}%)" style="background:#16a34a;color:white;border:none;font-weight:600;">⚡ Usar MAX en todas (${ped.pct_max}%)</button>
+        </div>
+      ` : ''}
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
           <th style="padding:8px;">Empleada</th>
@@ -15799,7 +15804,10 @@ async function aumAbrirDetalle(pedidoId) {
               <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(d.fijo_anterior)}</td>
               <td style="padding:8px;text-align:right;">
                 ${editable
-                  ? `<input type="number" id="aum-pct-${d.id}" value="${d.pct_propuesto ?? ''}" min="${ped.pct_min}" max="${ped.pct_max}" step="0.5" style="width:80px;padding:4px;text-align:right;" oninput="aumActualizarFijoNuevo(${d.id}, ${d.fijo_anterior}, ${ped.pct_min}, ${ped.pct_max})">`
+                  ? `<div style="display:inline-flex;gap:4px;align-items:center;">
+                      <input type="number" id="aum-pct-${d.id}" value="${d.pct_propuesto ?? ''}" min="${ped.pct_min}" max="${ped.pct_max}" step="0.5" style="width:80px;padding:4px;text-align:right;" oninput="aumActualizarFijoNuevo(${d.id}, ${d.fijo_anterior}, ${ped.pct_min}, ${ped.pct_max})">
+                      <button type="button" class="btn small" onclick="aumUsarMax(${d.id}, ${ped.pct_max}, ${d.fijo_anterior}, ${ped.pct_min})" title="Usar el % máximo autorizado (${ped.pct_max}%)" style="background:#16a34a;color:white;border:none;padding:3px 8px;font-size:11px;font-weight:600;">↑ MAX</button>
+                    </div>`
                   : `<span style="font-family:monospace;">${d.pct_propuesto != null ? Number(d.pct_propuesto).toFixed(2)+'%' : '—'}</span>`}
               </td>
               <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;" id="aum-nuevo-${d.id}">${fijoNuevo != null ? fmt$(fijoNuevo) : '—'}</td>
@@ -15839,6 +15847,32 @@ function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
   tgt.style.color = '';
   const nuevo = fijoAnt * (1 + v/100);
   tgt.textContent = '$' + Math.round(nuevo).toLocaleString('es-AR');
+}
+
+// ── Setea el input al % MAX autorizado para esa empleada y actualiza el cálculo ──
+function aumUsarMax(detId, pmax, fijoAnt, pmin) {
+  const inp = document.getElementById('aum-pct-' + detId);
+  if (!inp) return;
+  inp.value = pmax;
+  aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax);
+}
+
+// ── Aplica el MAX a todas las empleadas de la planilla en una sola pasada ──
+function aumUsarMaxTodos() {
+  const inputs = document.querySelectorAll('input[id^="aum-pct-"]');
+  if (inputs.length === 0) { toast('No hay empleadas en la planilla', 'info'); return; }
+  if (!confirm(`¿Aplicar el % máximo autorizado a las ${inputs.length} empleadas?\n\nVas a poder ajustar caso a caso después si querés.`)) return;
+  let count = 0;
+  inputs.forEach(inp => {
+    const pmax = Number(inp.getAttribute('max'));
+    if (Number.isFinite(pmax)) {
+      inp.value = pmax;
+      // Dispara el oninput para que se recalcule el fijo nuevo
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      count++;
+    }
+  });
+  toast(`✓ ${count} empleada${count!==1?'s':''} seteada${count!==1?'s':''} al máximo`, 'success');
 }
 
 // ════════════════════════════════════════════════════════════════════
