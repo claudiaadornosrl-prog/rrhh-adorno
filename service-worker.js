@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v105-boton-compensar-admin';
+const CACHE_VERSION = 'rrhh-v106-recalc-respeta-filtro-nombre';
 const ASSETS = [
   './',
   './index.html',

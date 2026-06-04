@@ -14283,7 +14283,7 @@ async function liqGenerarImportes(local, periodo) {
     let totalOk = 0;
     const todosErrores = [];
     for (const loc of locales) {
-      const r = await salaryWorkflow.liquidarMes(loc, periodo, { soloImportes: true });
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, { soloImportes: true, filtroNombre: (typeof liqState !== 'undefined' && liqState.busqueda) ? liqState.busqueda.trim() : '' });
       totalOk += r.ok.length;
       r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
     }
@@ -14308,7 +14308,7 @@ async function liqGenerarDobleBlanco(local, periodo) {
     let totalOk = 0;
     const todosErrores = [];
     for (const loc of locales) {
-      const r = await salaryWorkflow.liquidarMes(loc, periodo, { soloDobleBlanco: true });
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, { soloDobleBlanco: true, filtroNombre: (typeof liqState !== 'undefined' && liqState.busqueda) ? liqState.busqueda.trim() : '' });
       totalOk += r.ok.length;
       r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
     }
@@ -14341,13 +14341,15 @@ async function liqGenerarMes(local, periodo) {
                 `¿Querés generar igual?`;
     if (!confirm(msg)) return;
   }
-  if (!confirm(`Generar/recalcular liquidaciones de ${locales.join(', ')} para ${periodo}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
+  const _filtroNomGM = (typeof liqState !== 'undefined' && liqState.busqueda) ? liqState.busqueda.trim() : '';
+  const _msgFiltro = _filtroNomGM ? ` (SOLO empleadas que coinciden con "${_filtroNomGM}")` : '';
+  if (!confirm(`Generar/recalcular liquidaciones de ${locales.join(', ')} para ${periodo}${_msgFiltro}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
   toast('Calculando…', '');
   try {
     let totalOk = 0;
     const todosErrores = [];
     for (const loc of locales) {
-      const r = await salaryWorkflow.liquidarMes(loc, periodo);
+      const r = await salaryWorkflow.liquidarMes(loc, periodo, { filtroNombre: _filtroNomGM });
       totalOk += r.ok.length;
       r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
     }
@@ -20347,7 +20349,15 @@ const salaryWorkflow = (() => {
       .map(c => c.rrhh_empleados);
     const uniq = {};
     empleadas.forEach(e => { uniq[e.id] = e; });
-    const lista = Object.values(uniq);
+    let lista = Object.values(uniq);
+    // Filtro opcional por nombre (cuando el admin tiene el filtro de búsqueda activo)
+    const _filtroNom = (opts.filtroNombre || '').toString().toLowerCase().trim();
+    if (_filtroNom) {
+      lista = lista.filter(e => {
+        const txt = ((e.apellido||'') + ' ' + (e.nombre||'') + ' ' + (e.nombre_completo||'')).toLowerCase();
+        return txt.includes(_filtroNom);
+      });
+    }
 
     const ok = [], errores = [];
 
