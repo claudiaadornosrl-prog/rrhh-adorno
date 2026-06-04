@@ -4462,6 +4462,12 @@ async function renderMiLegajo() {
         <span id="self-os-solicitudes" style="margin-left:10px;color:var(--muted);"></span>
       </div>
 
+      <div class="section-title">Datos bancarios <span style="font-weight:400;color:#dc2626;text-transform:none;letter-spacing:0;font-size:11px;">(obligatorio para cobrar)</span></div>
+      <div class="form-grid">
+        <div class="form-row"><label>Banco</label><input type="text" id="self-banco" value="${escapeHtml(full?.banco||'')}" placeholder="Ej: Galicia"></div>
+        <div class="form-row"><label>CBU <span style="color:#dc2626;font-size:11px;">(22 dígitos)</span></label><input type="text" id="self-cbu" value="${escapeHtml(full?.cbu||'')}" maxlength="22" inputmode="numeric" placeholder="0000000000000000000000"></div>
+      </div>
+
       <div class="section-title">Foto del DNI <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(obligatoria)</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
         <div>
@@ -4519,7 +4525,14 @@ async function guardarMisDatos() {
     obra_social_codigo:          document.getElementById('self-os-codigo')?.value.trim() || null,
     obra_social_plan:            document.getElementById('self-os-plan')?.value.trim() || null,
     obra_social_numero_afiliado: document.getElementById('self-os-numafil')?.value.trim() || null,
+    banco:                       document.getElementById('self-banco')?.value.trim() || null,
+    cbu:                         document.getElementById('self-cbu')?.value.trim() || null,
   };
+  // Validar CBU si lo cargan: debe tener 22 dígitos
+  if (newFields.cbu && !/^\d{22}$/.test(newFields.cbu)) {
+    toast('El CBU debe tener exactamente 22 dígitos', 'error');
+    return;
+  }
   // Fecha de nacimiento: solo si no estaba cargada antes (el input solo existe en ese caso)
   const fnacInput = document.getElementById('self-fnac');
   if (fnacInput && fnacInput.value) newFields.fecha_nacimiento = fnacInput.value;
