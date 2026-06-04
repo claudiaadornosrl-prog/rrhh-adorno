@@ -4183,26 +4183,29 @@ async function renderMiCalendario() {
 // Compensar falta: vendedora elige banco/vacaciones, encargada aprueba
 // (única vía permitida para fechas pasadas)
 // ════════════════════════════════════════════════════════════
-async function abrirCompensarFalta(fecha) {
-  if (!session.empleado_id) { toast('Tu usuario no está vinculado', 'error'); return; }
+async function abrirCompensarFalta(fecha, empleadoId) {
+  // Modo admin/encargada: si llega empleadoId, opera sobre esa empleada (no sobre la sesión)
+  const _empTarget = empleadoId || session.empleado_id;
+  const _esAdminMode = (empleadoId && empleadoId !== session.empleado_id);
+  if (!_empTarget) { toast('Tu usuario no está vinculado', 'error'); return; }
 
   // Saldo del banco al cierre de esa fecha
   const { data: detsBanco } = await sb.from('rrhh_asistencias_detalle')
     .select('minutos_banco')
-    .eq('empleado_id', session.empleado_id)
+    .eq('empleado_id', _empTarget)
     .lte('fecha', fecha);
   const saldoBanco = (detsBanco || []).reduce((s, d) => s + Number(d.minutos_banco || 0), 0);
 
   // Saldo de vacaciones del año
   const año = parseInt(fecha.substring(0, 4), 10);
   const { data: saldoVac } = await sb.from('rrhh_vacaciones')
-    .select('dias_pendientes').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
+    .select('dias_pendientes').eq('empleado_id', _empTarget).eq('año', año).maybeSingle();
   const diasDisp = saldoVac?.dias_pendientes || 0;
 
   // Minutos de jornada estimada según turno (para sugerir el descuento del banco)
   const { data: turno } = await sb.from('rrhh_turnos')
     .select('hora_inicio, hora_fin, es_franco')
-    .eq('empleado_id', session.empleado_id).eq('fecha', fecha).maybeSingle();
+    .eq('empleado_id', _empTarget).eq('fecha', fecha).maybeSingle();
   let minutosJornada = 0;
   if (turno && turno.hora_inicio && turno.hora_fin && !turno.es_franco) {
     const [h1, m1] = turno.hora_inicio.split(':').map(Number);
@@ -4262,7 +4265,7 @@ async function abrirCompensarFalta(fecha) {
 
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button class="btn" onclick="document.getElementById('comp-modal').remove()">Cancelar</button>
-          <button class="btn primary" onclick="enviarCompensarFalta('${fecha}', ${saldoBanco}, ${diasDisp})">Enviar solicitud</button>
+          <button class="btn primary" onclick="enviarCompensarFalta('${fecha}', ${saldoBanco}, ${diasDisp}, ${_esAdminMode ? _empTarget : 'null'})">Enviar solicitud</button>
         </div>
       </div>
     </div>
@@ -4277,7 +4280,7 @@ function compToggle() {
   document.getElementById('comp-vac-row').style.display   = (valor === 'vacaciones') ? 'block' : 'none';
 }
 
-async function enviarCompensarFalta(fecha, saldoBanco, diasDisp) {
+async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
   const sel = document.querySelector('input[name="comp-tipo"]:checked');
   const tipoComp = sel ? sel.value : 'banco';
   const motivo = (document.getElementById('comp-motivo').value || '').trim() || null;
@@ -4296,13 +4299,17 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp) {
     descontar_vacaciones = true;
   }
 
+  // Modo admin/encargada: si llega empleadoId, opera sobre esa empleada y crea APROBADO directo
+  const _empTarget = empleadoId || session.empleado_id;
+  const _esAdminMode = (empleadoId && empleadoId !== session.empleado_id);
+  const _estadoFinal = _esAdminMode ? 'aprobado' : 'pendiente';
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
-    empleado_id: session.empleado_id,
+    empleado_id: _empTarget,
     fecha,
     tipo: 'dia_completo',
     motivo: motivo || 'Compensación de falta',
-    estado: 'pendiente',
-    solicitado_por: session.email,
+    estado: _estadoFinal,
+    solicitado_por: session.email || 'admin',
     descontar_banco, minutos_descontar,
     descontar_vacaciones, dias_descontar,
   }).select().single();
@@ -4310,19 +4317,17 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp) {
     toast('Error: ' + error.message, 'error');
     return;
   }
-  // Si el día estaba "salvado" (error_salvado=true por la encargada/admin para no perder
-  // el premio fichadas), des-salvarlo: ahora se compensa con banco/vacaciones, ya no es
-  // un error "perdonado" sino un día efectivamente cubierto.
+  // Si el día estaba "salvado", des-salvarlo (ahora se compensa con banco/vacaciones)
   try {
     await sb.from('rrhh_asistencias_detalle')
       .update({ error_salvado: false, salvado_motivo: null, salvado_at: null, salvado_por: null })
-      .eq('empleado_id', session.empleado_id)
+      .eq('empleado_id', _empTarget)
       .eq('fecha', fecha)
       .eq('error_salvado', true);
   } catch (_) {}
   await auditLog('solicitar_compensacion_falta', 'rrhh_permisos_puntuales', data.id, null, null,
-    `${fecha} · ${tipoComp} (${descontar_banco ? minutos_descontar + ' min' : dias_descontar + ' días'})`);
-  toast('Solicitud enviada ✓ La encargada la va a evaluar', 'success');
+    `${fecha} · ${tipoComp} (${descontar_banco ? minutos_descontar + ' min' : dias_descontar + ' días'})${_esAdminMode ? ' [admin: aprobado directo]' : ''}`);
+  toast(_esAdminMode ? '✓ Compensación aplicada — recalculá la liquidación' : 'Solicitud enviada ✓ La encargada la va a evaluar', 'success');
   document.getElementById('comp-modal').remove();
   switchTab('mi-calendario');
 }
@@ -7950,6 +7955,12 @@ async function renderDetalleEmpDia(empId) {
                     html += ` <button class="btn small" style="padding:1px 6px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();abrirMenuCambiarTurno(${d.id}, ${empId}, '${d.fecha}')" title="Cambiar manualmente el turno planificado">⋮ Otro turno</button>`;
                     if (esErrorPremio(d) && !d.error_salvado) {
                       html += ` <button class="btn small accent2" style="padding:1px 6px;font-size:10px;margin-left:4px;" onclick="event.stopPropagation();salvarError(${d.id}, ${empId})">Salvar</button>`;
+                    }
+                    // Botón Compensar con banco/vacaciones — para días ausente/falta_fichada/licencia.
+                    // Es la alternativa a "Salvar": en vez de perdonar el día, lo cubrimos descontando
+                    // del banco de minutos o de los días de vacaciones de la empleada.
+                    if (['ausente','falta_fichada','licencia'].includes(d.estado)) {
+                      html += ` <button class="btn small" style="padding:1px 6px;font-size:10px;margin-left:4px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-weight:600;" title="Compensar con banco de minutos o días de vacaciones (queda APROBADO al instante)" onclick="event.stopPropagation();abrirCompensarFalta('${d.fecha}', ${empId})">💰 Compensar</button>`;
                     }
                   }
                   return html;
