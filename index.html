@@ -5245,7 +5245,7 @@ async function renderMisPrestamos() {
 
   // ¿Ya tiene solicitud de préstamo pendiente?
   const { data: prestamosPend } = await sb.from('rrhh_prestamo_solicitud')
-    .select('id, monto_solicitado, cuotas_solicitadas, solicitado_at, motivo')
+    .select('id, monto_solicitado, cuotas_solicitadas, cuotas_opciones, solicitado_at, motivo')
     .eq('empleado_id', session.empleado_id)
     .eq('tipo', 'prestamo_nuevo')
     .eq('estado', 'pendiente')
@@ -5286,7 +5286,7 @@ async function renderMisPrestamos() {
           </div>
           ${yaPidioPrestamo && _solicPendiente ? `
             <div style="font-size:12px;color:#92400e;margin-top:6px;background:#fde68a;padding:6px 10px;border-radius:4px;">
-              📩 Solicitud pendiente: <strong>${fmt(_solicPendiente.monto_solicitado)}</strong> en <strong>${_solicPendiente.cuotas_solicitadas}</strong> cuotas · enviada ${fmtFecha(_solicPendiente.solicitado_at?.slice(0,10))}
+              📩 Solicitud pendiente: <strong>${fmt(_solicPendiente.monto_solicitado)}</strong> · opciones de <strong>${(_solicPendiente.cuotas_opciones || [_solicPendiente.cuotas_solicitadas]).join(' / ')}</strong> cuotas · enviada ${fmtFecha(_solicPendiente.solicitado_at?.slice(0,10))}
             </div>
           ` : ''}
         </div>
@@ -5486,11 +5486,15 @@ async function enviarSolicitudAdelantoSueldo() {
   }
 }
 
+// Estado de las opciones de cuotas (lista de números 1-12)
+let _opcionesCuotasPrestamo = [6];
+
 async function abrirPedirPrestamo() {
+  _opcionesCuotasPrestamo = [6]; // default
   const htmlModal = `
     <h3 style="margin:0 0 8px;">🏦 Solicitar préstamo</h3>
     <div style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;margin-bottom:14px;line-height:1.5;">
-      Indicá el capital que querés pedir y en cuántas cuotas. El admin te va a preparar una propuesta con la cuota mensual final (incluye intereses).
+      Cargá el capital que querés y una o varias opciones de cuotas para que el admin te prepare las propuestas correspondientes.
     </div>
     <div class="form-grid">
       <div class="form-row full">
@@ -5498,55 +5502,111 @@ async function abrirPedirPrestamo() {
         <input type="text" inputmode="numeric" id="presnuevo-capital" data-money placeholder="$300.000">
       </div>
       <div class="form-row full">
-        <label>Cantidad de cuotas (1 a 24)</label>
-        <input type="number" min="1" max="24" id="presnuevo-cuotas" placeholder="6" value="6" oninput="actualizarSimulPrestamo()">
+        <label>Cantidad de cuotas (1 a 12) <span style="color:var(--muted);font-size:11px;">— podés agregar varias opciones</span></label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="number" min="1" max="12" id="presnuevo-cuotas-input" placeholder="Ej: 3" style="max-width:120px;">
+          <button class="btn small" type="button" onclick="agregarOpcionCuotaPrestamo()" style="background:#d97706;color:white;border:none;">+ Agregar</button>
+        </div>
       </div>
       <div class="form-row full">
         <label>Motivo (opcional)</label>
         <input type="text" id="presnuevo-motivo" placeholder="Ej: arreglo del auto, mudanza, etc.">
       </div>
     </div>
-    <div style="margin-top:14px;background:#f3f4f6;padding:10px 12px;border-radius:6px;">
-      <div style="font-size:12px;color:#374151;display:flex;justify-content:space-between;align-items:center;">
-        <span>Cuota mensual <em style="font-size:11px;color:#9ca3af;">(estimado sin intereses)</em></span>
-        <strong id="presnuevo-simul" style="font-size:18px;color:#d97706;font-family:monospace;">$0</strong>
-      </div>
-      <div style="font-size:11px;color:#6b7280;margin-top:4px;">⚠️ La cuota final puede ser distinta — el admin define la tasa de interés en la propuesta.</div>
+    <div id="presnuevo-chips" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+    <div id="presnuevo-simul-box" style="margin-top:14px;background:#f3f4f6;padding:10px 12px;border-radius:6px;">
+      <div style="font-size:12px;color:#374151;font-weight:600;margin-bottom:6px;">Cuota mensual estimada <em style="font-size:11px;color:#9ca3af;font-weight:400;">(sin intereses)</em></div>
+      <div id="presnuevo-simul"></div>
+      <div style="font-size:11px;color:#6b7280;margin-top:6px;">⚠️ La cuota final puede ser distinta — el admin define la tasa de interés cuando arma la propuesta.</div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
       <button class="btn" onclick="closeModal()">Cancelar</button>
       <button class="btn primary" style="background:#d97706;border-color:#d97706;" onclick="enviarSolicitudPrestamo()">📩 Enviar solicitud</button>
     </div>
   `;
-  openModal(htmlModal, '520px');
+  openModal(htmlModal, '560px');
   setTimeout(() => {
     wireAllMoneyInputs(document.getElementById('global-modal'));
     const cap = document.getElementById('presnuevo-capital');
-    if (cap) cap.addEventListener('input', actualizarSimulPrestamo);
-    actualizarSimulPrestamo();
+    if (cap) cap.addEventListener('input', renderOpcionesCuotasPrestamo);
+    const cuotaInput = document.getElementById('presnuevo-cuotas-input');
+    if (cuotaInput) cuotaInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); agregarOpcionCuotaPrestamo(); }
+    });
+    renderOpcionesCuotasPrestamo();
   }, 0);
 }
 
-function actualizarSimulPrestamo() {
+function agregarOpcionCuotaPrestamo() {
+  const input = document.getElementById('presnuevo-cuotas-input');
+  if (!input) return;
+  const n = Number(input.value || 0);
+  if (!(n >= 1 && n <= 12)) {
+    toast('Las cuotas deben estar entre 1 y 12', 'error');
+    return;
+  }
+  if (_opcionesCuotasPrestamo.includes(n)) {
+    toast('Ya tenés esa cantidad de cuotas en la lista', 'info');
+    return;
+  }
+  if (_opcionesCuotasPrestamo.length >= 6) {
+    toast('Máximo 6 opciones de cuotas por solicitud', 'error');
+    return;
+  }
+  _opcionesCuotasPrestamo.push(n);
+  _opcionesCuotasPrestamo.sort((a, b) => a - b);
+  input.value = '';
+  renderOpcionesCuotasPrestamo();
+}
+
+function quitarOpcionCuotaPrestamo(n) {
+  _opcionesCuotasPrestamo = _opcionesCuotasPrestamo.filter(x => x !== n);
+  renderOpcionesCuotasPrestamo();
+}
+
+function renderOpcionesCuotasPrestamo() {
+  const cont = document.getElementById('presnuevo-chips');
+  const simulBox = document.getElementById('presnuevo-simul');
+  if (!cont || !simulBox) return;
+  if (_opcionesCuotasPrestamo.length === 0) {
+    cont.innerHTML = '<div style="font-size:12px;color:#dc2626;">⚠️ Tenés que agregar al menos una opción de cuotas.</div>';
+    simulBox.innerHTML = '<div style="font-size:12px;color:#9ca3af;">— Agregá cuotas para ver el estimado —</div>';
+    return;
+  }
+  cont.innerHTML = '<span style="font-size:12px;color:var(--muted);margin-right:4px;align-self:center;">Opciones cargadas:</span>' +
+    _opcionesCuotasPrestamo.map(n =>
+      `<span style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;padding:4px 10px;border-radius:14px;font-size:12px;display:inline-flex;align-items:center;gap:6px;">
+        ${n} cuota${n > 1 ? 's' : ''}
+        <span style="cursor:pointer;font-weight:700;color:#92400e;" onclick="quitarOpcionCuotaPrestamo(${n})" title="Quitar">×</span>
+      </span>`
+    ).join('');
   const cap = parseMoneyInput(document.getElementById('presnuevo-capital'));
-  const cuotas = Math.max(1, Math.min(24, Number(document.getElementById('presnuevo-cuotas')?.value || 0)));
-  const out = document.getElementById('presnuevo-simul');
-  if (!out) return;
-  const cuotaMensual = (cap > 0 && cuotas > 0) ? Math.round(cap / cuotas) : 0;
-  out.textContent = '$' + cuotaMensual.toLocaleString('es-AR');
+  simulBox.innerHTML = '<table style="width:100%;font-size:13px;border-collapse:collapse;">' +
+    _opcionesCuotasPrestamo.map(n => {
+      const cuota = (cap > 0) ? Math.round(cap / n) : 0;
+      return `<tr style="border-top:1px solid #e5e7eb;">
+        <td style="padding:5px 8px;">${n} cuota${n > 1 ? 's' : ''} de</td>
+        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600;color:#d97706;">$${cuota.toLocaleString('es-AR')}</td>
+      </tr>`;
+    }).join('') + '</table>';
 }
 
 async function enviarSolicitudPrestamo() {
   const capital = parseMoneyInput(document.getElementById('presnuevo-capital'));
-  const cuotas = Number(document.getElementById('presnuevo-cuotas').value || 0);
   const motivo = (document.getElementById('presnuevo-motivo').value || '').trim() || null;
   if (!(capital > 0)) { toast('Cargá un capital mayor a 0', 'error'); return; }
-  if (!(cuotas >= 1 && cuotas <= 24)) { toast('Cantidad de cuotas debe estar entre 1 y 24', 'error'); return; }
+  if (_opcionesCuotasPrestamo.length === 0) {
+    toast('Agregá al menos una opción de cuotas', 'error');
+    return;
+  }
   try {
     const { data, error } = await sb.rpc('rrhh_solicitar_prestamo', {
-      p_capital: capital, p_cuotas: cuotas, p_motivo: motivo
+      p_capital: capital,
+      p_cuotas_opciones: _opcionesCuotasPrestamo,
+      p_motivo: motivo
     });
     if (error) throw error;
+    const optTxt = _opcionesCuotasPrestamo.map(n => n + ' cuotas').join(' / ');
     toast('Solicitud de préstamo enviada · te avisamos cuando el admin la responda ✓', 'success');
     try {
       const adminId = await _buscarAdminIdParaPush();
@@ -5554,7 +5614,7 @@ async function enviarSolicitudPrestamo() {
         enviarPush(
           adminId,
           'Solicitud de préstamo 🏦',
-          `${session.empleadoData?.nombre_completo || 'Una empleada'} pide $${capital.toLocaleString('es-AR')} en ${cuotas} cuotas.`,
+          `${session.empleadoData?.nombre_completo || 'Una empleada'} pide $${capital.toLocaleString('es-AR')} (opciones: ${optTxt}).`,
           { url: './#prestamos', tag: 'solic-prestamo-nuevo-' + data?.solicitud_id }
         );
       }
