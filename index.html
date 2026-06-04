@@ -16545,16 +16545,87 @@ async function renderPrestamosGerente() {
     const [y, m] = s.split('-').map(Number);
     return new Date(y, m - 1, 1).toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
   };
+  const fmtFechaCorta = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso);
+    return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+  };
+
+  // ── Cargar adelantos del local (mes actual + últimos 60 días) ──
+  const _hoyAd = new Date();
+  const _desdeAd = new Date(_hoyAd.getFullYear(), _hoyAd.getMonth() - 1, 1).toISOString();
+  const { data: adelantos } = await sb.from('rrhh_prestamo_solicitud')
+    .select('id, empleado_id, tipo, monto_solicitado, motivo, estado, solicitado_at, resuelto_at, empleado:rrhh_empleados(nombre_completo)')
+    .in('empleado_id', empIds.length ? empIds : [-1])
+    .eq('tipo', 'adelanto_sueldo')
+    .gte('solicitado_at', _desdeAd)
+    .order('solicitado_at', { ascending: false });
+
+  // ── Guardar cuotas detalladas (para el modal "Ver cuotas") ──
+  // Cuotas ya están cargadas arriba pero solo en resumen. Cargamos individuales también.
+  let cuotasDetalladas = {};
+  if (ids.length) {
+    const { data: cs } = await sb.from('rrhh_prestamo_cuota')
+      .select('prestamo_id, numero, mes_descuento, monto_total, monto_capital, monto_interes, estado')
+      .in('prestamo_id', ids)
+      .order('prestamo_id').order('numero');
+    (cs || []).forEach(c => {
+      (cuotasDetalladas[c.prestamo_id] = cuotasDetalladas[c.prestamo_id] || []).push(c);
+    });
+  }
+  window._cuotasDetGerente = cuotasDetalladas;
+  window._prestamosDetGerente = {};
+  (prestamos || []).forEach(p => { window._prestamosDetGerente[p.id] = p; });
 
   const totalCap     = (prestamos || []).reduce((s, p) => s + Number(p.capital || 0), 0);
   const totalSaldo   = Object.values(cuotasMap).reduce((s, m) => s + (m.saldoCap || 0), 0);
   const totalIntPend = Object.values(cuotasMap).reduce((s, m) => s + (m.saldoInt || 0), 0);
 
+  // ─── Section helpers ────────────────────────────────
+  const estadoChipAd = (e) => {
+    const colores = { pendiente:'#d97706', aprobada:'#16a34a', rechazada:'#dc2626', cancelada:'#64748b' };
+    return `<span style="background:${colores[e]||'#64748b'};color:white;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">${e}</span>`;
+  };
+
+  const adelantosHTML = (adelantos || []).length === 0 ? `
+    <div class="card" style="padding:20px;text-align:center;color:var(--muted);">
+      Sin adelantos en los últimos 60 días.
+    </div>
+  ` : `
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f0f9ff;text-align:left;">
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Monto</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Motivo</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Estado</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Solicitado</th>
+        </tr></thead>
+        <tbody>
+          ${adelantos.map(a => `
+            <tr style="border-top:1px solid var(--border);">
+              <td style="padding:10px 14px;font-weight:500;">${escapeHtml(a.empleado?.nombre_completo || '—')}</td>
+              <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;color:#0ea5e9;">${fmt(a.monto_solicitado)}</td>
+              <td style="padding:10px 14px;font-size:12px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(a.motivo||'')}">${escapeHtml(a.motivo || '—')}</td>
+              <td style="padding:10px 14px;text-align:center;">${estadoChipAd(a.estado)}</td>
+              <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${fmtFechaCorta(a.solicitado_at)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
   cont.innerHTML = `
     <div class="page-header">
-      <h2>Préstamos · ${LOCALES[local]?.nombre || local}</h2>
-      <div class="subtitle">Resumen de los préstamos activos del equipo (solo lectura).</div>
+      <h2>Préstamos y adelantos · ${LOCALES[local]?.nombre || local}</h2>
+      <div class="subtitle">Vista de tu equipo (solo lectura). El admin gestiona aprobaciones y propuestas.</div>
     </div>
+
+    <div class="section-title" style="color:#0ea5e9;margin-top:0;">💵 Adelantos de sueldo (últimos 60 días)</div>
+    ${adelantosHTML}
+
+    <div class="section-title" style="color:#7c3aed;">🏦 Préstamos activos</div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px;">
       <div class="card" style="padding:14px;">
@@ -16592,6 +16663,7 @@ async function renderPrestamosGerente() {
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;" title="Interés pendiente (no incluye cuotas ya descontadas)">Interés pend.</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Próxima</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Otorgado</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Cuotas</th>
           </tr></thead>
           <tbody>
             ${(prestamos || []).map(p => {
@@ -16608,6 +16680,7 @@ async function renderPrestamosGerente() {
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;color:#d97706;" title="Pagado: ${fmt(m.intPagado||0)} / Total: ${fmt(m.intTotal||0)}">${fmt(m.saldoInt)}</td>
                 <td style="padding:10px 14px;font-size:12px;">${m.proxima ? fmtMes(m.proxima.mes_descuento) : 'al día'}</td>
                 <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${otorgado}</td>
+                <td style="padding:10px 14px;text-align:center;"><button class="btn small" style="background:#7c3aed;color:white;border:none;padding:4px 10px;" onclick="verCuotasPrestamoGerente(${p.id})" title="Ver detalle de cuotas">📋 Ver</button></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -16618,6 +16691,71 @@ async function renderPrestamosGerente() {
       💡 Las cuotas se descuentan automáticamente en la liquidación mensual. Para otorgar, refinanciar o cancelar préstamos contactá al admin.
     </div>
   `;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Encargada: ver detalle de cuotas de un préstamo (modal solo lectura)
+// ─────────────────────────────────────────────────────────────────────
+function verCuotasPrestamoGerente(prestamoId) {
+  const p = (window._prestamosDetGerente || {})[prestamoId];
+  const cuotas = (window._cuotasDetGerente || {})[prestamoId] || [];
+  if (!p) { toast('No se encontró el préstamo', 'error'); return; }
+
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const labelMes = (iso) => {
+    if (!iso) return '—';
+    const [y, m] = iso.split('-').map(Number);
+    const t = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
+  const colorEstado = {
+    propuesta:'#6366f1', pendiente:'#0891b2', aplicada:'#15803d',
+    cancelada:'#9ca3af', rechazada:'#dc2626'
+  };
+
+  const totalCap = cuotas.reduce((s, c) => s + Number(c.monto_capital||0), 0);
+  const totalInt = cuotas.reduce((s, c) => s + Number(c.monto_interes||0), 0);
+  const totalCuotas = cuotas.reduce((s, c) => s + Number(c.monto_total||0), 0);
+  const pagadas = cuotas.filter(c => c.estado === 'aplicada').length;
+  const pendientes = cuotas.filter(c => c.estado === 'pendiente').length;
+
+  const htmlModal = `
+    <h3 style="margin:0 0 8px;">📋 Detalle del préstamo · ${escapeHtml(p.empleado?.nombre_completo || '')}</h3>
+    <div style="background:#f5f3ff;padding:10px 12px;border-radius:6px;font-size:12px;color:#5b21b6;margin-bottom:14px;line-height:1.6;">
+      <div><strong>Capital:</strong> ${fmt(p.capital)} · <strong>Cuotas:</strong> ${p.cuotas_totales} de ${fmt(p.cuota_monto)}</div>
+      <div><strong>Total a devolver:</strong> ${fmt(totalCuotas)} (capital ${fmt(totalCap)} + intereses ${fmt(totalInt)})</div>
+      <div><strong>Estado:</strong> ${pagadas} pagada${pagadas!==1?'s':''} · ${pendientes} pendiente${pendientes!==1?'s':''}</div>
+      ${p.notas ? `<div style="margin-top:4px;font-style:italic;">"${escapeHtml(p.notas)}"</div>` : ''}
+    </div>
+    <div style="max-height:380px;overflow:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#f3f4f6;text-align:right;position:sticky;top:0;">
+          <th style="padding:6px;text-align:left;">#</th>
+          <th style="padding:6px;text-align:left;">Mes</th>
+          <th style="padding:6px;">Cuota</th>
+          <th style="padding:6px;">Capital</th>
+          <th style="padding:6px;">Interés</th>
+          <th style="padding:6px;text-align:left;">Estado</th>
+        </tr></thead>
+        <tbody>
+          ${cuotas.map(c => `
+            <tr style="border-top:1px solid #e5e7eb;text-align:right;">
+              <td style="padding:6px;text-align:left;">${c.numero}</td>
+              <td style="padding:6px;text-align:left;">${labelMes(c.mes_descuento)}</td>
+              <td style="padding:6px;font-family:monospace;font-weight:600;">${fmt(c.monto_total)}</td>
+              <td style="padding:6px;font-family:monospace;">${fmt(c.monto_capital)}</td>
+              <td style="padding:6px;font-family:monospace;color:#d97706;">${fmt(c.monto_interes)}</td>
+              <td style="padding:6px;text-align:left;color:${colorEstado[c.estado]||'#374151'};font-weight:600;text-transform:capitalize;">${c.estado}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button class="btn primary" onclick="closeModal()">Cerrar</button>
+    </div>
+  `;
+  openModal(htmlModal, '720px');
 }
 
 async function renderPrestamos() {
@@ -16788,6 +16926,26 @@ async function renderPrestamos() {
               </div>
               <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
                 <button class="btn small primary" style="background:#16a34a;border-color:#16a34a;" onclick="aprobarAdelantoSueldo(${s.id})">✅ Aprobar</button>
+                <button class="btn small" style="color:#dc2626;" onclick="rechazarSolicitudPrestamo(${s.id})">❌ Rechazar</button>
+              </div>
+            </div>
+          `;
+        } else if (s.tipo === 'prestamo_nuevo') {
+          const opcs = s.cuotas_opciones || [s.cuotas_solicitadas];
+          const opcsTxt = opcs.map(n => `${n} cuotas`).join(' · ');
+          return `
+            <div style="background:white;padding:12px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;border-left:4px solid #d97706;">
+              <div style="flex:1;min-width:260px;">
+                <div style="font-size:13px;color:#854d0e;font-weight:600;">🏦 ${escapeHtml(empNom)} pide un préstamo</div>
+                <div style="font-size:14px;color:#854d0e;margin-top:4px;font-weight:600;">Capital: ${fmt2(s.monto_solicitado)}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+                  Opciones de cuotas que pidió: <strong style="color:#d97706;">${escapeHtml(opcsTxt)}</strong>
+                </div>
+                ${s.motivo ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;">"${escapeHtml(s.motivo)}"</div>` : ''}
+                <div style="font-size:11px;color:var(--muted);margin-top:6px;">Enviada: ${new Date(s.solicitado_at).toLocaleString('es-AR')}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+                <button class="btn small primary" style="background:#d97706;border-color:#d97706;" onclick="abrirCrearPropuestasEnBloque(${s.id})">📝 Crear propuestas (${opcs.length})</button>
                 <button class="btn small" style="color:#dc2626;" onclick="rechazarSolicitudPrestamo(${s.id})">❌ Rechazar</button>
               </div>
             </div>
@@ -17900,6 +18058,201 @@ async function aplicarMarcarHistorico(prestamoId) {
   toast(`${cuotas.length} cuotas marcadas como pagadas ✓`, 'success');
   closeModal();
   switchTab('prestamos');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin: crear propuestas en bloque desde una solicitud prestamo_nuevo
+// (una propuesta por cada cantidad de cuotas pedida en cuotas_opciones)
+// ─────────────────────────────────────────────────────────────────────
+let _propuestasBloqueState = null;
+
+async function abrirCrearPropuestasEnBloque(solicitudId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  // Cargar la solicitud completa
+  const { data: s, error } = await sb.from('rrhh_prestamo_solicitud')
+    .select('id, empleado_id, monto_solicitado, cuotas_opciones, cuotas_solicitadas, motivo, empleado:rrhh_empleados(nombre_completo)')
+    .eq('id', solicitudId).single();
+  if (error || !s) { toast('No se encontró la solicitud', 'error'); return; }
+
+  const opciones = s.cuotas_opciones || [s.cuotas_solicitadas];
+  // Mes default = próximo mes
+  const _hoy = new Date();
+  const _mesProx = new Date(_hoy.getFullYear(), _hoy.getMonth()+1, 1);
+  const mesDefault = `${_mesProx.getFullYear()}-${String(_mesProx.getMonth()+1).padStart(2,'0')}`;
+
+  _propuestasBloqueState = { solicitudId, empleadoId: s.empleado_id, opciones };
+
+  const htmlModal = `
+    <h3 style="margin:0 0 8px;">📝 Crear propuestas para ${escapeHtml(s.empleado?.nombre_completo || '')}</h3>
+    <div style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;margin-bottom:14px;line-height:1.5;">
+      La empleada pidió <strong>$${Math.round(s.monto_solicitado).toLocaleString('es-AR')}</strong> · opciones: <strong>${opciones.join(' / ')} cuotas</strong>.
+      ${s.motivo ? `<br>Motivo: "${escapeHtml(s.motivo)}"` : ''}
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Capital a otorgar</label>
+        <input type="text" inputmode="numeric" id="pb-capital" data-money value="${Math.round(s.monto_solicitado)}">
+      </div>
+      <div class="form-row">
+        <label>Mes primer descuento</label>
+        <input type="month" id="pb-mes" value="${mesDefault}">
+      </div>
+      <div class="form-row full">
+        <label>CFT anual (%) <span style="color:var(--muted);font-size:11px;">— se aplica a todas las opciones</span></label>
+        <input type="number" id="pb-tasa" step="0.1" min="0" value="60" placeholder="60">
+      </div>
+      <div class="form-row full">
+        <label>Notas internas (opcional)</label>
+        <input type="text" id="pb-notas" placeholder="Ej: propuesta inicial">
+      </div>
+    </div>
+    <div style="margin-top:14px;">
+      <button class="btn" type="button" onclick="calcularPropuestasBloque()" style="background:#0891b2;color:white;border-color:#0891b2;">🔢 Calcular cuotas</button>
+    </div>
+    <div id="pb-tabla" style="margin-top:14px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" id="pb-enviar-btn" style="background:#d97706;border-color:#d97706;display:none;" onclick="crearPropuestasEnBloque()">✅ Crear ${opciones.length} propuesta${opciones.length>1?'s':''}</button>
+    </div>
+  `;
+  openModal(htmlModal, '680px');
+  setTimeout(() => {
+    wireAllMoneyInputs(document.getElementById('global-modal'));
+    calcularPropuestasBloque();
+  }, 0);
+}
+
+function calcularPropuestasBloque() {
+  if (!_propuestasBloqueState) return;
+  const capital = parseMoneyInput(document.getElementById('pb-capital'));
+  const cftPct = Number(document.getElementById('pb-tasa').value || 0);
+  const cont = document.getElementById('pb-tabla');
+  const btn = document.getElementById('pb-enviar-btn');
+  if (!capital || capital <= 0) {
+    cont.innerHTML = '<div style="font-size:12px;color:#dc2626;">⚠ Cargá capital primero</div>';
+    btn.style.display = 'none';
+    return;
+  }
+  const tasa = Math.pow(1 + cftPct/100, 1/12) - 1;
+  const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const planes = _propuestasBloqueState.opciones.map(n => {
+    try {
+      const p = prestamoEngine.armarPlan(capital, tasa, n);
+      const totalInt = p.plan.reduce((a,c)=>a+c.monto_interes,0);
+      const totalDev = p.plan.reduce((a,c)=>a+c.monto_total,0);
+      return { n, cuota: p.cuota_monto, totalInt, totalDev, plan: p.plan };
+    } catch(e) { return null; }
+  }).filter(Boolean);
+  _propuestasBloqueState.planes = planes;
+
+  cont.innerHTML = `
+    <div style="font-size:12px;color:#374151;margin-bottom:8px;">
+      Capital: <strong>${fmt(capital)}</strong> · CFT <strong>${cftPct.toFixed(1)}%</strong> anual (mensual ${(tasa*100).toFixed(2)}%)
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;background:#f9fafb;">
+      <thead><tr style="background:#fde68a;text-align:right;">
+        <th style="padding:6px 10px;text-align:left;">Opción</th>
+        <th style="padding:6px 10px;">Cuota mensual</th>
+        <th style="padding:6px 10px;">Total intereses</th>
+        <th style="padding:6px 10px;">Total a devolver</th>
+      </tr></thead>
+      <tbody>
+        ${planes.map(f => `
+          <tr style="border-top:1px solid #fde68a;text-align:right;">
+            <td style="padding:6px 10px;text-align:left;font-weight:600;">${f.n} cuota${f.n>1?'s':''}</td>
+            <td style="padding:6px 10px;font-family:monospace;font-weight:600;color:#0f6e56;">${fmt(f.cuota)}</td>
+            <td style="padding:6px 10px;font-family:monospace;color:#d97706;">${fmt(f.totalInt)}</td>
+            <td style="padding:6px 10px;font-family:monospace;">${fmt(f.totalDev)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+      Cada fila se va a crear como una <strong>propuesta separada</strong>. La empleada elige una y la acepta — las otras quedan rechazadas automáticamente.
+    </div>
+  `;
+  btn.style.display = 'inline-block';
+}
+
+async function crearPropuestasEnBloque() {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  const st = _propuestasBloqueState;
+  if (!st || !st.planes || !st.planes.length) { toast('Calculá las cuotas primero', 'error'); return; }
+  const capital = parseMoneyInput(document.getElementById('pb-capital'));
+  const cftPct = Number(document.getElementById('pb-tasa').value || 0);
+  const tasaMensual = Math.pow(1 + cftPct/100, 1/12) - 1;
+  const mesIni = document.getElementById('pb-mes').value;
+  const notas = (document.getElementById('pb-notas').value || '').trim() || null;
+  if (!mesIni) { toast('Elegí mes del primer descuento', 'error'); return; }
+
+  if (!confirm(`¿Crear ${st.planes.length} propuesta${st.planes.length>1?'s':''} para la empleada?
+
+Van todas con capital ${capital.toLocaleString('es-AR')} y CFT ${cftPct}% anual.
+La empleada elige una y la acepta.`)) return;
+
+  try {
+    const _hoy = new Date().toISOString().slice(0,10);
+    const idsCreados = [];
+    for (const plan of st.planes) {
+      // 1. Insert cabecera del préstamo (estado='propuesto')
+      const { data: ins, error: e1 } = await sb.from('rrhh_prestamo').insert({
+        empleado_id: st.empleadoId,
+        fecha_otorgamiento: _hoy,
+        capital,
+        tasa_mensual: tasaMensual,
+        cuotas_totales: plan.n,
+        cuota_monto: plan.cuota,
+        mes_primer_descuento: mesIni + '-01',
+        estado: 'propuesto',
+        otorgado_por: session.user?.email || 'admin',
+        propuesto_por: session.user?.email || 'admin',
+        notas: (notas ? notas + ' · ' : '') + `Opción de ${plan.n} cuotas desde solicitud #${st.solicitudId}`,
+      }).select('id').single();
+      if (e1) throw new Error(`Préstamo ${plan.n} cuotas: ${e1.message}`);
+
+      // 2. Insert cuotas
+      const filasCuotas = plan.plan.map(c => ({
+        prestamo_id: ins.id,
+        numero: c.numero,
+        mes_descuento: prestamoEngine.sumarMeses(mesIni + '-01', c.numero - 1),
+        monto_total: c.monto_total,
+        monto_capital: c.monto_capital,
+        monto_interes: c.monto_interes,
+        saldo_post_cuota: c.saldo_post,
+        estado: 'propuesta',
+      }));
+      const { error: e2 } = await sb.from('rrhh_prestamo_cuota').insert(filasCuotas);
+      if (e2) throw new Error(`Cuotas para préstamo ${plan.n}: ${e2.message}`);
+
+      idsCreados.push(ins.id);
+    }
+
+    // 3. Marcar solicitud como aprobada, apuntando al primer préstamo creado
+    await sb.from('rrhh_prestamo_solicitud').update({
+      estado: 'aprobada',
+      resuelto_at: new Date().toISOString(),
+      resuelto_por: session.user?.email || 'admin',
+      prestamo_resultante_id: idsCreados[0],
+    }).eq('id', st.solicitudId);
+
+    // 4. Push a la vendedora
+    try {
+      enviarPush(
+        st.empleadoId,
+        '🏦 Tu préstamo tiene propuestas',
+        `Te llegaron ${idsCreados.length} opciones — elegí la que más te convenga en Mis Préstamos.`,
+        { url: './#mis-prestamos', tag: 'prestamo-propuestas-' + st.solicitudId }
+      );
+    } catch(_){}
+
+    await auditLog('crear_propuestas_bloque', 'rrhh_prestamo_solicitud', st.solicitudId, null, null, `${idsCreados.length} propuestas: ${idsCreados.join(',')}`);
+    toast(`✓ ${idsCreados.length} propuesta${idsCreados.length>1?'s':''} creada${idsCreados.length>1?'s':''}`, 'success');
+    _propuestasBloqueState = null;
+    closeModal();
+    switchTab('prestamos');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
