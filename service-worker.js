@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v90-retiros-merc-selector-mes';
+const CACHE_VERSION = 'rrhh-v91-fix-intereses-prestamos-cancelados';
 const ASSETS = [
   './',
   './index.html',

@@ -12571,16 +12571,20 @@ async function renderLiquidaciones() {
   const empIdsLiq = [...new Set((liqs||[]).map(l => l.empleado_id))];
   const adelantosPorEmpLiq = {}, prestamosPorEmpLiq = {}, interesesPorEmpLiq = {};
   if (empIdsLiq.length > 0) {
+    // Solo préstamos ACTIVOS (no cancelados, no pagados)
     const { data: pAct } = await sb.from('rrhh_prestamo')
       .select('id, empleado_id, estado, cuotas_totales, tasa_mensual')
-      .in('empleado_id', empIdsLiq);
+      .in('empleado_id', empIdsLiq)
+      .eq('estado', 'activo');
     const pMap = {};
     (pAct || []).forEach(p => { pMap[p.id] = p; });
     const idsP = (pAct || []).map(p => p.id);
     if (idsP.length > 0) {
+      // Solo cuotas NO canceladas
       const { data: cs } = await sb.from('rrhh_prestamo_cuota')
         .select('prestamo_id, monto_capital, monto_interes, mes_descuento, estado')
         .eq('mes_descuento', periodo + '-01')
+        .neq('estado', 'cancelada')
         .in('prestamo_id', idsP);
       (cs || []).forEach(c => {
         const pr = pMap[c.prestamo_id]; if (!pr) return;
