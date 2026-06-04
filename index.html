@@ -16505,11 +16505,12 @@ async function renderPrestamosGerente() {
     .order('apellido');
   const empIds = (emps || []).map(e => e.id);
 
-  // Préstamos activos del local
+  // Préstamos activos del local (excluyendo adelantos = cuotas=1)
   const { data: prestamos } = await sb.from('rrhh_prestamo')
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, local)')
     .in('empleado_id', empIds.length ? empIds : [-1])
     .eq('estado', 'activo')
+    .gt('cuotas_totales', 1)
     .order('otorgado_at', { ascending: false });
 
   // Cuotas de cada préstamo: pagadas, pendientes, próxima
@@ -16551,15 +16552,18 @@ async function renderPrestamosGerente() {
     return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
   };
 
-  // ── Cargar adelantos del local (mes actual + últimos 60 días) ──
+  // ── Cargar adelantos OTORGADOS del local (rrhh_prestamo con 1 cuota sin interés) ──
+  // Los adelantos son préstamos especiales: cuotas_totales=1 y tasa_mensual=0.
+  // Los mostramos en una sección aparte porque son conceptualmente distintos.
   const _hoyAd = new Date();
-  const _desdeAd = new Date(_hoyAd.getFullYear(), _hoyAd.getMonth() - 1, 1).toISOString();
-  const { data: adelantos } = await sb.from('rrhh_prestamo_solicitud')
-    .select('id, empleado_id, tipo, monto_solicitado, motivo, estado, solicitado_at, resuelto_at, empleado:rrhh_empleados(nombre_completo)')
+  const _desdeAd = new Date(_hoyAd.getFullYear(), _hoyAd.getMonth() - 1, 1).toISOString().slice(0,10);
+  const { data: adelantos } = await sb.from('rrhh_prestamo')
+    .select('id, empleado_id, capital, fecha_otorgamiento, mes_primer_descuento, estado, notas, empleado:rrhh_empleados(nombre_completo)')
     .in('empleado_id', empIds.length ? empIds : [-1])
-    .eq('tipo', 'adelanto_sueldo')
-    .gte('solicitado_at', _desdeAd)
-    .order('solicitado_at', { ascending: false });
+    .eq('cuotas_totales', 1)
+    .eq('tasa_mensual', 0)
+    .gte('fecha_otorgamiento', _desdeAd)
+    .order('fecha_otorgamiento', { ascending: false });
 
   // ── Guardar cuotas detalladas (para el modal "Ver cuotas") ──
   // Cuotas ya están cargadas arriba pero solo en resumen. Cargamos individuales también.
@@ -16589,7 +16593,7 @@ async function renderPrestamosGerente() {
 
   const adelantosHTML = (adelantos || []).length === 0 ? `
     <div class="card" style="padding:20px;text-align:center;color:var(--muted);">
-      Sin adelantos en los últimos 60 días.
+      Sin adelantos otorgados en los últimos 60 días.
     </div>
   ` : `
     <div class="card" style="padding:0;overflow:hidden;">
@@ -16597,18 +16601,18 @@ async function renderPrestamosGerente() {
         <thead><tr style="background:#f0f9ff;text-align:left;">
           <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
           <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Monto</th>
-          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Motivo</th>
-          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Estado</th>
-          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Solicitado</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Concepto</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Descuento en</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Otorgado</th>
         </tr></thead>
         <tbody>
           ${adelantos.map(a => `
             <tr style="border-top:1px solid var(--border);">
               <td style="padding:10px 14px;font-weight:500;">${escapeHtml(a.empleado?.nombre_completo || '—')}</td>
-              <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;color:#0ea5e9;">${fmt(a.monto_solicitado)}</td>
-              <td style="padding:10px 14px;font-size:12px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(a.motivo||'')}">${escapeHtml(a.motivo || '—')}</td>
-              <td style="padding:10px 14px;text-align:center;">${estadoChipAd(a.estado)}</td>
-              <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${fmtFechaCorta(a.solicitado_at)}</td>
+              <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;color:#0ea5e9;">${fmt(a.capital)}</td>
+              <td style="padding:10px 14px;font-size:12px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(a.notas||'')}">${escapeHtml(a.notas || 'Adelanto')}</td>
+              <td style="padding:10px 14px;font-size:12px;">${fmtMes(a.mes_primer_descuento?.slice(0,7))}</td>
+              <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${fmtFechaCorta(a.fecha_otorgamiento)}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -16779,10 +16783,26 @@ async function renderPrestamos() {
     .eq('estado', 'pendiente')
     .order('solicitado_at', { ascending: false });
 
-  // Cargar préstamos según filtro
+  // Cargar adelantos OTORGADOS (rrhh_prestamo cuotas=1 tasa=0) — últimos 60 días
+  const _hoyAd = new Date();
+  const _desdeAd = new Date(_hoyAd.getFullYear(), _hoyAd.getMonth() - 1, 1).toISOString().slice(0,10);
+  const { data: adelantos } = await sb.from('rrhh_prestamo')
+    .select('id, empleado_id, capital, fecha_otorgamiento, mes_primer_descuento, estado, notas, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local)')
+    .eq('cuotas_totales', 1)
+    .eq('tasa_mensual', 0)
+    .gte('fecha_otorgamiento', _desdeAd)
+    .order('fecha_otorgamiento', { ascending: false });
+  const adelantosFiltrados = (adelantos || []).filter(a => {
+    if (prestamoState.local && a.empleado?.local !== prestamoState.local) return false;
+    return true;
+  });
+
+  // Cargar préstamos según filtro (excluye adelantos = 1 cuota sin interés)
+  // Los adelantos se ven en su propia sección (tab Sueldos · Adelantos del mes)
   const filtro = prestamoState.filtro || 'activos';
   let q = sb.from('rrhh_prestamo')
     .select('*, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local)')
+    .gt('cuotas_totales', 1)
     .order('otorgado_at', { ascending: false });
   if (filtro === 'propuestos') q = q.eq('estado', 'propuesto');
   if (filtro === 'activos')   q = q.eq('estado', 'activo');
@@ -16958,8 +16978,8 @@ async function renderPrestamos() {
 
   cont.innerHTML = `
     <div class="page-header">
-      <h2>Préstamos a empleadas</h2>
-      <div class="subtitle">Sistema francés · capital → banco · interés → efectivo. Solo el admin gestiona.</div>
+      <h2>Préstamos y adelantos a empleadas</h2>
+      <div class="subtitle">Sistema francés · capital → banco · interés → efectivo. Adelantos = 1 cuota sin interés.</div>
     </div>
     ${solicHTML}
 
@@ -17049,6 +17069,51 @@ async function renderPrestamos() {
         </tbody>
       </table>`}
     </div>
+
+    <!-- ── Sección Adelantos otorgados ── -->
+    <div class="section-title" style="color:#0ea5e9;margin-top:24px;">💵 Adelantos otorgados (últimos 60 días)</div>
+    ${adelantosFiltrados.length === 0 ? `
+      <div class="card" style="padding:20px;text-align:center;color:var(--muted);">
+        Sin adelantos otorgados en los últimos 60 días${prestamoState.local ? ' para ' + prestamoState.local : ''}.
+      </div>
+    ` : `
+      <div class="card" style="padding:0;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f0f9ff;text-align:left;">
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Local</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Monto</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Concepto</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Descuento en</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Estado</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Otorgado</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Acciones</th>
+          </tr></thead>
+          <tbody>
+            ${adelantosFiltrados.map(a => {
+              const fechaOt = a.fecha_otorgamiento ? new Date(a.fecha_otorgamiento+'T12:00:00').toLocaleDateString('es-AR') : '—';
+              const mesDesc = a.mes_primer_descuento ? (() => {
+                const [y,m] = a.mes_primer_descuento.split('-').map(Number);
+                return new Date(y, m-1, 1).toLocaleDateString('es-AR', {month:'short', year:'numeric'});
+              })() : '—';
+              return `<tr style="border-top:1px solid var(--border);">
+                <td style="padding:10px 14px;font-weight:500;">${escapeHtml(a.empleado?.nombre_completo || '—')}</td>
+                <td style="padding:10px 14px;font-size:12px;color:var(--muted);">${escapeHtml(a.empleado?.local || '—')}</td>
+                <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;color:#0ea5e9;">${fmt(a.capital)}</td>
+                <td style="padding:10px 14px;font-size:12px;color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(a.notas||'')}">${escapeHtml(a.notas || 'Adelanto')}</td>
+                <td style="padding:10px 14px;font-size:12px;">${mesDesc}</td>
+                <td style="padding:10px 14px;text-align:center;">${estadoChip(a.estado)}</td>
+                <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${fechaOt}</td>
+                <td style="padding:10px 14px;text-align:right;">
+                  <button class="btn small" onclick="prestamoAbrirDetalle(${a.id})" title="Ver detalle">📝</button>
+                  ${a.estado === 'activo' ? `<button class="btn small" onclick="prestamoCancelar(${a.id})" title="Cancelar" style="color:#dc2626;">🚫</button>` : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
   `;
 }
 

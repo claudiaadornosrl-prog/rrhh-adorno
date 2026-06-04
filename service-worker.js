@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v98-fase2-admin-encargada-prestamos';
+const CACHE_VERSION = 'rrhh-v99-adelantos-prestamos-separados';
 const ASSETS = [
   './',
   './index.html',
