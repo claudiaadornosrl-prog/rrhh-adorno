@@ -12932,8 +12932,6 @@ async function renderLiquidaciones() {
                 const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"` : '';
                 return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
               } },
-            { id:'extras',    label:'Extras',
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;">${c.fmt(l.extras)}</td>` },
             { id:'feriado',   label:'Feriado',
               tdRender:(l,c)=>{
                 const ov = l.overrides_manuales && l.overrides_manuales['feriado_monto'];
@@ -12947,7 +12945,18 @@ async function renderLiquidaciones() {
               } },
             { id:'sac',       label:'SAC',        condition:c=>c.esMesSAC, thOpts:{title:'SAC = mejor bruto del semestre / 12 × meses trabajados'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};" title="${sac>0?'SAC auto = mejor bruto semestre / 12 × meses trabajados':'Sin SAC (sin liquidaciones previas en el semestre)'}">${sac>0?c.fmt(sac):'—'}</td>`; } },
-            { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Extras + Feriado'},
+            { id:'extras',    label:'Extras',
+              tdRender:(l,c)=>{
+                const ov = l.overrides_manuales && l.overrides_manuales['extras'];
+                if (ov) {
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'extras', 'Extras', ${+l.extras})"`:''} title="${t}">✏️ ${c.fmt(l.extras)}</td>`;
+                }
+                const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'extras', 'Extras', ${+l.extras})"` : '';
+                const cursor = c.isAdmin ? 'cursor:pointer;' : '';
+                return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} ${c.isAdmin?'title="Click para editar manualmente"':''}>${c.fmt(l.extras)}</td>`;
+              } },
+            { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
             { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo CCT (lo que dice el recibo legal)'},
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo">${c.fmt(l.recibo_neto)}</td>` },
@@ -18937,7 +18946,15 @@ const salaryWorkflow = (() => {
       const fijo = fijoFull * (diasTrabajados / 30);
       const viaticos = viaticosFull * (diasTrabajados / 30);
       const totalNegro = fijo + viaticos;
-      const efectivo = Math.max(0, totalNegro - banco);
+      // Mercadería: cargar retiros del mes (igual que empleadas normales)
+      let mercaderia_mono = 0;
+      try {
+        const { data: retsMono } = await sb.from('rrhh_retiro_mercaderia')
+          .select('monto').eq('empleado_id', empleadoId)
+          .gte('fecha', periodoFull).lt('fecha', `${periodo}-${String(diasDelMes(periodo)+1).padStart(2,'0')}`);
+        mercaderia_mono = (retsMono || []).reduce((s, r) => s + Number(r.monto || 0), 0);
+      } catch (e) { console.warn('mercaderia monotributista', e); }
+      const efectivo = Math.max(0, totalNegro - banco - mercaderia_mono);
       const { data: existing } = await sb.from('rrhh_liquidacion')
         .select('id, ajuste, observaciones')
         .eq('empleado_id', empleadoId).eq('periodo', periodoFull).limit(1);
@@ -18945,7 +18962,7 @@ const salaryWorkflow = (() => {
         empleado_id: empleadoId, periodo: periodoFull, local: emp.local,
         estado: 'borrador',
         dias_trabajados: diasTrabajados,
-        mercaderia: 0,
+        mercaderia: mercaderia_mono,
         ajuste: existing?.[0]?.ajuste || 0,
         uniforme_ok: true, puntos_mes: 0,
         observaciones: existing?.[0]?.observaciones || `Monotributista — factura $${banco.toLocaleString('es-AR')} por banco + diferencia en efectivo`,
@@ -19301,7 +19318,7 @@ const salaryWorkflow = (() => {
     // ── Aplicar overrides_manuales: preservar campos editados manualmente ──
     // Si admin editó algún campo a mano, NO lo pisamos con el cálculo automático.
     // Mantenemos también el JSONB overrides_manuales tal cual.
-    const camposOverridables = ['fijo','comision','viaticos','premio_monto','feriado_monto','mercaderia'];
+    const camposOverridables = ['fijo','comision','viaticos','premio_monto','feriado_monto','mercaderia','extras'];
     const valoresOverride = {};
     camposOverridables.forEach(k => {
       if (overridesPrev[k]) {
