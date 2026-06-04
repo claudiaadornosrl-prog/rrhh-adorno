@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v93-fix-merc-mono-rango';
+const CACHE_VERSION = 'rrhh-v94-fix-cierre-mes-lectura';
 const ASSETS = [
   './',
   './index.html',

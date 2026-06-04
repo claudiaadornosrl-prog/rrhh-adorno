@@ -12662,11 +12662,13 @@ async function renderLiquidaciones() {
   // Si el local está cerrado, los puntos/faltas ya están consolidados.
   // Si NO está cerrado, los puntos pueden cambiar y la liquidación queda inconsistente.
   const periodoFull = periodo + '-01';
+  const [_anioCierre, _mesCierre] = periodo.split('-').map(Number);
   const localesACheck = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
-  const { data: cierresRows } = await sb.from('rrhh_meses_cerrados')
+  const { data: cierresRows, error: _errCierres } = await sb.from('rrhh_meses_cerrados')
     .select('local, cerrado_por, cerrado_at')
-    .eq('periodo', periodoFull)
+    .eq('año', _anioCierre).eq('mes', _mesCierre)
     .in('local', localesACheck);
+  if (_errCierres) console.warn('[cierresMes] error', _errCierres);
   const cierresMes = {};
   (cierresRows || []).forEach(c => { cierresMes[c.local] = c; });
 
@@ -14074,8 +14076,9 @@ async function liqGenerarDobleBlanco(local, periodo) {
 async function liqGenerarMes(local, periodo) {
   const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
   // Verificar cuáles locales NO están cerrados en Asistencias
+  const [_yGM, _mGM] = periodo.split('-').map(Number);
   const { data: cierres } = await sb.from('rrhh_meses_cerrados')
-    .select('local').eq('periodo', periodo + '-01').in('local', locales);
+    .select('local').eq('año', _yGM).eq('mes', _mGM).in('local', locales);
   const cerrados = new Set((cierres || []).map(c => c.local));
   const sinCerrar = locales.filter(l => !cerrados.has(l));
   if (sinCerrar.length > 0) {
@@ -14243,6 +14246,7 @@ async function liqMesEstaCerrado(local, periodo) {
 // Devuelve lista de errores. Vacia = puede cerrar.
 async function liqValidarCierreMes(local, periodo) {
   const periodoIso = periodo + '-01';
+  const [_yVC, _mVC] = periodo.split('-').map(Number);
   const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   const errores = [];
   for (const loc of locales) {
@@ -14257,7 +14261,7 @@ async function liqValidarCierreMes(local, periodo) {
     }
     // 2. Asistencias cerradas por las encargadas
     const { data: a } = await sb.from('rrhh_meses_cerrados')
-      .select('id').eq('local', loc).eq('periodo', periodoIso).maybeSingle();
+      .select('id').eq('local', loc).eq('año', _yVC).eq('mes', _mVC).maybeSingle();
     if (!a) errores.push(`${tag}: asistencias del mes NO cerradas`);
     // 3. Si hubo envio de aumento para este periodo, validar que las encargadas hayan respondido
     //    (cada empleada activa del local tiene config con vigente_desde >= periodo)
