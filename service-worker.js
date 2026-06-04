@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v107-compensar-push-info-vendedora';
+const CACHE_VERSION = 'rrhh-v108-locales-test-banco-trigger';
 const ASSETS = [
   './',
   './index.html',
