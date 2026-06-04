@@ -18909,11 +18909,12 @@ const salaryWorkflow = (() => {
    */
   async function liquidarEmpleada(empleadoId, periodo, inputs = {}) {
     // Cargas
+    const _cache = inputs._cache || {};
     const [emp, configLocal, configEmp, paritaria] = await Promise.all([
       cargarEmpleadoCompleto(empleadoId, periodo),
       null,            // se carga después con emp.local
       cargarConfigEmpleada(empleadoId, periodo),
-      cargarParitaria(periodo),
+      _cache.paritaria ? Promise.resolve(_cache.paritaria) : cargarParitaria(periodo),
     ]);
     if (!emp) throw new Error('Empleado no encontrado');
 
@@ -18990,7 +18991,9 @@ const salaryWorkflow = (() => {
     if (!emp.categoria) throw new Error('Empleada sin categoría CCT asignada');
     if (!paritaria) throw new Error('No hay paritaria vigente para ' + periodo);
 
-    const cfgLocal = await cargarConfigLocal(emp.local, periodo);
+    const cfgLocal = (_cache.cfgLocal && _cache.local === emp.local)
+      ? _cache.cfgLocal
+      : await cargarConfigLocal(emp.local, periodo);
     if (!cfgLocal) throw new Error('Local sin config de sueldo: ' + emp.local);
 
     // Días del mes y días no trabajados
@@ -19202,9 +19205,11 @@ const salaryWorkflow = (() => {
     const [py, pm] = periodo.split('-').map(Number);
     const desdeFer = `${periodo}-01`;
     const hastaFer = `${py}-${String(pm).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
-    const { data: fers } = await sb.from('rrhh_feriados')
-      .select('fecha, cierra_oficina, cierra_shoppings')
-      .gte('fecha', desdeFer).lte('fecha', hastaFer);
+    const fers = (_cache.feriados && _cache.periodo === periodo)
+      ? _cache.feriados
+      : (await sb.from('rrhh_feriados')
+          .select('fecha, cierra_oficina, cierra_shoppings')
+          .gte('fecha', desdeFer).lte('fecha', hastaFer)).data || [];
     const { data: detalleEmp } = await sb.from('rrhh_asistencias_detalle')
       .select('fecha, estado').eq('empleado_id', empleadoId)
       .gte('fecha', desdeFer).lte('fecha', hastaFer);
@@ -19446,6 +19451,20 @@ const salaryWorkflow = (() => {
     const descuentosEspeciales = opts.descuentosEspeciales || {};
     const inputsPorEmpleado = opts.inputsPorEmpleado || (Object.keys(opts).some(k => /^\d+$/.test(k)) ? opts : {});
 
+    // ── PRECARGA: datos del mes que son IGUALES para todas las empleadas ──
+    // Se cargan UNA vez antes del for-loop y se pasan en `opts._cache`
+    // a liquidarEmpleada, evitando que cada empleada los vuelva a pedir.
+    const [py, pm] = periodo.split('-').map(Number);
+    const desdeFer = `${periodo}-01`;
+    const hastaFer = `${py}-${String(pm).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+    const [paritariaCache, cfgLocalCache, feriadosCache] = await Promise.all([
+      cargarParitaria(periodo),
+      cargarConfigLocal(local, periodo),
+      sb.from('rrhh_feriados').select('fecha, cierra_oficina, cierra_shoppings')
+        .gte('fecha', desdeFer).lte('fecha', hastaFer).then(r => r.data || []),
+    ]);
+    const cache = { paritaria: paritariaCache, cfgLocal: cfgLocalCache, feriados: feriadosCache, local, periodo };
+
     const periodoFull = periodo + '-01';
     const { data: configs } = await sb.from('rrhh_sueldo_empleada_config')
       .select('empleado_id, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
@@ -19471,7 +19490,7 @@ const salaryWorkflow = (() => {
         const e = queue.shift();
         if (!e) return;
         try {
-          const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo };
+          const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo, _cache: cache };
           if (descuentosEspeciales[e.id]) {
             empInputs.descuento_especial = descuentosEspeciales[e.id];
           }
