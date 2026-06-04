@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v91-fix-intereses-prestamos-cancelados';
+const CACHE_VERSION = 'rrhh-v92-fix-tab-retiros';
 const ASSETS = [
   './',
   './index.html',
