@@ -13310,7 +13310,6 @@ async function renderLiquidaciones() {
                   ? `<button class="btn small" style="background:#d1fae5;color:#065f46;border-color:#86efac;" onclick="liqVerFirmadoOneDrive(${l.id})" title="✓ Firmada el ${new Date(firmado).toLocaleDateString('es-AR')}. Click para detalles.">✓ Firmada</button>`
                   : `<button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" disabled title="No firmada — esperando que llegue el PDF firmado.">✗ No firmada</button>`;
                 return `<td style="padding:8px;white-space:nowrap;">
-                  <button class="btn small" onclick="generarPDFRecibo(${l.id})" title="Descargar recibo PDF">📄</button>
                   ${btnFirmado}
                   ${c.isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
                 </td>`;
