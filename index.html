@@ -20582,6 +20582,29 @@ const salaryWorkflow = (() => {
         return txt.includes(_filtroNom);
       });
     }
+    // ── Excluir empleadas cuyas liquidaciones estén cerradas (estado=firmada) ──
+    // El admin tiene que reabrir manualmente (click en 🔒) antes de poder recalcular.
+    // Esto protege contra pisar valores ajustados al estudio o cualquier corrección manual.
+    const _idsDelLote = lista.map(e => e.id);
+    const _firmadas = new Set();
+    if (_idsDelLote.length > 0) {
+      try {
+        const { data: _liqsCheck } = await sb.from('rrhh_liquidacion')
+          .select('empleado_id')
+          .eq('local', local)
+          .eq('periodo', periodo + '-01')
+          .eq('estado', 'firmada')
+          .in('empleado_id', _idsDelLote);
+        (_liqsCheck || []).forEach(r => _firmadas.add(r.empleado_id));
+      } catch (_) {}
+    }
+    if (_firmadas.size > 0) {
+      const _nombresFirm = lista.filter(e => _firmadas.has(e.id))
+        .map(e => `${e.apellido}, ${e.nombre}`).join('\n  • ');
+      const _continuar = confirm(`⚠️ ${_firmadas.size} liquidación(es) están CERRADAS:\n\n  • ${_nombresFirm}\n\nNO se van a procesar. Reabrí esas liquidaciones (click en 🔒) si querés que entren en el recálculo.\n\n¿Continuar con las abiertas?`);
+      if (!_continuar) return { ok: [], errores: [] };
+      lista = lista.filter(e => !_firmadas.has(e.id));
+    }
 
     const ok = [], errores = [];
 
