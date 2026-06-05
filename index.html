@@ -14552,6 +14552,13 @@ async function liqEditar(liqId) {
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, fecha_ingreso, obra_social_codigo, local, categoria:rrhh_categorias_cct(*))')
     .eq('id', liqId).single();
   if (!liq) { toast('No encontrada', 'error'); return; }
+  // Bloquear si está cerrada (firmada). Hay que reabrir primero (click en candado).
+  if (liq.estado === 'firmada') {
+    if (confirm('Esta liquidación está cerrada (🔒). ¿Querés reabrirla para editar?')) {
+      await liqReabrirEmpleado(liqId);
+    }
+    return;
+  }
   const fmt = (n) => Number(n||0).toFixed(2);
   const html = `
     <h3 style="margin:0 0 6px;">✏️ Editar liquidación — ${escapeHtml(liq.empleado?.nombre_completo || '')}</h3>
@@ -19331,9 +19338,16 @@ async function liqEditarCelda(liqId, campo, label, valorActual) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   // Cargar overrides actuales para saber si ya existe
   const { data: liq } = await sb.from('rrhh_liquidacion')
-    .select('id, ' + campo + ', overrides_manuales, empleado:rrhh_empleados(nombre_completo)')
+    .select('id, estado, ' + campo + ', overrides_manuales, empleado:rrhh_empleados(nombre_completo)')
     .eq('id', liqId).single();
   if (!liq) { toast('No encontrada', 'error'); return; }
+  // Bloquear si la liquidación está cerrada
+  if (liq.estado === 'firmada') {
+    if (confirm('Esta liquidación está cerrada (🔒). ¿Querés reabrirla para editar?')) {
+      await liqReabrirEmpleado(liqId);
+    }
+    return;
+  }
   const ovActual = (liq.overrides_manuales && liq.overrides_manuales[campo]) || null;
 
   const html = `
