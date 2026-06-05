@@ -4731,6 +4731,33 @@ async function desactivarMisPush() {
   }
 }
 
+// Self-service: la vendedora ya está logueada y quiere cambiar SU propia password.
+// Como tiene sesión válida (auth.uid()), Supabase la deja actualizar la password
+// directamente con sb.auth.updateUser({ password }). No requiere mail ni aprobación.
+window.cambiarMiPassword = async function() {
+  const nueva = prompt('Nueva contraseña (mínimo 6 caracteres):');
+  if (!nueva) return;
+  if (nueva.length < 6) {
+    toast('La contraseña debe tener al menos 6 caracteres', 'error');
+    return;
+  }
+  const conf = prompt('Confirmá la nueva contraseña:');
+  if (conf !== nueva) {
+    toast('Las contraseñas no coinciden', 'error');
+    return;
+  }
+  if (!confirm('¿Confirmás el cambio de contraseña?\n\nDesde el próximo ingreso vas a tener que usar esta nueva contraseña.')) return;
+  try {
+    const { error } = await sb.auth.updateUser({ password: nueva });
+    if (error) throw error;
+    toast('✅ Contraseña actualizada', 'success');
+    alert('Tu contraseña se actualizó correctamente.\n\nLa próxima vez que entres, usá esta nueva contraseña.');
+  } catch (err) {
+    console.error('[cambiarMiPassword]', err);
+    toast('Error: ' + (err.message || 'sin detalle'), 'error');
+  }
+};
+
 async function probarMiPush() {
   try {
     const { data, error } = await sb.functions.invoke('enviar-push', {
