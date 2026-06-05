@@ -5018,19 +5018,39 @@ async function solicitarVacaciones() {
 
   const dias = Math.round((new Date(hasta) - new Date(desde)) / (1000*60*60*24)) + 1;
   if (dias <= 0) { toast('Fechas inválidas', 'error'); return; }
-  const año = new Date(desde).getFullYear();
-  const { data: saldo } = await sb.from('rrhh_vacaciones').select('id, dias_pendientes').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
-  if (!saldo) { toast('No hay saldo cargado para ' + año, 'error'); return; }
 
-  // Si estoy editando, sumar los días de mi solicitud actual al saldo "disponible"
-  let pendientesAjustados = saldo.dias_pendientes;
+  // ── FIFO multi-año: cargar TODOS los saldos del empleado, en orden ascendente ──
+  // El sistema permite tomar vacaciones aunque el saldo esté en años anteriores
+  // (caso típico: arrastre del año pasado). Se descuenta del año más viejo primero.
+  const { data: todosSaldos, error: errS } = await sb.from('rrhh_vacaciones')
+    .select('id, año, dias_pendientes, dias_correspondientes, dias_tomados')
+    .eq('empleado_id', session.empleado_id)
+    .gt('dias_pendientes', 0)
+    .order('año', { ascending: true });
+  if (errS) { toast('Error leyendo saldos: ' + errS.message, 'error'); return; }
+  if (!todosSaldos || todosSaldos.length === 0) {
+    toast('No tenés saldo de vacaciones cargado en ningún año', 'error');
+    return;
+  }
+  const totalDisponible = todosSaldos.reduce((s, r) => s + (r.dias_pendientes || 0), 0);
+  const saldoMasViejo = todosSaldos[0]; // ya viene ordenado asc
+
+  // Si estoy editando, sumar los días de mi solicitud actual al disponible
+  let totalAjustado = totalDisponible;
   if (_editandoVacacionId) {
     const { data: actual } = await sb.from('rrhh_vacaciones_movimientos').select('dias').eq('id', _editandoVacacionId).maybeSingle();
-    if (actual) pendientesAjustados += actual.dias;
+    if (actual) totalAjustado += actual.dias;
   }
-  if (dias > pendientesAjustados) {
-    if (!confirm(`Estás pidiendo ${dias} días pero tenés ${pendientesAjustados} pendientes. ¿${_editandoVacacionId ? 'Modificar' : 'Solicitar'} igual?`)) return;
+  if (dias > totalAjustado) {
+    const detalle = todosSaldos.map(s => `${s.año}: ${s.dias_pendientes}`).join(' · ');
+    if (!confirm(`Estás pidiendo ${dias} días pero tenés ${totalAjustado} pendientes (${detalle}). ¿${_editandoVacacionId ? 'Modificar' : 'Solicitar'} igual?`)) return;
+  } else if (todosSaldos.length > 1) {
+    // Mostrar resumen FIFO informativo cuando hay saldo en múltiples años
+    const detalle = todosSaldos.map(s => `${s.año}: ${s.dias_pendientes}`).join(' · ');
+    if (!confirm(`Vas a pedir ${dias} días.\n\nTu saldo: ${totalDisponible} días disponibles\n  ${detalle}\n\nSe descuenta del año más viejo primero (FIFO).\n\n¿Confirmás?`)) return;
   }
+  // Mantengo nombre legacy de la variable para el resto del código
+  const saldo = saldoMasViejo;
 
   if (_editandoVacacionId) {
     // UPDATE — solo permitido si sigue en estado='solicitada' (RLS lo valida)
