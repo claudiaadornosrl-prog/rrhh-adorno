@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v109-fix-double-count-y-recalc-aumentos';
+const CACHE_VERSION = 'rrhh-v110-admin-aplica-aumentos-oficina';
 const ASSETS = [
   './',
   './index.html',

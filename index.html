@@ -15056,10 +15056,11 @@ async function renderAumentos() {
     </div>
     ` : ''}
 
-    ${isGerente ? `
+    ${(isGerente || isAdmin) ? `
     <!-- ═════ Panel encargada: ver el ultimo envio + cargar propuestas ═════ -->
+    <!-- Admin también lo ve porque JP es encargado de Oficina -->
     <div id="aum-gerente-envio" class="card" style="padding:16px;margin-bottom:14px;">
-      <div style="color:var(--muted);font-size:13px;">Cargando última propuesta de aumento...</div>
+      <div style="color:var(--muted);font-size:13px;">${isAdmin ? 'Cargando propuesta de Oficina (vos sos encargado)...' : 'Cargando última propuesta de aumento...'}</div>
     </div>
     ` : ''}
   `;
@@ -15070,8 +15071,8 @@ async function renderAumentos() {
     aumPuntualCargarSelect().catch(e => console.warn('aumPuntualCargarSelect', e));
     aumHistorialRender().catch(e => console.warn('aumHistorialRender', e));
   }
-  // Render para encargada — el ultimo envio del local
-  if (isGerente) {
+  // Render para encargada o admin (JP es encargado de Oficina)
+  if (isGerente || isAdmin) {
     aumGerenteRender().catch(e => console.warn('aumGerenteRender', e));
   }
 }
@@ -15082,7 +15083,8 @@ async function renderAumentos() {
 async function aumGerenteRender() {
   const cont = document.getElementById('aum-gerente-envio');
   if (!cont) return;
-  const local = session.empleadoData?.local;
+  // Admin actúa como encargado de Oficina (regla del negocio: JP es encargado de Oficina)
+  const local = (session.rol === 'admin') ? 'oficina' : session.empleadoData?.local;
   if (!local) {
     cont.innerHTML = '<div style="color:#dc2626;font-size:13px;">No se pudo determinar tu local. Contactá al admin.</div>';
     return;
