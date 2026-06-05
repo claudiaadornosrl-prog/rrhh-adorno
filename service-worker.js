@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v118-engine-salta-firmadas';
+const CACHE_VERSION = 'rrhh-v119-reset-password-admin';
 const ASSETS = [
   './',
   './index.html',

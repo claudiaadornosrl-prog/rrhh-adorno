@@ -8176,6 +8176,7 @@ async function renderConfigUsuarios(cont) {
             <td style="padding:10px 16px;font-size:12px;color:var(--muted);">${u.last_login ? fmtFecha(u.last_login.split('T')[0]) : '—'}</td>
             <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
               <button class="btn small" style="background:#eef2ff;color:#3730a3;border-color:#c7d2fe;" onclick="abrirEditarUsuario(${u.id})" title="Editar empleado vinculado, rol y/o local">✏ Editar</button>
+              <button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;margin-left:4px;" onclick="resetPasswordUsuario(${u.id}, ${JSON.stringify(u.email || '?').replace(/"/g, '&quot;')})" title="Setear nueva contraseña manualmente (sin email de Supabase)">🔑 Pass</button>
               <button class="btn small" style="margin-left:4px;" onclick="toggleActivoUsuario(${u.id}, ${u.activo})">${u.activo ? 'Desactivar' : 'Activar'}</button>
               <button class="btn small" style="background:#fee2e2;color:#b91c1c;border-color:#fca5a5;margin-left:4px;" onclick="borrarUsuario(${u.id}, ${JSON.stringify(u.email || '?').replace(/"/g, '&quot;')})" title="Borrar definitivamente (no toca rrhh_empleados)">🗑</button>
             </td>
@@ -8206,6 +8207,33 @@ async function borrarUsuario(id, email) {
   toast(`Usuario "${email}" borrado de rrhh_usuarios ✓`, 'success');
   renderConfigContent();
 }
+
+// Resetear password manualmente desde el panel admin (sin pasar por el mail de Supabase).
+// Llama a la RPC rrhh_admin_reset_password que ejecuta crypt(pass, gen_salt('bf')) en auth.users.
+// Solo accesible para admin (la RPC verifica auth.uid()).
+window.resetPasswordUsuario = async function(id, email) {
+  if (!email || email === '?') { toast('Usuario sin email', 'error'); return; }
+  const nueva = prompt(`Nueva contraseña para ${email}:\n\n(mínimo 6 caracteres)`);
+  if (!nueva) return;
+  if (nueva.length < 6) { toast('La password debe tener al menos 6 caracteres', 'error'); return; }
+  const conf = prompt(`Confirmá la nueva contraseña para ${email}:`);
+  if (conf !== nueva) { toast('Las contraseñas no coinciden', 'error'); return; }
+  if (!confirm(`Vas a setear la nueva password para:\n\n${email}\n\nLa usuaria va a poder loguearse INMEDIATAMENTE con la nueva password.\n\n¿Confirmás?`)) return;
+  try {
+    const { data, error } = await sb.rpc('rrhh_admin_reset_password', {
+      p_email: email,
+      p_nueva_password: nueva
+    });
+    if (error) throw error;
+    if (data === false || data === 'false') { throw new Error('No se encontró el usuario en auth.users (¿la cuenta existe?)'); }
+    await auditLog('reset_password', 'rrhh_usuarios', id, null, email, '(password actualizada)');
+    toast(`✅ Password actualizada para ${email}`, 'success');
+    alert(`Password actualizada para:\n${email}\n\nDecile a la vendedora que entre con esta nueva password.\nNo va a recibir ningún mail.`);
+  } catch (err) {
+    console.error('[resetPasswordUsuario]', err);
+    toast('Error: ' + (err.message || 'sin detalle'), 'error');
+  }
+};
 
 // Editar la fila de rrhh_usuarios: empleado vinculado + rol + local_gerencia.
 // auth_user_id (UUID) y email quedan bloqueados (van atados a Supabase Auth, hay que
