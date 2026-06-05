@@ -13752,7 +13752,7 @@ async function liqGenerarProforma(local, periodo) {
   let permisosComp = [];
   if (empIds.length > 0) {
     const r1 = await sb.from('rrhh_asistencias_detalle')
-      .select('empleado_id, fecha, estado, entrada, salida')
+      .select('empleado_id, fecha, estado, entrada, salida, error_salvado')
       .in('empleado_id', empIds)
       .gte('fecha', periodoStart).lte('fecha', limiteDeteccion);
     asistencias = r1.data || [];
@@ -13764,7 +13764,11 @@ async function liqGenerarProforma(local, periodo) {
     permisosComp = r2.data || [];
   }
 
-  // Calcular sugerencias: días con estado ausente o falta_fichada (sin fichadas) sin permiso compensatorio
+  // Calcular sugerencias INFORMATIVAS: días con estado ausente / falta_fichada sin compensar.
+  // ⚠️ IMPORTANTE: estos días YA se descuentan automáticamente vía dias_trabajados/30 en el
+  // prorrateo. NO hay que pre-cargar el input — el admin lo carga sólo si hay un descuento
+  // EXTRA además del prorrateo automático (ej. suspensión disciplinaria por 3 días).
+  // También excluimos días con error_salvado=true (admin/encargada los "perdonó" para el premio).
   const sugerencias = {};
   const detalleSugerencias = {};
   for (const a of asistencias) {
@@ -13772,6 +13776,7 @@ async function liqGenerarProforma(local, periodo) {
     if (a.estado === 'ausente') esFalta = true;
     else if (a.estado === 'falta_fichada' && !a.entrada && !a.salida) esFalta = true;
     if (!esFalta) continue;
+    if (a.error_salvado === true) continue; // día perdonado por admin/encargada → no sugerir
     const compensado = permisosComp.some(p =>
       p.empleado_id === a.empleado_id &&
       p.fecha === a.fecha &&
@@ -13833,20 +13838,22 @@ async function liqGenerarProforma(local, periodo) {
                 const sug = sugerencias[e.id] || 0;
                 const dets = detalleSugerencias[e.id] || [];
                 const detsTxt = dets.map(d => d.slice(8)).join(', ');  // solo día
-                const filaBg = sug > 0 ? 'background:#fef3c7;' : '';
-                const inputBg = sug > 0 ? 'background:#fed7aa;font-weight:600;color:#7c2d12;' : '';
-                const motivoSug = sug > 0 ? `${sug} falta(s) sin justificar (${detsTxt})` : '';
+                const filaBg = sug > 0 ? 'background:#fef9c3;' : '';
+                const tooltipInput = sug > 0
+                  ? 'Default 0: las ' + sug + ' faltas detectadas YA se descuentan vía días trabajados/30. Cargá un número >0 SOLO si querés un descuento EXTRA (ej. suspensión por más días).'
+                  : 'Cargá días extra a descontar (ej. suspensión disciplinaria) — sólo casos que NO están en el calendario.';
                 return `<tr style="border-top:1px solid var(--border);${filaBg}">
                   <td style="padding:6px 10px;">${escapeHtml(e.nombre_completo)}</td>
                   <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${e.local}</td>
-                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#991b1b':'var(--muted)'};">${sug > 0 ? `🚨 ${sug} día(s): ${detsTxt}` : '—'}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#92400e':'var(--muted)'};">${sug > 0 ? `ℹ️ ${sug} falta(s) en calendario: ${detsTxt} <span style="font-size:10px;color:#6b7280;font-style:italic;">(ya se descuentan automáticamente)</span>` : '—'}</td>
                   <td style="padding:6px 10px;text-align:right;">
-                    <input type="number" min="0" step="1" value="${sug}" id="prof-dias-${e.id}"
-                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${inputBg}">
+                    <input type="number" min="0" step="1" value="0" id="prof-dias-${e.id}"
+                           title="${escapeHtml(tooltipInput)}"
+                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;">
                   </td>
                   <td style="padding:6px 10px;">
-                    <input type="text" placeholder="Ej: suspensión 17/05" id="prof-mot-${e.id}"
-                           value="${escapeHtml(motivoSug)}"
+                    <input type="text" placeholder="${sug > 0 ? 'Sólo si hay descuento EXTRA' : 'Ej: suspensión 17/05'}" id="prof-mot-${e.id}"
+                           value=""
                            style="width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;">
                   </td>
                 </tr>`;
@@ -13959,7 +13966,7 @@ async function liqGenerarDefinitivo(local, periodo) {
   let asistencias = [], permisosComp = [];
   if (empIds.length > 0) {
     const r1 = await sb.from('rrhh_asistencias_detalle')
-      .select('empleado_id, fecha, estado, entrada, salida')
+      .select('empleado_id, fecha, estado, entrada, salida, error_salvado')
       .in('empleado_id', empIds).gte('fecha', periodoStart).lte('fecha', limiteDeteccion);
     asistencias = r1.data || [];
     const r2 = await sb.from('rrhh_permisos_puntuales')
@@ -13969,6 +13976,8 @@ async function liqGenerarDefinitivo(local, periodo) {
     permisosComp = r2.data || [];
   }
 
+  // Sugerencias INFORMATIVAS: ver Proforma — estos días ya se descuentan vía dias_trabajados/30.
+  // El admin solo carga manualmente días EXTRA (suspensión disciplinaria por ej).
   const sugerencias = {};
   const detalleSugerencias = {};
   for (const a of asistencias) {
@@ -13976,13 +13985,13 @@ async function liqGenerarDefinitivo(local, periodo) {
     if (a.estado === 'ausente') esFalta = true;
     else if (a.estado === 'falta_fichada' && !a.entrada && !a.salida) esFalta = true;
     if (!esFalta) continue;
+    if (a.error_salvado === true) continue; // día perdonado por admin/encargada → no sugerir
     const compensado = permisosComp.some(p =>
       p.empleado_id === a.empleado_id && p.fecha === a.fecha &&
       p.tipo === 'dia_completo' && (p.descontar_banco || p.descontar_vacaciones)
     );
     if (compensado) continue;
     // Si hay proforma para esta empleada, solo contar faltas DESPUÉS de su fecha de generación
-    // (las anteriores ya fueron consideradas cuando se cargó la proforma → evitamos duplicar).
     const fechaProf = fechaProformaPorEmp[a.empleado_id];
     if (fechaProf && a.fecha <= fechaProf) continue;
     sugerencias[a.empleado_id] = (sugerencias[a.empleado_id] || 0) + 1;
@@ -14051,25 +14060,26 @@ async function liqGenerarDefinitivo(local, periodo) {
                 const sug = sugerencias[e.id] || 0;
                 const dets = detalleSugerencias[e.id] || [];
                 const detsTxt = dets.map(d => d.slice(8)).join(', ');
-                const totalDias = herDias + sug;
-                const filaBg = totalDias > 0 ? 'background:#fef3c7;' : '';
-                const inputBg = totalDias > 0 ? 'background:#fed7aa;font-weight:600;color:#7c2d12;' : '';
-                const motivoCombo = [
-                  herMot ? `[Proforma] ${herMot}` : '',
-                  sug > 0 ? `${sug} falta(s) post-proforma (${detsTxt})` : '',
-                ].filter(Boolean).join(' · ');
+                // Default: solo herencia de proforma. Las "sug" detectadas en post-proforma
+                // YA se descuentan vía dias_trabajados/30 — NO sumarlas al input.
+                const totalDias = herDias;
+                const filaBg = (totalDias > 0 || sug > 0) ? 'background:#fef9c3;' : '';
+                const tipInput = sug > 0
+                  ? `Default ${totalDias}: las ${sug} faltas post-proforma YA se descuentan vía días trabajados/30. Subí el número SOLO si querés un descuento EXTRA (suspensión disciplinaria).`
+                  : 'Cargá días extra a descontar (ej. suspensión) — sólo casos que NO están en el calendario.';
                 return `<tr style="border-top:1px solid var(--border);${filaBg}">
                   <td style="padding:6px 10px;">${escapeHtml(e.nombre_completo)}</td>
                   <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${e.local}</td>
                   <td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;color:${herDias>0?'#78350f':'var(--muted)'};">${herDias > 0 ? herDias : '—'}</td>
-                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#991b1b':'var(--muted)'};">${sug > 0 ? `🚨 ${sug}: ${detsTxt}` : '—'}</td>
+                  <td style="padding:6px 10px;font-size:11px;color:${sug>0?'#92400e':'var(--muted)'};">${sug > 0 ? `ℹ️ ${sug} falta(s) post-proforma: ${detsTxt} <span style="font-size:10px;color:#6b7280;font-style:italic;">(ya descontadas automáticamente)</span>` : '—'}</td>
                   <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" step="1" value="${totalDias}" id="def-dias-${e.id}"
-                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;${inputBg}">
+                           title="${escapeHtml(tipInput)}"
+                           style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-family:monospace;">
                   </td>
                   <td style="padding:6px 10px;">
-                    <input type="text" placeholder="Ej: suspensión" id="def-mot-${e.id}"
-                           value="${escapeHtml(motivoCombo)}"
+                    <input type="text" placeholder="${sug > 0 ? 'Sólo si hay descuento EXTRA' : 'Ej: suspensión'}" id="def-mot-${e.id}"
+                           value="${escapeHtml(herMot ? '[Proforma] ' + herMot : '')}"
                            style="width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;">
                   </td>
                 </tr>`;
@@ -15303,12 +15313,48 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
     }
   }
 
+  // ── Borrar liquidaciones BORRADOR desde el período de vigencia en adelante ──
+  // Esto fuerza el recálculo en vivo cuando se las mire. Sin esto, las liquidaciones
+  // de meses futuros ya grabadas con el fijo viejo quedan pegadas. NO toca liquidaciones
+  // firmadas/revisadas/anuladas ni meses cerrados de sueldos.
+  let liqsBorradas = 0;
+  if (ok > 0) {
+    try {
+      const empIdsAplicados = items.map(it => it.empId);
+      const local = session.empleadoData?.local || null;
+      // 1. Detectar meses cerrados de sueldos para excluir
+      const { data: mesesCerr } = await sb.from('rrhh_meses_cerrados_sueldos')
+        .select('periodo, local')
+        .gte('periodo', periodoAplica);
+      const cerradosSet = new Set((mesesCerr || []).map(m => `${m.local}|${m.periodo}`));
+
+      // 2. Buscar las borrador candidatas
+      const { data: liqsBorrador } = await sb.from('rrhh_liquidacion')
+        .select('id, empleado_id, local, periodo, estado')
+        .in('empleado_id', empIdsAplicados)
+        .gte('periodo', periodoAplica)
+        .eq('estado', 'borrador');
+
+      const idsABorrar = (liqsBorrador || [])
+        .filter(l => !cerradosSet.has(`${l.local}|${l.periodo}`))
+        .map(l => l.id);
+
+      if (idsABorrar.length > 0) {
+        const { error: eDel } = await sb.from('rrhh_liquidacion').delete().in('id', idsABorrar);
+        if (!eDel) liqsBorradas = idsABorrar.length;
+      }
+    } catch (_) {}
+  }
+
   const recordatorioMarcelo = (session.empleadoData?.local === 'unicenter')
     ? '\n\n🧹 RECORDATORIO: Avisale a JP para actualizar el sueldo de Marcelo (limpieza, monotributo, fuera de planilla).'
     : '';
-  const resumen = `Aplicados ${ok} ${ok===1?'aumento':'aumentos'}${fail?`, ${fail} con error`:''}.\n\n${detalles.join('\n')}${recordatorioMarcelo}`;
+  const notaRecalc = liqsBorradas > 0
+    ? `\n\n♻️ ${liqsBorradas} liquidación(es) borrador desde ${periodoAplica} se BORRARON — se van a recalcular en vivo con los nuevos fijos la próxima vez que las abras.`
+    : '';
+  const resumen = `Aplicados ${ok} ${ok===1?'aumento':'aumentos'}${fail?`, ${fail} con error`:''}.\n\n${detalles.join('\n')}${notaRecalc}${recordatorioMarcelo}`;
   alert(resumen);
-  if (ok > 0) toast(`✓ ${ok} aumento${ok===1?'':'s'} aplicado${ok===1?'':'s'}`, 'success');
+  if (ok > 0) toast(`✓ ${ok} aumento${ok===1?'':'s'} aplicado${ok===1?'':'s'}${liqsBorradas > 0 ? ` · ${liqsBorradas} liq. para recalcular` : ''}`, 'success');
   aumGerenteRender();
 }
 
@@ -16440,7 +16486,37 @@ async function aumAplicar(pedidoId) {
   }).eq('id', pedidoId);
   if (eEst) { toast('Fijos aplicados pero falló cambio de estado: ' + eEst.message, 'warning'); return; }
 
-  toast(`✓ ${aplicadas} fijos nuevos aplicados${errores ? ` (${errores} errores)` : ''}`, 'success');
+  // ── Borrar liquidaciones BORRADOR desde fecha_vigencia en adelante (recálculo automático futuro) ──
+  let liqsBorradas = 0;
+  if (aplicadas > 0) {
+    try {
+      const empIdsAplicados = (det || []).map(x => x.empleado_id).filter(Boolean);
+      if (empIdsAplicados.length > 0) {
+        const periodoVig = (ped.fecha_vigencia || '').slice(0, 10);
+        const { data: mesesCerr } = await sb.from('rrhh_meses_cerrados_sueldos')
+          .select('periodo, local').gte('periodo', periodoVig);
+        const cerradosSet = new Set((mesesCerr || []).map(m => `${m.local}|${m.periodo}`));
+
+        const { data: liqsBorrador } = await sb.from('rrhh_liquidacion')
+          .select('id, empleado_id, local, periodo, estado')
+          .in('empleado_id', empIdsAplicados)
+          .gte('periodo', periodoVig)
+          .eq('estado', 'borrador');
+
+        const idsABorrar = (liqsBorrador || [])
+          .filter(l => !cerradosSet.has(`${l.local}|${l.periodo}`))
+          .map(l => l.id);
+
+        if (idsABorrar.length > 0) {
+          const { error: eDel } = await sb.from('rrhh_liquidacion').delete().in('id', idsABorrar);
+          if (!eDel) liqsBorradas = idsABorrar.length;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const msgRecalc = liqsBorradas > 0 ? ` · ♻️ ${liqsBorradas} liq. para recalcular` : '';
+  toast(`✓ ${aplicadas} fijos nuevos aplicados${errores ? ` (${errores} errores)` : ''}${msgRecalc}`, 'success');
   closeModal();
   switchTab('aumentos');
 }
