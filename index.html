@@ -4898,31 +4898,55 @@ async function descargarRecibo(path) {
 }
 
 async function renderMisVacaciones() {
-  const año = new Date().getFullYear();
-  const { data: saldo } = await sb.from('rrhh_vacaciones')
-    .select('*').eq('empleado_id', session.empleado_id).eq('año', año).maybeSingle();
+  const añoActual = new Date().getFullYear();
+  // Traer TODOS los saldos del empleado (no solo del año actual) para soportar arrastre multi-año
+  const { data: todosSaldos } = await sb.from('rrhh_vacaciones')
+    .select('*').eq('empleado_id', session.empleado_id).order('año', { ascending: true });
   const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
     .select('*').eq('empleado_id', session.empleado_id).order('fecha_desde', { ascending: false }).limit(20);
+
+  // Totales sumados de todos los años
+  const totalPendientes = (todosSaldos||[]).reduce((s,r) => s + (r.dias_pendientes||0), 0);
+  const totalCorresp    = (todosSaldos||[]).reduce((s,r) => s + (r.dias_correspondientes||0), 0);
+  const totalTomados    = (todosSaldos||[]).reduce((s,r) => s + (r.dias_tomados||0), 0);
+  const conPendientes   = (todosSaldos||[]).filter(r => (r.dias_pendientes||0) > 0);
 
   return `
     <div class="page-header">
       <h2>Mis vacaciones</h2>
-      <div class="subtitle">Año ${año}</div>
+      <div class="subtitle">Saldo total acumulado de todos los años</div>
     </div>
 
-    ${saldo ? `
+    ${(todosSaldos && todosSaldos.length > 0) ? `
       <div class="metrics-grid">
         <div class="metric-card accent">
           <div class="label">Días pendientes</div>
-          <div class="value">${saldo.dias_pendientes}</div>
-          <div class="hint">de ${saldo.dias_correspondientes} que te corresponden</div>
+          <div class="value">${totalPendientes}</div>
+          <div class="hint">de ${totalCorresp} acumulados en total</div>
         </div>
         <div class="metric-card">
           <div class="label">Días tomados</div>
-          <div class="value">${saldo.dias_tomados}</div>
+          <div class="value">${totalTomados}</div>
         </div>
       </div>
-    ` : '<div class="card">Sin saldo cargado para ${año}.</div>'}
+
+      <div class="card" style="margin-top:8px;background:#eff6ff;border-color:#bfdbfe;">
+        <div class="section-title" style="margin-top:0;color:#1e40af;">📅 Detalle por año</div>
+        <div style="display:grid;gap:6px;font-size:13px;">
+          ${todosSaldos.slice().reverse().map(s => `
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #dbeafe;">
+              <span><strong>${s.año}</strong></span>
+              <span>${s.dias_pendientes} pendientes <span style="color:var(--muted);">(${s.dias_tomados} tomados de ${s.dias_correspondientes})</span></span>
+            </div>
+          `).join('')}
+        </div>
+        ${conPendientes.length > 1 ? `
+          <div style="margin-top:10px;font-size:12px;color:#1e40af;background:#dbeafe;padding:8px;border-radius:6px;">
+            💡 Cuando solicitás vacaciones, el sistema descuenta primero los días <strong>más viejos</strong> (FIFO) para que no se pierdan.
+          </div>
+        ` : ''}
+      </div>
+    ` : '<div class="card">Todavía no tenés saldo de vacaciones cargado. Hablalo con la encargada.</div>'}
 
     <div class="card">
       <div class="section-title" style="margin-top:0;">Solicitar vacaciones</div>

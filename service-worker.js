@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v121-fifo-multi-anio-vacaciones';
+const CACHE_VERSION = 'rrhh-v122-mis-vacaciones-multi-anio';
 const ASSETS = [
   './',
   './index.html',
