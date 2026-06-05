@@ -13156,13 +13156,7 @@ async function renderLiquidaciones() {
                 const mono = l.empleado?.monotributista
                   ? ' <span style="background:#f3e8ff;color:#7c3aed;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;font-weight:600;" title="Monotributista — factura por banco, NO va al LSD">🟣 MT</span>'
                   : '';
-                // Candado: si estado=firmada, mostrar 🔒 con click para reabrir esa liquidación.
-                // Solo admin puede reabrir.
-                const cerrado = (l.estado === 'firmada');
-                const candado = cerrado
-                  ? ` <span style="cursor:${c.isAdmin?'pointer':'default'};font-size:13px;margin-left:6px;" title="Cerrado — click para reabrir esta liquidación" ${c.isAdmin?`onclick="event.stopPropagation();liqReabrirEmpleado(${l.id})"`:''}>🔒</span>`
-                  : '';
-                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}${candado}</td>`;
+                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
               } },
             { id:'local',     label:'Local',      sortKey:'local', condition:c=>c.local==='todos', thOpts:{align:'text-align:left'},
               tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${c.escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` },
@@ -13315,7 +13309,13 @@ async function renderLiquidaciones() {
                 const btnFirmado = firmado
                   ? `<button class="btn small" style="background:#d1fae5;color:#065f46;border-color:#86efac;" onclick="liqVerFirmadoOneDrive(${l.id})" title="✓ Firmada el ${new Date(firmado).toLocaleDateString('es-AR')}. Click para detalles.">✓ Firmada</button>`
                   : `<button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" disabled title="No firmada — esperando que llegue el PDF firmado.">✗ No firmada</button>`;
+                // Candado del estado de la liquidación: 🔒 si firmada (admin la puede reabrir), 🔓 si borrador.
+                const estaCerrado = (l.estado === 'firmada');
+                const btnCandado = estaCerrado
+                  ? `<button class="btn small" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5;cursor:${c.isAdmin?'pointer':'default'};" ${c.isAdmin?`onclick="liqReabrirEmpleado(${l.id})"`:''} title="🔒 Cerrada${c.isAdmin?' — click para reabrir':''}">🔒</button>`
+                  : `<button class="btn small" style="background:#dcfce7;color:#166534;border-color:#86efac;cursor:default;" title="🔓 Abierta — se puede editar">🔓</button>`;
                 return `<td style="padding:8px;white-space:nowrap;">
+                  ${btnCandado}
                   ${btnFirmado}
                   ${c.isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
                 </td>`;
