@@ -1471,6 +1471,7 @@ function setLoginMode(mode) {
   const title = document.getElementById('login-title');
   const btn = document.getElementById('login-submit');
   const pass2Wrap = document.getElementById('login-pass2-wrap');
+  const remWrap = document.getElementById('login-remember-wrap');
   const pass = document.getElementById('login-pass');
   const footerSignup = document.getElementById('login-footer-signup');
   const footerBack = document.getElementById('login-footer-back');
@@ -1478,6 +1479,7 @@ function setLoginMode(mode) {
     title.textContent = 'Crear mi cuenta';
     btn.textContent = 'Crear cuenta';
     pass2Wrap.style.display = '';
+    if (remWrap) remWrap.style.display = 'none';
     pass.setAttribute('autocomplete','new-password');
     pass.placeholder = 'Elegí una contraseña';
     footerSignup.style.display = 'none';
@@ -1486,10 +1488,13 @@ function setLoginMode(mode) {
     title.textContent = 'Iniciar sesión';
     btn.textContent = 'Ingresar';
     pass2Wrap.style.display = 'none';
+    if (remWrap) remWrap.style.display = '';
     pass.setAttribute('autocomplete','current-password');
     pass.placeholder = '••••••••';
     footerSignup.style.display = '';
     footerBack.style.display = 'none';
+    // Re-precargar credenciales al volver al login
+    if (typeof _aplicarRecordatorioAlLogin === 'function') _aplicarRecordatorioAlLogin();
   }
   hideLoginError();
 }
@@ -1587,8 +1592,8 @@ function _saveRecordatorio(email, pass) {
 function _clearRecordatorio() {
   try { localStorage.removeItem(RRHH_REMEMBER_KEY); } catch(_) {}
 }
-// Pre-carga al inicio si hay datos guardados
-(function() {
+// Pre-carga reutilizable de credenciales recordadas (login)
+function _aplicarRecordatorioAlLogin() {
   const r = _loadRecordatorio();
   if (!r) return;
   const eEl = document.getElementById('login-email');
@@ -1597,7 +1602,14 @@ function _clearRecordatorio() {
   if (eEl) eEl.value = r.email || '';
   if (pEl) pEl.value = r.pass || '';
   if (cEl) cEl.checked = true;
-})();
+}
+// Ejecutar al cargar el DOM y también de inmediato (defensivo)
+_aplicarRecordatorioAlLogin();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _aplicarRecordatorioAlLogin);
+}
+// Ejecutar también cuando la pantalla de login se vuelve visible (en caso de logout que recarga)
+window.addEventListener('pageshow', _aplicarRecordatorioAlLogin);
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   try { await sb.auth.signOut(); } catch(e) { console.warn('signOut:', e); }
@@ -3354,7 +3366,7 @@ async function renderVacacionesAdmin() {
       <div>
         <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
         <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
-        <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos ${new Date().getFullYear()}</button>
+        <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos</button>
         <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
@@ -3452,15 +3464,34 @@ async function renderVacContent() {
         `).join('') + '</ul>';
 
   } else if (vacState.tab === 'saldos') {
-    const año = new Date().getFullYear();
+    // Traer TODOS los saldos (todos los años) y agregarlos por empleado
     let q = sb.from('rrhh_vacaciones')
       .select(`*, empleado:rrhh_empleados!inner(id, nombre_completo, local, estado, fecha_ingreso)`)
-      .eq('año', año)
       .eq('empleado.estado', 'activo');
     const { data } = await q;
-    const lista = (data || [])
-      .filter(s => !localFiltro || s.empleado?.local === localFiltro)
-      .sort((a,b) => (a.empleado?.nombre_completo||'').localeCompare(b.empleado?.nombre_completo||''));
+    const rows = (data || []).filter(s => !localFiltro || s.empleado?.local === localFiltro);
+
+    // Agrupar por empleado_id sumando los saldos de todos los años
+    const porEmp = {};
+    for (const r of rows) {
+      const eid = r.empleado?.id;
+      if (!eid) continue;
+      if (!porEmp[eid]) {
+        porEmp[eid] = {
+          empleado: r.empleado,
+          corresp: 0, tomados: 0, pendientes: 0,
+          detallePorAño: [],
+        };
+      }
+      porEmp[eid].corresp    += r.dias_correspondientes || 0;
+      porEmp[eid].tomados    += r.dias_tomados || 0;
+      porEmp[eid].pendientes += r.dias_pendientes || 0;
+      porEmp[eid].detallePorAño.push({ año: r.año, pend: r.dias_pendientes || 0 });
+    }
+    const lista = Object.values(porEmp).sort((a,b) =>
+      (a.empleado?.nombre_completo||'').localeCompare(b.empleado?.nombre_completo||'')
+    );
+    const añoActual = new Date().getFullYear();
     cont.innerHTML = `
       <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
         <thead>
@@ -3471,11 +3502,18 @@ async function renderVacContent() {
             <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Corresponden</th>
             <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Tomadas</th>
             <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Pendientes</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Por año</th>
           </tr>
         </thead>
         <tbody>
-          ${lista.map(s => `
-            <tr onclick="abrirDetalleVacEmpleada(${s.empleado?.id}, ${año})"
+          ${lista.map(s => {
+            const detalle = s.detallePorAño
+              .filter(d => d.pend > 0)
+              .sort((a,b) => a.año - b.año)
+              .map(d => `<span style="white-space:nowrap;background:${d.año < añoActual ? '#fef3c7' : '#dbeafe'};color:${d.año < añoActual ? '#92400e' : '#1e40af'};padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${d.año}: ${d.pend}</span>`)
+              .join('');
+            return `
+            <tr onclick="abrirDetalleVacEmpleada(${s.empleado?.id}, ${añoActual})"
                 title="Ver detalle de vacaciones"
                 style="border-top:1px solid var(--border);cursor:pointer;"
                 onmouseover="this.style.background='#f9fafb'"
@@ -3483,13 +3521,19 @@ async function renderVacContent() {
               <td style="padding:12px 16px;">${escapeHtml(s.empleado?.nombre_completo)}</td>
               <td style="padding:12px 16px;"><span class="emp-tag local-${s.empleado?.local||''}">${LOCALES[s.empleado?.local]?.nombre||'—'}</span></td>
               <td style="padding:12px 16px;font-size:13px;color:var(--muted);">${antigüedad(s.empleado?.fecha_ingreso)}</td>
-              <td style="padding:12px 16px;text-align:center;">${s.dias_correspondientes}</td>
-              <td style="padding:12px 16px;text-align:center;">${s.dias_tomados}</td>
-              <td style="padding:12px 16px;text-align:center;"><strong style="color:${s.dias_pendientes>0?'var(--accent2)':'var(--muted)'};">${s.dias_pendientes}</strong></td>
+              <td style="padding:12px 16px;text-align:center;">${s.corresp}</td>
+              <td style="padding:12px 16px;text-align:center;">${s.tomados}</td>
+              <td style="padding:12px 16px;text-align:center;"><strong style="color:${s.pendientes>0?'var(--accent2)':'var(--muted)'};">${s.pendientes}</strong></td>
+              <td style="padding:12px 16px;font-size:12px;">${detalle || '<span style="color:var(--muted);font-size:11px;">—</span>'}</td>
             </tr>
-          `).join('')}
+            `;
+          }).join('')}
         </tbody>
       </table>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;">
+        <span><span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;">amarillo</span> = saldo de años anteriores (arrastre)</span>
+        <span><span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;">azul</span> = año en curso</span>
+      </div>
     `;
 
   } else if (vacState.tab === 'calendario') {

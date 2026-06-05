@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v123-recordarme-login';
+const CACHE_VERSION = 'rrhh-v125-recordarme-defensivo';
 const ASSETS = [
   './',
   './index.html',
