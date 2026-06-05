@@ -13156,7 +13156,13 @@ async function renderLiquidaciones() {
                 const mono = l.empleado?.monotributista
                   ? ' <span style="background:#f3e8ff;color:#7c3aed;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;font-weight:600;" title="Monotributista — factura por banco, NO va al LSD">🟣 MT</span>'
                   : '';
-                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
+                // Candado: si estado=firmada, mostrar 🔒 con click para reabrir esa liquidación.
+                // Solo admin puede reabrir.
+                const cerrado = (l.estado === 'firmada');
+                const candado = cerrado
+                  ? ` <span style="cursor:${c.isAdmin?'pointer':'default'};font-size:13px;margin-left:6px;" title="Cerrado — click para reabrir esta liquidación" ${c.isAdmin?`onclick="event.stopPropagation();liqReabrirEmpleado(${l.id})"`:''}>🔒</span>`
+                  : '';
+                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}${candado}</td>`;
               } },
             { id:'local',     label:'Local',      sortKey:'local', condition:c=>c.local==='todos', thOpts:{align:'text-align:left'},
               tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${c.escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` },
@@ -13357,9 +13363,56 @@ async function renderLiquidaciones() {
             return `<tr data-search="${escapeHtml(nombreNorm)}" style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`;
           }).join('');
 
+          // ─── TFOOT con totales de columnas numéricas ───
+          const sumCol = (sel) => (liqs || []).reduce((s, l) => s + (sel(l) || 0), 0);
+          const totDias = sumCol(l => Number(l.dias_trabajados || 0));
+          const totPts  = sumCol(l => Number(l.puntos_mes || 0));
+          const totTotal = sumCol(l => Number(l.total_negro || 0) + (sacPorEmp[l.empleado_id] || 0));
+          const totRecibo = sumCol(l => Number(l.recibo_neto || 0));
+          const totBanco = sumCol(l => Number(l.recibo_neto || 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0));
+          const totMerc = sumCol(l => Number(l.mercaderia || 0));
+          const totAdel = (liqs || []).reduce((s, l) => s + (adelantosPorEmpLiq[l.empleado_id] || 0), 0);
+          const totPres = (liqs || []).reduce((s, l) => s + (prestamosPorEmpLiq[l.empleado_id] || 0), 0);
+          const totInt = (liqs || []).reduce((s, l) => s + (interesesPorEmpLiq[l.empleado_id] || 0), 0);
+          const totAjuste = sumCol(l => Number(l.ajuste || 0));
+          const totEfect = sumCol(l => {
+            const sac = sacPorEmp[l.empleado_id] || 0;
+            const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+            const merc = Number(l.mercaderia || 0);
+            const intr = interesesPorEmpLiq[l.empleado_id] || 0;
+            const aj = Number(l.ajuste || 0);
+            return Math.max(0, subtotal - merc - intr - aj);
+          });
+          const totSubtotal = (liqs || []).reduce((s, l) => {
+            const sac = sacPorEmp[l.empleado_id] || 0;
+            return s + Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+          }, 0);
+          // Mapa por id-de-columna → contenido del td en el footer
+          const totalsByCol = {
+            empleada: `<strong>TOTAL (${(liqs||[]).length})</strong>`,
+            dias: totDias,
+            puntos: totPts,
+            total: fmt(totTotal),
+            recibo: fmt(totRecibo),
+            banco: fmt(totBanco),
+            subtotal_efectivo: fmt(totSubtotal),
+            mercaderia: fmt(totMerc),
+            adelantos: totAdel > 0 ? '−' + fmt(totAdel) : '—',
+            prestamos: totPres > 0 ? '−' + fmt(totPres) : '—',
+            intereses: totInt > 0 ? '−' + fmt(totInt) : '—',
+            ajustes: fmt(totAjuste),
+            efectivo: fmt(totEfect),
+          };
+          const tfootHtml = cols.map(col => {
+            const val = totalsByCol[col.id] !== undefined ? totalsByCol[col.id] : '';
+            const align = col.id === 'empleada' ? 'left' : 'right';
+            return `<td style="padding:10px 8px;text-align:${align};font-weight:700;font-family:monospace;background:#f1f5f9;color:#1e293b;border-top:2px solid #94a3b8;">${val}</td>`;
+          }).join('');
+
           return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
             <thead><tr style="background:#f9fafb;text-align:right;">${thHtml}</tr></thead>
             <tbody>${bodyHtml}</tbody>
+            <tfoot><tr>${tfootHtml}</tr></tfoot>
           </table>`;
         })()}
       </div>
@@ -14584,6 +14637,25 @@ async function liqValidarCierreMes(local, periodo) {
   return errores;
 }
 
+// Reabrir una liquidación individual (cambia estado firmada → borrador)
+// para hacer correcciones puntuales sin reabrir todo el mes del local.
+async function liqReabrirEmpleado(liqId) {
+  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  if (!confirm('¿Reabrir esta liquidación para correcciones?\n\nQueda en borrador y vas a poder editarla / recalcularla. El mes del local sigue cerrado.')) return;
+  try {
+    const { error } = await sb.from('rrhh_liquidacion')
+      .update({ estado: 'borrador' })
+      .eq('id', liqId)
+      .eq('estado', 'firmada');
+    if (error) throw error;
+    await auditLog('reabrir_liquidacion_empleado', 'rrhh_liquidacion', liqId, 'firmada', 'borrador', null);
+    toast('✓ Liquidación reabierta — ya podés editarla', 'success');
+    switchTab('liquidaciones');
+  } catch (e) {
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
 async function liqCerrarMes(local, periodo) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   // Si ya está cerrado, ofrecer re-abrir (delete del registro)
@@ -14651,6 +14723,14 @@ async function liqCerrarMes(local, periodo) {
     } else {
       okCount++;
     }
+    // Marcar todas las liquidaciones del local como 'firmada' (cierre por empleado)
+    try {
+      await sb.from('rrhh_liquidacion')
+        .update({ estado: 'firmada' })
+        .eq('local', loc)
+        .eq('periodo', periodo + '-01')
+        .in('estado', ['borrador','revisada']);
+    } catch (_) {}
   }
   // Notificar a las directoras: se cerró un mes (pueden ver el liquidador)
   try {
