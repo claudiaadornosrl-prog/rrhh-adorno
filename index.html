@@ -391,6 +391,12 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
           <label for="login-pass2">Repetí la contraseña</label>
           <input type="password" id="login-pass2" autocomplete="new-password" placeholder="••••••••">
         </div>
+        <div class="login-field" id="login-remember-wrap" style="margin:8px 0 14px 0;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;font-weight:400;">
+            <input type="checkbox" id="login-remember" style="width:16px;height:16px;cursor:pointer;">
+            <span>Recordar mi email y contraseña en este dispositivo</span>
+          </label>
+        </div>
         <button type="submit" class="login-btn" id="login-submit">Ingresar</button>
         <div class="login-error" id="login-error"></div>
       </form>
@@ -1544,13 +1550,54 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     console.log('[LOGIN] signIn result:', { hasUser: !!data?.user, error });
     if (error) throw error;
     if (!data?.user) throw new Error('No se obtuvo usuario');
+    // Guardar/borrar credenciales según el checkbox "Recordarme"
+    const recCk = document.getElementById('login-remember');
+    if (recCk && recCk.checked) {
+      _saveRecordatorio(email, pass);
+    } else {
+      _clearRecordatorio();
+    }
     await onLoggedIn(data.user);
   } catch (err) {
     console.error('[LOGIN] error:', err);
+    // Si falló el login, limpiar credenciales guardadas (la pass quedó obsoleta)
+    _clearRecordatorio();
     showLoginError(err.message || 'Error al iniciar sesión');
     btn.disabled = false; btn.textContent = 'Ingresar';
   }
 });
+
+// ── Login Recordarme: persiste email+pass cifrado liviano (base64) en localStorage ──
+const RRHH_REMEMBER_KEY = 'rrhh_remember_v1';
+function _loadRecordatorio() {
+  try {
+    const raw = localStorage.getItem(RRHH_REMEMBER_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(atob(raw));
+    if (!obj || !obj.email) return null;
+    return obj;
+  } catch(_) { return null; }
+}
+function _saveRecordatorio(email, pass) {
+  try {
+    const enc = btoa(JSON.stringify({ email, pass }));
+    localStorage.setItem(RRHH_REMEMBER_KEY, enc);
+  } catch(_) {}
+}
+function _clearRecordatorio() {
+  try { localStorage.removeItem(RRHH_REMEMBER_KEY); } catch(_) {}
+}
+// Pre-carga al inicio si hay datos guardados
+(function() {
+  const r = _loadRecordatorio();
+  if (!r) return;
+  const eEl = document.getElementById('login-email');
+  const pEl = document.getElementById('login-pass');
+  const cEl = document.getElementById('login-remember');
+  if (eEl) eEl.value = r.email || '';
+  if (pEl) pEl.value = r.pass || '';
+  if (cEl) cEl.checked = true;
+})();
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   try { await sb.auth.signOut(); } catch(e) { console.warn('signOut:', e); }
