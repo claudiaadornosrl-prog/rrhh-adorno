@@ -15194,11 +15194,11 @@ async function aumGerenteRender() {
             <td style="padding:8px;text-align:right;font-family:monospace;color:#7c3aed;font-weight:600;">${esEnc ? fmt$(e.rango_max) + ' <span style="font-size:10px;color:#92400e;">MAX</span>' : fmt$(e.rango_min) + ' – ' + fmt$(e.rango_max)}</td>
             <td style="padding:8px;text-align:right;">
               <div style="display:inline-flex;gap:4px;align-items:center;">
-                <input type="number" class="aum-ger-input" placeholder="$0"
-                       min="${Math.round(Number(e.rango_min||0))}" max="${Math.round(Number(e.rango_max||0))}" step="500"
-                       value="${valorSug}"
+                <input type="text" inputmode="numeric" data-money class="aum-ger-input" placeholder="$0"
+                       data-min="${Math.round(Number(e.rango_min||0))}" data-max="${Math.round(Number(e.rango_max||0))}"
+                       value="${valorSug ? Number(valorSug).toLocaleString('es-AR') : ''}"
                        ${inputDisabled}
-                       style="width:140px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${inputStyle}">
+                       style="width:160px;padding:4px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;${inputStyle}">
                 ${yaAplicada ? '' : `<button type="button" class="btn small aum-ger-max-btn" title="Usar el máximo autorizado (${fmt$(e.rango_max)})" style="background:#16a34a;color:white;border:none;padding:3px 7px;font-size:11px;font-weight:600;">↑ MAX</button>`}
               </div>
             </td>
@@ -15226,6 +15226,7 @@ async function aumGerenteRender() {
       </div>
     </div>
   `;
+  if (typeof wireAllMoneyInputs === 'function') wireAllMoneyInputs(cont);
 }
 
 // ── Aplicar todos los aumentos cargados por la encargada ──
@@ -15243,7 +15244,8 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
     const rMin   = Number(fila.dataset.rmin);
     const rMax   = Number(fila.dataset.rmax);
     const inp    = fila.querySelector('input.aum-ger-input');
-    const raw    = inp ? Number(inp.value || 0) : 0;
+    // Acepta tanto el input formateado con miles (data-money) como número simple
+    const raw    = inp ? parseMoneyInput(inp) : 0;
     const nombre = `${fila.dataset.apellido}, ${fila.dataset.nombre}`;
     if (!raw) continue; // vacío → no aplicar
     if (raw < rMin || raw > rMax) {
@@ -15997,9 +15999,11 @@ document.addEventListener('click', (ev) => {
   const tr = btn.closest('tr');
   const inp = tr?.querySelector('.aum-ger-input');
   if (!inp || inp.disabled) return;
-  const rmax = Number(tr.getAttribute('data-rmax') || inp.getAttribute('max') || 0);
+  const rmax = Number(tr.getAttribute('data-rmax') || inp.getAttribute('data-max') || 0);
   if (!(rmax > 0)) return;
-  inp.value = rmax;
+  // Aseguro wire del data-money y seteo con formato locale
+  if (typeof wireMoneyInput === 'function' && inp.hasAttribute('data-money')) wireMoneyInput(inp);
+  inp.value = rmax.toLocaleString('es-AR');
   inp.dispatchEvent(new Event('input', { bubbles: true }));
   // feedback visual rápido
   inp.style.backgroundColor = '#dcfce7';
@@ -16020,7 +16024,8 @@ function aumGerenteUsarMaxTodos() {
     const inp = tr.querySelector('.aum-ger-input');
     const rmax = Number(tr.getAttribute('data-rmax') || 0);
     if (!inp || inp.disabled || !(rmax > 0)) return;
-    inp.value = rmax;
+    if (typeof wireMoneyInput === 'function' && inp.hasAttribute('data-money')) wireMoneyInput(inp);
+    inp.value = rmax.toLocaleString('es-AR');
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     count++;
   });
@@ -19804,10 +19809,22 @@ const salaryWorkflow = (() => {
   // Cuenta cuántas empleadas activas hay en el local en ese período (para reparto 'dividido_activos')
   async function contarActivasLocal(local, periodoFull) {
     const { data } = await sb.from('rrhh_sueldo_empleada_config')
-      .select('empleado_id, rrhh_empleados!inner(local, estado)')
+      .select('empleado_id, fraccion_comision, rrhh_empleados!inner(local, estado)')
       .lte('vigente_desde', periodoFull)
       .eq('activa_en_modulo', true);
-    return (data || []).filter(d => d.rrhh_empleados?.local === local && d.rrhh_empleados?.estado === 'activo').length;
+    // Deduplicar por empleado_id: cada empleado puede tener varias configs vigentes
+    // (la del aumento previo + la actual). Si no deduplicamos, contamos doble y la
+    // comisión por empleada queda dividida incorrectamente.
+    // Además, excluimos empleadas con fraccion_comision = 0 (administrativos puros)
+    // del divisor de comisión.
+    const ids = new Set();
+    (data || []).forEach(d => {
+      if (d.rrhh_empleados?.local !== local) return;
+      if (d.rrhh_empleados?.estado !== 'activo') return;
+      if (Number(d.fraccion_comision || 0) <= 0) return; // no contar fraccion 0
+      ids.add(d.empleado_id);
+    });
+    return ids.size;
   }
 
   /**

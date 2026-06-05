@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v110-admin-aplica-aumentos-oficina';
+const CACHE_VERSION = 'rrhh-v111-fix-comision-dividido-activos';
 const ASSETS = [
   './',
   './index.html',
