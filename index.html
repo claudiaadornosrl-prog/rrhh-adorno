@@ -11140,6 +11140,22 @@ async function _loadForumFont(doc) {
   }
 }
 
+// Helper: ver el recibo PDF en una ventana nueva (vista previa, no descarga)
+async function verReciboPDF(liqId) {
+  try {
+    const doc = await generarPDFRecibo(liqId, { autoSave: false });
+    if (!doc) return;
+    // Abrir en ventana nueva como vista previa
+    const url = doc.output('bloburl');
+    const w = window.open(url, '_blank', 'width=900,height=1100');
+    if (!w) {
+      toast('Tu navegador bloqueó la ventana emergente. Permitilas y volvé a intentar.', 'error');
+    }
+  } catch (e) {
+    toast('Error abriendo recibo: ' + (e.message || e), 'error');
+  }
+}
+
 async function generarPDFRecibo(liqId, opts = {}) {
   try {
     // 1. Cargar liquidación + empleado + conceptos
@@ -13234,7 +13250,7 @@ async function renderLiquidaciones() {
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
             { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo CCT (lo que dice el recibo legal). Click descarga el PDF firmable.'},
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="generarPDFRecibo(${l.id})" title="Click para descargar PDF del recibo (listo para firmar)" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(l.recibo_neto)} 📄</td>` },
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="verReciboPDF(${l.id})" title="Click para vista previa del recibo en una ventana nueva. Click derecho = desglose." oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(l.recibo_neto)} 👁</td>` },
             { id:'prestamos', label:'Préstamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco'},
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):'—'}</td>`; } },
             { id:'adelantos', label:'Adelantos',  thOpts:{title:'Adelantos del mes (préstamos 1 cuota tasa 0%)'},
