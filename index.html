@@ -4280,6 +4280,7 @@ async function abrirCompensarFalta(fecha, empleadoId) {
   const _empTarget = empleadoId || session.empleado_id;
   const _esAdminMode = (empleadoId && empleadoId !== session.empleado_id);
   if (!_empTarget) { toast('Tu usuario no está vinculado', 'error'); return; }
+  if (await _mesAsistCerradoBloquea(_empTarget, fecha)) return;
 
   // Saldo del banco al cierre de esa fecha
   const { data: detsBanco } = await sb.from('rrhh_asistencias_detalle')
@@ -6669,7 +6670,26 @@ async function abrirPopoverTurno(cellEl) {
   }, 100);
 }
 
+// Helper: chequea si el mes de asistencias del empleado en esa fecha está cerrado.
+// Retorna true si está bloqueado (con toast/alert), false si se puede operar.
+window._mesAsistCerradoBloquea = async function(empleadoId, fecha) {
+  if (!empleadoId || !fecha) return false;
+  try {
+    const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empleadoId).maybeSingle();
+    if (!emp?.local) return false; // sin local conocido, no bloqueamos
+    const [y, m] = fecha.split('-').map(Number);
+    const { data: cerr } = await sb.from('rrhh_meses_cerrados')
+      .select('cerrado_por, cerrado_at').eq('local', emp.local).eq('año', y).eq('mes', m).maybeSingle();
+    if (!cerr) return false;
+    const quien = (cerr.cerrado_por||'').split('@')[0] || 'alguien';
+    const cuando = cerr.cerrado_at?.split('T')[0] || '';
+    alert(`🔒 El mes ${y}-${String(m).padStart(2,'0')} de ${emp.local} está CERRADO\n(cerrado por ${quien} el ${cuando}).\n\nNo se puede modificar nada hasta reabrirlo desde Asistencias → Resumen → 🔓 Reabrir mes.`);
+    return true;
+  } catch(e) { console.warn('[_mesAsistCerradoBloquea]', e); return false; }
+};
+
 async function asignarTurno(emp_id, fecha, template_id) {
+  if (await _mesAsistCerradoBloquea(emp_id, fecha)) return;
   const { data: tpl } = await sb.from('rrhh_templates_turno').select('*').eq('id', template_id).single();
   if (!tpl) { toast('Template no encontrado', 'error'); return; }
   const payload = {
@@ -6694,6 +6714,7 @@ async function asignarTurno(emp_id, fecha, template_id) {
 }
 
 async function asignarTurnoCustom(emp_id, fecha) {
+  if (await _mesAsistCerradoBloquea(emp_id, fecha)) return;
   const hi = prompt('Hora de inicio (HH:MM)', '10:00');
   if (!hi) return;
   const hf = prompt('Hora de fin (HH:MM)', '18:00');
@@ -6716,6 +6737,7 @@ async function asignarTurnoCustom(emp_id, fecha) {
 }
 
 async function quitarTurno(emp_id, fecha) {
+  if (await _mesAsistCerradoBloquea(emp_id, fecha)) return;
   const { error } = await sb.from('rrhh_turnos').delete().eq('empleado_id', emp_id).eq('fecha', fecha);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Turno borrado', 'success');
@@ -6913,6 +6935,7 @@ async function renderResumenMensual(cont) {
       <span id="estado-cierre-mes" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
       <button class="btn accent2" id="btn-procesar-mes" onclick="procesarMesUI()">⚙️ Procesar mes</button>
       <button class="btn primary" id="btn-cerrar-mes" onclick="cerrarMesUI()" style="display:none;">🔒 Cerrar mes</button>
+      <button class="btn primary" id="btn-cerrar-todos" onclick="cerrarTodosLocalesUI()" style="display:none;background:#7c3aed;border-color:#6d28d9;">🔒 Cerrar todos pendientes</button>
       <button class="btn" id="btn-reabrir-mes" onclick="reabrirMesUI()" style="display:none;">🔓 Reabrir mes</button>
     </div>
 
@@ -6924,16 +6947,39 @@ async function renderResumenMensual(cont) {
 }
 
 async function actualizarBotonesCierreMes() {
-  const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
+  const isAdmin = session.rol === 'admin';
+  const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const btnCerrar = document.getElementById('btn-cerrar-mes');
   const btnReabrir = document.getElementById('btn-reabrir-mes');
+  const btnCerrarTodos = document.getElementById('btn-cerrar-todos');
   const estado = document.getElementById('estado-cierre-mes');
   if (!btnCerrar || !btnReabrir || !estado) return;
+  if (btnCerrarTodos) btnCerrarTodos.style.display = 'none';
 
   if (!localFiltro) {
-    estado.textContent = 'Seleccioná un local para cerrar/reabrir';
-    btnCerrar.style.display = 'none';
-    btnReabrir.style.display = 'none';
+    // Admin sin filtro: chequear qué locales están abiertos en el mes
+    if (isAdmin) {
+      const [y, m] = asisState.mes.split('-').map(Number);
+      const { data: cerrados } = await sb.from('rrhh_meses_cerrados')
+        .select('local').eq('año', y).eq('mes', m);
+      const cerradosSet = new Set((cerrados||[]).map(r => r.local));
+      const todos = ['unicenter','alcorta','oficina'];
+      const pendientes = todos.filter(l => !cerradosSet.has(l));
+      if (pendientes.length === 0) {
+        estado.innerHTML = `🔒 Los 3 locales están cerrados`;
+        estado.style.color = '#0d9488';
+      } else {
+        estado.innerHTML = `🔓 Locales abiertos: <strong>${pendientes.map(l => LOCALES[l]?.nombre || l).join(', ')}</strong>`;
+        estado.style.color = 'var(--muted)';
+        if (btnCerrarTodos) btnCerrarTodos.style.display = 'inline-block';
+      }
+      btnCerrar.style.display = 'none';
+      btnReabrir.style.display = 'none';
+    } else {
+      estado.textContent = 'Seleccioná un local para cerrar/reabrir';
+      btnCerrar.style.display = 'none';
+      btnReabrir.style.display = 'none';
+    }
     return;
   }
 
@@ -6977,6 +7023,47 @@ async function cerrarMesUI() {
     if (btn) { btn.disabled = false; btn.textContent = '🔒 Cerrar mes'; }
   }
 }
+
+// Admin: cerrar todos los locales pendientes del mes en una sola operación
+window.cerrarTodosLocalesUI = async function() {
+  const [y, m] = asisState.mes.split('-').map(Number);
+  const periodoStr = `${y}-${String(m).padStart(2,'0')}`;
+
+  // Re-leer cuáles están abiertos
+  const { data: cerrados } = await sb.from('rrhh_meses_cerrados')
+    .select('local').eq('año', y).eq('mes', m);
+  const cerradosSet = new Set((cerrados||[]).map(r => r.local));
+  const todos = ['unicenter','alcorta','oficina'];
+  const pendientes = todos.filter(l => !cerradosSet.has(l));
+  if (pendientes.length === 0) { toast('No hay locales abiertos en este mes', 'info'); return; }
+
+  const nombres = pendientes.map(l => '• ' + (LOCALES[l]?.nombre || l)).join('\n');
+  if (!confirm(`¿Cerrar el mes ${periodoStr} para los siguientes locales?\n\n${nombres}\n\nSe van a transferir todos los movimientos al banco. Se procesa uno por uno.`)) return;
+
+  const btn = document.getElementById('btn-cerrar-todos');
+  if (btn) { btn.disabled = true; btn.textContent = 'Cerrando…'; }
+  const resultados = [];
+  for (const local of pendientes) {
+    try {
+      const r = await cerrarMes(periodoStr, local);
+      resultados.push({ local, ok: true, ...r });
+    } catch (e) {
+      resultados.push({ local, ok: false, error: e.message });
+    }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔒 Cerrar todos pendientes'; }
+
+  // Resumen
+  const oks = resultados.filter(r => r.ok);
+  const fails = resultados.filter(r => !r.ok);
+  let msg = '';
+  if (oks.length) msg += `✅ Cerrados (${oks.length}): ${oks.map(r => (LOCALES[r.local]?.nombre||r.local) + ' (' + r.movimientos + ' mov)').join(' · ')}`;
+  if (fails.length) msg += (msg ? '\n\n' : '') + `❌ Fallaron (${fails.length}):\n` + fails.map(r => '• ' + (LOCALES[r.local]?.nombre||r.local) + ': ' + r.error).join('\n');
+  alert(msg || 'Sin cambios');
+
+  renderResumenContent();
+  actualizarBotonesCierreMes();
+};
 
 async function cerrarMes(periodo, local) {
   const [y, m] = periodo.split('-').map(Number);
@@ -8836,6 +8923,7 @@ async function guardarPermisoAdmin() {
   if (!fecha) { toast('Falta fecha', 'error'); return; }
   if (!tipo) { toast('Falta tipo', 'error'); return; }
   if (descontar_vacaciones && dias_descontar <= 0) { toast('Si compensás con vacaciones, indicá los días', 'error'); return; }
+  if (await _mesAsistCerradoBloquea(empleado_id, fecha)) return;
 
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id, fecha, tipo, hora_desde, hora_hasta, motivo,
