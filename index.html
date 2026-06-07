@@ -10326,6 +10326,25 @@ async function generarNotificacionVacaciones(movId) {
   doc.setTextColor(...COLOR_MUTED);
   doc.text(`Asunto del mail: "VACACIONES ${codigo}"`, W - margen - 30, 255, { align: 'center' });
 
+  // ═══ QR con código VAC-XXXXX (para escaneo automático cuando llega firmada) ═══
+  try {
+    if (typeof qrcode === 'function') {
+      const qr = qrcode(0, 'M');  // tipo 0 (auto), corrección media
+      qr.addData(codigo);
+      qr.make();
+      const qrDataUrl = qr.createDataURL(4, 0);
+      // 22mm × 22mm en esquina inferior izquierda
+      const qrSize = 22;
+      const qrX = margen;
+      const qrY = 260;
+      doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...COLOR_MUTED);
+      doc.text(codigo, qrX + qrSize + 2, qrY + qrSize - 1);
+    }
+  } catch (e) { console.warn('No se pudo generar QR en notif vacaciones:', e); }
+
   // ═══ FOOTER ═══
   doc.setDrawColor(...COLOR_BORDER);
   doc.setLineWidth(0.3);
