@@ -682,6 +682,21 @@ const pushManager = (() => {
 // Helper: dispara una push notification a una empleada.
 // Best-effort: si falla no rompe la operación principal — solo loggea.
 // ════════════════════════════════════════════════════════════
+// Notifica a TODOS los admins activos. Útil cuando las encargadas hacen
+// acciones que el admin quiere ver (cargar extras, salvar errores de fichada).
+// excluir: empleado_id a saltear (típicamente quien ejecuta la acción si es admin).
+async function notifAdmins(title, body, opts = {}, excluir = null) {
+  try {
+    const { data: admins } = await sb.from('rrhh_usuarios')
+      .select('empleado_id')
+      .eq('rol', 'admin').eq('activo', true);
+    const ids = (admins || []).map(a => a.empleado_id).filter(id => id && id !== excluir);
+    for (const id of ids) {
+      enviarPush(id, title, body, opts);  // no esperamos cada uno (fire-and-forget)
+    }
+  } catch (e) { console.warn('[notifAdmins]', e); }
+}
+
 async function enviarPush(empleadoId, title, body, opts = {}) {
   if (!empleadoId) return { ok: false, msg: 'sin empleado_id' };
   try {
@@ -7882,6 +7897,23 @@ async function salvarError(detalleId, empId) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
 
   await auditLog('salvar_error', 'rrhh_asistencias_detalle', detalleId, 'error_salvado', 'false', 'true');
+
+  // 🔔 Notif a admins si el que salvó es encargada (no admin)
+  if (session.rol === 'gerente') {
+    try {
+      const { data: det } = await sb.from('rrhh_asistencias_detalle')
+        .select('fecha, estado, empleado:rrhh_empleados(nombre_completo, local)')
+        .eq('id', detalleId).maybeSingle();
+      const localTxt = LOCALES[det?.empleado?.local]?.nombre || det?.empleado?.local || '';
+      const fechaTxt = det?.fecha ? det.fecha.split('-').reverse().join('/') : '';
+      notifAdmins(
+        '🛠 Error de fichada salvado',
+        `${session.email?.split('@')[0] || 'encargada'} salvó ${det?.estado || 'error'} del ${fechaTxt} a ${det?.empleado?.nombre_completo || 'una empleada'} (${localTxt}) — motivo: "${motivo.trim()}"`,
+        { url: './#asistencias', tag: 'salvar-' + detalleId }
+      );
+    } catch (_) {}
+  }
+
   toast('Error salvado ✓', 'success');
   // Re-render del detalle y del resumen
   await renderDetalleEmpDia(empId);
@@ -10796,6 +10828,21 @@ async function guardarExtra() {
   }
 
   await auditLog('crear_hora_extra', 'rrhh_horas_extras', data.id, null, null, `${minutos} min - ${motivoFinal}`);
+
+  // 🔔 Notif a admins si el que cargó es encargada (no admin)
+  if (session.rol === 'gerente') {
+    try {
+      const { data: emp } = await sb.from('rrhh_empleados').select('nombre_completo, local').eq('id', empleado_id).maybeSingle();
+      const localTxt = LOCALES[emp?.local]?.nombre || emp?.local || '';
+      const horasTxt = (horas > 0 ? `${horas}h` : '') + (mins > 0 ? `${mins}m` : '') || `${minutos}min`;
+      notifAdmins(
+        '⏰ Hora extra cargada',
+        `${session.email?.split('@')[0] || 'encargada'} cargó ${horasTxt} para ${emp?.nombre_completo || 'una empleada'} (${localTxt}) — ${motivoFinal}`,
+        { url: './#asistencias', tag: 'extra-' + data.id }
+      );
+    } catch (_) {}
+  }
+
   toast('Hora extra registrada ✓', 'success');
   document.getElementById('extra-modal').remove();
   renderAsisTab();
