@@ -789,6 +789,28 @@ async function init() {
   // El hash trae #access_token=...&type=recovery cuando llegamos desde el mail.
   const _hash = window.location.hash || '';
   const _esRecovery = _hash.includes('type=recovery');
+  // ── Detectar error del link (expirado / ya usado) ──
+  // Supabase devuelve #error=access_denied&error_code=otp_expired cuando el link
+  // ya no es válido (suele pasar cuando Gmail/Outlook pre-visita el link).
+  if (_hash.includes('error=') || _hash.includes('error_code=')) {
+    const m = _hash.match(/error_description=([^&]+)/);
+    const desc = m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : 'El link no es válido';
+    setTimeout(() => {
+      alert(`⚠️ El link de recuperación expiró o ya fue usado.\n\n` +
+            `Detalle: ${desc}\n\n` +
+            `Para que ande, tenés que:\n` +
+            `1. Pedir un mail NUEVO desde "Olvidé mi contraseña"\n` +
+            `2. Abrirlo y clickearlo INMEDIATAMENTE (en los siguientes 2 min)\n` +
+            `3. NO previsualizar el mail ni copiar el link — cliquear directo\n\n` +
+            `Mientras tanto, si necesitás entrar urgente, pedile al admin que te resetee la contraseña desde el panel.`);
+      // Limpiar el hash del URL
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }, 100);
+    showLogin();
+    return;
+  }
 
   // ── Registrar listener ANTES de getSession() ──
   // Si lo hacemos después, el evento PASSWORD_RECOVERY puede dispararse antes

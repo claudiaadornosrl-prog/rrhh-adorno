@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v132-recovery-detect-hash';
+const CACHE_VERSION = 'rrhh-v133-recovery-manejo-errores';
 const ASSETS = [
   './',
   './index.html',
