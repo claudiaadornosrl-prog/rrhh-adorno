@@ -3577,7 +3577,6 @@ async function renderVacacionesAdmin() {
         <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
         <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
         <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos</button>
-        <button class="modal-tab ${vacState.tab==='calendario'?'active':''}" data-vactab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario</button>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
         <button class="btn primary" onclick="abrirAsignarVacacion()">+ Asignar vacaciones</button>
@@ -5461,6 +5460,18 @@ async function solicitarVacaciones() {
   }).select().single();
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('solicitar_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d)`);
+
+  // 🔔 Notif al admin (igual para vendedoras de oficina porque JP es encargado de oficina)
+  const _nombre = session.empleadoData?.nombre_completo || 'Una empleada';
+  const _localTxt = LOCALES[session.empleadoData?.local]?.nombre || session.empleadoData?.local || '';
+  const _desdeFmt = desde ? desde.split('-').reverse().join('/') : '';
+  const _hastaFmt = hasta ? hasta.split('-').reverse().join('/') : '';
+  notifAdmins(
+    '🌴 Solicitud de vacaciones',
+    `${_nombre} (${_localTxt}) pidió ${dias} día(s) del ${_desdeFmt} al ${_hastaFmt}.`,
+    { url: './#vacaciones', tag: 'vac-' + data.id }
+  );
+
   toast('Solicitud enviada ✓ Te avisamos cuando la aprueben', 'success');
   switchTab('mis-vacaciones');
 }
@@ -7653,6 +7664,18 @@ async function cerrarMes(periodo, local) {
   });
 
   await auditLog('cerrar_mes', 'rrhh_meses_cerrados', null, null, null, `${local} ${periodo} - ${movimientos.length} mov (${minutosTotal} min)`);
+
+  // 🔔 Avisar al admin (si quien cierra no es admin)
+  if (session.rol !== 'admin') {
+    const _quien = session.empleadoData?.nombre_completo || session.email?.split('@')[0] || 'encargada';
+    const _localTxt = LOCALES[local]?.nombre || local;
+    notifAdmins(
+      `🔒 ${_localTxt}: mes ${periodo} cerrado`,
+      `${_quien} cerró Asistencias de ${_localTxt} (${movimientos.length} movimientos, ${Math.round(minutosTotal/60*10)/10}h).`,
+      { url: './#liquidaciones', tag: 'cerrar-mes-' + local + '-' + periodo }
+    );
+  }
+
   return { movimientos: movimientos.length, minutos_total: minutosTotal };
 }
 
@@ -10129,6 +10152,18 @@ async function enviarPermisoEmpleado() {
   }).select().single();
 
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  // 🔔 Notif al admin (siempre — JP es encargado de oficina, así que para vendedoras
+  // de oficina también le llega; y para alcorta/unicenter le llega como admin)
+  const _nombre = session.empleadoData?.nombre_completo || 'Una empleada';
+  const _localTxt = LOCALES[session.empleadoData?.local]?.nombre || session.empleadoData?.local || '';
+  const _fechaTxt = fecha ? fecha.split('-').reverse().join('/') : '';
+  notifAdmins(
+    '🙋 Solicitud de permiso',
+    `${_nombre} (${_localTxt}) pidió permiso ${tipo} el ${_fechaTxt}${hora_desde ? ' · ' + hora_desde + '-' + hora_hasta : ''}. Motivo: ${motivo || '—'}`,
+    { url: './#asistencias', tag: 'permiso-' + data.id }
+  );
+
   toast('Solicitud enviada ✓', 'success');
   document.getElementById('permiso-emp-modal').remove();
   if (currentTab === 'mis-permisos') switchTab('mis-permisos');
@@ -16100,6 +16135,21 @@ async function retCargar() {
     cargado_por: session.user?.email || session.empleadoData?.nombre_completo || null,
   });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+
+  // 🔔 Notif al admin (si lo cargó la encargada)
+  if (session.rol !== 'admin') {
+    const { data: empNom } = await sb.from('rrhh_empleados').select('nombre_completo').eq('id', empId).maybeSingle();
+    const _quien = session.empleadoData?.nombre_completo || session.email?.split('@')[0] || 'encargada';
+    const _localTxt = LOCALES[emp.local]?.nombre || emp.local;
+    const _fechaTxt = fecha ? fecha.split('-').reverse().join('/') : '';
+    const _montoTxt = '$' + Number(monto).toLocaleString('es-AR');
+    notifAdmins(
+      '🛍 Retiro de mercadería cargado',
+      `${_quien} cargó ${_montoTxt} a ${empNom?.nombre_completo || 'una empleada'} (${_localTxt}) del ${_fechaTxt}${desc ? ' — ' + desc : ''}`,
+      { url: './#retiros', tag: 'retiro-' + empId + '-' + fecha }
+    );
+  }
+
   toast('Retiro cargado ✓', 'success');
   switchTab('retiros');
 }
