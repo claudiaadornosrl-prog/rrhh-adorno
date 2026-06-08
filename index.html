@@ -722,8 +722,12 @@ const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
     persistSession: true,
     autoRefreshToken: true,
     storageKey: 'rrhh-adorno-auth',  // distinto al CRM para no chocar
-    detectSessionInUrl: true,  // detectar #access_token del hash (recovery / OAuth)
-    flowType: 'implicit',      // usar implicit flow (token en hash, no PKCE en query)
+    // detectSessionInUrl: false — IMPORTANTE: lo procesamos a mano en init().
+    // Si lo dejamos en true, supabase-js consume y limpia el hash antes que
+    // nuestro código pueda leerlo, y se pierde el token cuando viene basura
+    // adelante (caso Gmail con hash compuesto).
+    detectSessionInUrl: false,
+    flowType: 'implicit',  // usar implicit flow (token en hash, no PKCE en query)
   }
 });
 
