@@ -13067,9 +13067,13 @@ async function renderPagosMes() {
 
   // 2) Cuotas pendientes con mes_descuento <= periodo actual
   //    Hacemos 2 queries separadas (sin join) para evitar problemas de RLS con !inner.
+  // BUG FIX: no filtrar por estado='activo' — al cerrar el mes los préstamos
+  // pasan a 'pagado' (si es la última cuota) y las cuotas a 'aplicada'. Si los
+  // dejamos afuera, los descuentos del mes recién cerrado dejan de mostrarse
+  // aunque sí se hicieron. El filtro real es por mes_descuento + estado cuota.
   const { data: prestamosActivos } = await sb.from('rrhh_prestamo')
     .select('id, empleado_id, estado, cuotas_totales, tasa_mensual, capital, fecha_otorgamiento')
-    .eq('estado', 'activo');
+    .in('estado', ['activo','pagado']);
   const prestamoMap = {};
   (prestamosActivos || []).forEach(p => { prestamoMap[p.id] = p; });
   const idsActivos = (prestamosActivos || []).map(p => p.id);
@@ -13081,6 +13085,7 @@ async function renderPagosMes() {
     const { data: cs } = await sb.from('rrhh_prestamo_cuota')
       .select('prestamo_id, monto_capital, monto_interes, mes_descuento, estado')
       .eq('mes_descuento', periodoFull)
+      .neq('estado', 'cancelada')
       .in('prestamo_id', idsActivos);
     cuotasMes = cs || [];
   }
@@ -13391,8 +13396,9 @@ async function exportarPlanillaCompleta() {
       sb.from('rrhh_paritaria_sumas_nr')
         .select('*').lte('vigente_desde', periodo)
         .order('vigente_desde', { ascending: false }).limit(1),
+      // BUG FIX: incluir 'pagado'/'refinanciado' para que adelantos del mes recién cerrado sigan visibles
       sb.from('rrhh_prestamo')
-        .select('id, empleado_id, cuotas_totales, tasa_mensual').eq('estado','activo'),
+        .select('id, empleado_id, cuotas_totales, tasa_mensual').in('estado', ['activo','pagado']),
     ]);
 
     const empleados = empRes.data || [];
@@ -13407,7 +13413,7 @@ async function exportarPlanillaCompleta() {
     if (presIds.length > 0) {
       const { data: cs } = await sb.from('rrhh_prestamo_cuota')
         .select('prestamo_id, monto_capital')
-        .eq('mes_descuento', periodo).in('prestamo_id', presIds);
+        .eq('mes_descuento', periodo).neq('estado', 'cancelada').in('prestamo_id', presIds);
       (cs || []).forEach(c => {
         const pr = presMap[c.prestamo_id];
         if (!pr) return;
@@ -13704,11 +13710,14 @@ async function renderLiquidaciones() {
   const empIdsLiq = [...new Set((liqs||[]).map(l => l.empleado_id))];
   const adelantosPorEmpLiq = {}, prestamosPorEmpLiq = {}, interesesPorEmpLiq = {};
   if (empIdsLiq.length > 0) {
-    // Solo préstamos ACTIVOS (no cancelados, no pagados)
+    // BUG FIX: incluir activos + pagados + refinanciados (todo menos cancelados).
+    // Si filtramos solo 'activo', los adelantos del mes que se acaba de cerrar
+    // pasan a 'pagado' y la columna "Adelantos" queda vacía aunque el descuento
+    // sí se hizo. El filtro por mes_descuento + estado cuota (abajo) es el correcto.
     const { data: pAct } = await sb.from('rrhh_prestamo')
       .select('id, empleado_id, estado, cuotas_totales, tasa_mensual')
       .in('empleado_id', empIdsLiq)
-      .eq('estado', 'activo');
+      .in('estado', ['activo','pagado']);
     const pMap = {};
     (pAct || []).forEach(p => { pMap[p.id] = p; });
     const idsP = (pAct || []).map(p => p.id);
