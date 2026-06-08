@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v139-confirmacion-recibo';
+const CACHE_VERSION = 'rrhh-v140-selfservice-prestamos-encargada';
 const ASSETS = [
   './',
   './index.html',

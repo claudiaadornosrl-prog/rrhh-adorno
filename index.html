@@ -17589,13 +17589,90 @@ async function renderPrestamosGerente() {
     </div>
   `;
 
+  // ── Self-service: la encargada también es empleada, puede pedir préstamo/adelanto para sí ──
+  const _miEmpId = session.empleado_id;
+  let _selfServiceHtml = '';
+  if (_miEmpId) {
+    try {
+      const _hoy = new Date();
+      const _diaHoy = _hoy.getDate();
+      const _enVentanaAdelanto = _diaHoy >= 5 && _diaHoy <= 14;
+      const _mesActual = `${_hoy.getFullYear()}-${String(_hoy.getMonth()+1).padStart(2,'0')}-01`;
+
+      const { data: _adelPend } = await sb.from('rrhh_prestamo_solicitud')
+        .select('id, monto_solicitado, solicitado_at, estado')
+        .eq('empleado_id', _miEmpId)
+        .eq('tipo', 'adelanto')
+        .eq('mes_solicitado', _mesActual)
+        .in('estado', ['pendiente','aprobado']);
+      const _yaPidioAdelantoEsteMes = (_adelPend || []).length > 0;
+
+      const { data: _presPend } = await sb.from('rrhh_prestamo_solicitud')
+        .select('id, monto_solicitado, cuotas_opciones, cuotas_solicitadas, solicitado_at')
+        .eq('empleado_id', _miEmpId)
+        .eq('tipo', 'prestamo_nuevo')
+        .eq('estado', 'pendiente')
+        .order('solicitado_at', { ascending: false });
+      const _yaPidioPrestamo = (_presPend || []).length > 0;
+      const _solicPendiente = (_presPend || [])[0];
+
+      const _fmtMon = (n) => '$' + (Number(n) || 0).toLocaleString('es-AR');
+      const _fmtF = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString('es-AR') : '';
+
+      _selfServiceHtml = `
+        <div class="section-title" style="color:#0d9488;margin-top:0;">👤 Pedir para mí</div>
+
+        <div class="card" style="background:#dbeafe;border:1px solid #93c5fd;margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:6px;">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:#1e3a8a;">💵 Pedir adelanto de sueldo</div>
+              <div style="font-size:12px;color:#1e40af;margin-top:4px;">
+                Disponible del <strong>día 5 al 14</strong> de cada mes. Tope: 50% del neto del mes pasado.
+              </div>
+            </div>
+            ${_enVentanaAdelanto && !_yaPidioAdelantoEsteMes
+              ? `<button class="btn primary" onclick="abrirPedirAdelantoSueldo()">💵 Solicitar adelanto</button>`
+              : _yaPidioAdelantoEsteMes
+                ? `<span style="font-size:12px;color:#1e40af;font-weight:600;">Ya pediste un adelanto este mes</span>`
+                : `<span style="font-size:12px;color:#1e40af;font-weight:600;">Fuera de ventana (hoy día ${_diaHoy})</span>`
+            }
+          </div>
+        </div>
+
+        <div class="card" style="background:#fef3c7;border:1px solid #fcd34d;margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:6px;">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:#92400e;">🏦 Pedir préstamo</div>
+              <div style="font-size:12px;color:#a16207;margin-top:4px;">
+                Indicá capital y cuotas. El admin prepara una propuesta con la cuota mensual.
+              </div>
+              ${_yaPidioPrestamo && _solicPendiente ? `
+                <div style="font-size:12px;color:#92400e;margin-top:6px;background:#fde68a;padding:6px 10px;border-radius:4px;">
+                  📩 Solicitud pendiente: <strong>${_fmtMon(_solicPendiente.monto_solicitado)}</strong> · opciones de <strong>${(_solicPendiente.cuotas_opciones || [_solicPendiente.cuotas_solicitadas]).join(' / ')}</strong> cuotas · enviada ${_fmtF(_solicPendiente.solicitado_at?.slice(0,10))}
+                </div>
+              ` : ''}
+            </div>
+            ${_yaPidioPrestamo
+              ? `<span style="font-size:12px;color:#92400e;font-weight:600;">Esperando respuesta del admin</span>`
+              : `<button class="btn primary" style="background:#d97706;border-color:#d97706;" onclick="abrirPedirPrestamo()">🏦 Solicitar préstamo</button>`
+            }
+          </div>
+        </div>
+
+        <hr style="border:0;border-top:1px solid var(--border);margin:18px 0;">
+      `;
+    } catch (e) { console.warn('[self-service prestamos encargada]', e); }
+  }
+
   cont.innerHTML = `
     <div class="page-header">
       <h2>Préstamos y adelantos · ${LOCALES[local]?.nombre || local}</h2>
       <div class="subtitle">Vista de tu equipo (solo lectura). El admin gestiona aprobaciones y propuestas.</div>
     </div>
 
-    <div class="section-title" style="color:#0ea5e9;margin-top:0;">💵 Adelantos de sueldo (últimos 60 días)</div>
+    ${_selfServiceHtml}
+
+    <div class="section-title" style="color:#0ea5e9;margin-top:0;">💵 Adelantos de sueldo del equipo (últimos 60 días)</div>
     ${adelantosHTML}
 
     <div class="section-title" style="color:#7c3aed;">🏦 Préstamos activos</div>
