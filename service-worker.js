@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v129-notif-admin-extras-salvado';
+const CACHE_VERSION = 'rrhh-v130-guard-compensar-falta';
 const ASSETS = [
   './',
   './index.html',

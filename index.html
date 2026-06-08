@@ -4373,7 +4373,7 @@ async function abrirCompensarFalta(fecha, empleadoId) {
 
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button class="btn" onclick="document.getElementById('comp-modal').remove()">Cancelar</button>
-          <button class="btn primary" onclick="enviarCompensarFalta('${fecha}', ${saldoBanco}, ${diasDisp}, ${_esAdminMode ? _empTarget : 'null'})">Enviar solicitud</button>
+          <button id="comp-btn-confirm" class="btn primary" onclick="enviarCompensarFalta('${fecha}', ${saldoBanco}, ${diasDisp}, ${_esAdminMode ? _empTarget : 'null'})">Enviar solicitud</button>
         </div>
       </div>
     </div>
@@ -4389,6 +4389,18 @@ function compToggle() {
 }
 
 async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
+  // ── Guard anti doble-clic (UI) ──
+  // Deshabilitar el botón mientras procesa para que no se dispare 2 veces seguidas
+  // (bug fix Moreira: el descuento se duplicó por doble-clic).
+  const _btn = document.getElementById('comp-btn-confirm');
+  if (_btn && _btn.disabled) return;  // ya está procesando
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Procesando…'; }
+
+  const _restaurarBtn = () => {
+    if (_btn) { _btn.disabled = false; _btn.textContent = 'Enviar solicitud'; }
+  };
+
+  try {
   const sel = document.querySelector('input[name="comp-tipo"]:checked');
   const tipoComp = sel ? sel.value : 'banco';
   const motivo = (document.getElementById('comp-motivo').value || '').trim() || null;
@@ -4398,12 +4410,12 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
 
   if (tipoComp === 'banco') {
     minutos_descontar = parseInt(document.getElementById('comp-minutos').value, 10) || 0;
-    if (minutos_descontar <= 0) { toast('Indicá los minutos a descontar', 'error'); return; }
+    if (minutos_descontar <= 0) { toast('Indicá los minutos a descontar', 'error'); _restaurarBtn(); return; }
     descontar_banco = true;
   } else {
     dias_descontar = parseInt(document.getElementById('comp-dias').value, 10) || 0;
-    if (dias_descontar <= 0) { toast('Indicá los días a descontar', 'error'); return; }
-    if (dias_descontar > diasDisp) { toast(`Solo tenés ${diasDisp} días pendientes`, 'error'); return; }
+    if (dias_descontar <= 0) { toast('Indicá los días a descontar', 'error'); _restaurarBtn(); return; }
+    if (dias_descontar > diasDisp) { toast(`Solo tenés ${diasDisp} días pendientes`, 'error'); _restaurarBtn(); return; }
     descontar_vacaciones = true;
   }
 
@@ -4411,6 +4423,28 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
   const _empTarget = empleadoId || session.empleado_id;
   const _esAdminMode = (empleadoId && empleadoId !== session.empleado_id);
   const _estadoFinal = _esAdminMode ? 'aprobado' : 'pendiente';
+
+  // ── Guard anti duplicado (DB) ──
+  // Verificar que NO exista ya un permiso de compensación dia_completo para este
+  // empleado+fecha (en estado aprobado o pendiente). Evita el bug de Moreira que
+  // tuvo cuotas duplicadas por doble-click.
+  try {
+    const { data: yaExiste } = await sb.from('rrhh_permisos_puntuales')
+      .select('id, estado, motivo, created_at')
+      .eq('empleado_id', _empTarget)
+      .eq('fecha', fecha)
+      .eq('tipo', 'dia_completo')
+      .in('estado', ['aprobado','pendiente'])
+      .limit(1);
+    if (yaExiste && yaExiste.length > 0) {
+      const p = yaExiste[0];
+      const cuando = (p.created_at || '').split('T')[0];
+      toast(`⚠️ Ya hay una compensación cargada para ${fecha} (${p.estado}, creada ${cuando}). No se duplica.`, 'warning');
+      _restaurarBtn();
+      return;
+    }
+  } catch (_) { /* si falla el check, dejamos que el INSERT siga; la app sigue funcionando */ }
+
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id: _empTarget,
     fecha,
@@ -4423,6 +4457,7 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
   }).select().single();
   if (error) {
     toast('Error: ' + error.message, 'error');
+    _restaurarBtn();
     return;
   }
   // Si el día estaba "salvado", des-salvarlo (ahora se compensa con banco/vacaciones)
@@ -4457,6 +4492,12 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
   toast(_esAdminMode ? '✓ Compensación aplicada — recalculá la liquidación' : 'Solicitud enviada ✓ La encargada la va a evaluar', 'success');
   document.getElementById('comp-modal').remove();
   switchTab('mi-calendario');
+  } catch (err) {
+    console.error('[enviarCompensarFalta]', err);
+    toast('Error inesperado: ' + (err.message || err), 'error');
+  } finally {
+    _restaurarBtn();
+  }
 }
 
 function cambiarMiMes(delta) {
