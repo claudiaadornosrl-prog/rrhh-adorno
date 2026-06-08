@@ -3499,7 +3499,6 @@ async function renderVacacionesAdmin() {
         <button class="btn primary" onclick="abrirAsignarVacacion()">+ Asignar vacaciones</button>
         <button class="btn" onclick="abrirPagarVacaciones()">💵 Pagar vacaciones</button>
         <button class="btn accent2" onclick="abrirCargaMasivaVac()">📥 Carga masiva</button>
-        <button class="btn" onclick="verPendientesCalendar()" title="Ver vacaciones que faltan sincronizar con Google Calendar">📅 Pendientes Calendar</button>
       </div>
     </div>
 
@@ -5407,26 +5406,21 @@ async function anularMiVacacion(id) {
 }
 
 // Anular una vacación aprobada/tomada — solo admin o encargada.
-// Si tenía evento en Google Calendar, el trigger BEFORE DELETE lo encola
-// en rrhh_calendar_delete_queue para que el script 11_sync_google_calendar.py
-// lo borre del Calendar en la próxima corrida.
 async function anularVacacionAprobada(id) {
   // Traer datos para mostrar en confirmación
   const { data: mov } = await sb.from('rrhh_vacaciones_movimientos')
-    .select('id, fecha_desde, fecha_hasta, dias, estado, calendar_event_id, empleado:rrhh_empleados(nombre_completo)')
+    .select('id, fecha_desde, fecha_hasta, dias, estado, empleado:rrhh_empleados(nombre_completo)')
     .eq('id', id).single();
   if (!mov) { toast('No se encontró la vacación', 'error'); return; }
 
   const nombre = mov.empleado?.nombre_completo || '?';
-  const enCalendar = !!mov.calendar_event_id;
-  const msg = `¿Anular las vacaciones de ${nombre}?\n\n${fmtFecha(mov.fecha_desde)} → ${fmtFecha(mov.fecha_hasta)} · ${mov.dias} días\nEstado actual: ${mov.estado}`
-    + (enCalendar ? '\n\n⚠ Tiene evento en Google Calendar — se borrará automáticamente en la próxima sincronización.' : '');
+  const msg = `¿Anular las vacaciones de ${nombre}?\n\n${fmtFecha(mov.fecha_desde)} → ${fmtFecha(mov.fecha_hasta)} · ${mov.dias} días\nEstado actual: ${mov.estado}`;
   if (!confirm(msg)) return;
 
   const { error } = await sb.from('rrhh_vacaciones_movimientos').delete().eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('anular_vacaciones_aprobada', 'rrhh_vacaciones_movimientos', id, mov, null, null);
-  toast(enCalendar ? 'Vacación anulada. El evento del Calendar se borrará en la próxima sync.' : 'Vacación anulada', 'info');
+  toast('Vacación anulada', 'info');
   // Refrescar la vista actual de vacaciones
   if (typeof renderVacaciones === 'function') renderVacaciones();
 }
@@ -10413,54 +10407,6 @@ async function guardarPagoVacaciones() {
   toast(`✓ Pago registrado: ${dias} días`, 'success');
   document.getElementById('pagvac-modal').remove();
   if (typeof renderVacContent === 'function') renderVacContent();
-}
-
-// ════════════════════════════════════════════════════════════
-// LISTA DE PENDIENTES PARA GOOGLE CALENDAR
-//   Muestra las vacaciones con calendar_sync_pending=true
-//   (ya tienen documento firmado pero falta crear evento en Calendar)
-// ════════════════════════════════════════════════════════════
-async function verPendientesCalendar() {
-  const { data, error } = await sb.from('rrhh_vacaciones_movimientos')
-    .select('*, empleado:rrhh_empleados(nombre_completo, local)')
-    .eq('calendar_sync_pending', true)
-    .order('fecha_desde', { ascending: true });
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-
-  const html = `
-    <div class="modal-bg" id="cal-pend-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
-      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:720px;width:100%;max-height:90vh;overflow-y:auto;">
-        <h3 style="margin:0 0 4px;">📅 Pendientes de sincronizar con Google Calendar</h3>
-        <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Vacaciones con documento firmado recibido que falta crear como evento en Calendar.</p>
-        ${(!data || data.length === 0) ? `
-          <div style="text-align:center;padding:40px;color:var(--muted);">
-            <div style="font-size:32px;margin-bottom:8px;">✓</div>
-            Nada pendiente. Todas las vacaciones con documento firmado ya están en Calendar.
-          </div>
-        ` : `
-          <ul class="simple-list">
-            ${data.map(m => `
-              <li>
-                <div>
-                  <strong>${escapeHtml(m.empleado?.nombre_completo || '—')}</strong>
-                  <span class="emp-tag local-${m.empleado?.local||''}" style="margin-left:8px;">${LOCALES[m.empleado?.local]?.nombre||''}</span>
-                  <div class="meta">${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)} · ${m.dias} días · 📄 ${m.documento_firmado_at?.split('T')[0] || ''}</div>
-                </div>
-                <span class="emp-tag">VAC-${String(m.id).padStart(5,'0')}</span>
-              </li>
-            `).join('')}
-          </ul>
-          <div style="margin-top:16px;padding:12px;background:#f0f9ff;border-radius:8px;font-size:12px;color:#075985;">
-            💡 <strong>Cómo sincronizar:</strong> Pedile a Claude (en chat de Cowork) <em>"Sincronizá las vacaciones pendientes con Google Calendar"</em> y va a crear los eventos automáticamente con tu cuenta conectada.
-          </div>
-        `}
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
-          <button class="btn" onclick="document.getElementById('cal-pend-modal').remove()">Cerrar</button>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.insertAdjacentHTML('beforeend', html);
 }
 
 // ════════════════════════════════════════════════════════════
