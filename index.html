@@ -3179,10 +3179,48 @@ async function renderTabCertificados() {
             <strong>${fmtFecha(c.fecha_desde)} → ${fmtFecha(c.fecha_hasta)}</strong> (${c.dias} días)
             <div class="meta">${escapeHtml(c.diagnostico||'Sin diagnóstico')} · ${escapeHtml(c.medico||'')}</div>
           </div>
-          ${c.archivo_url ? `<a class="btn small" href="${escapeHtml(c.archivo_url)}" target="_blank">Ver</a>` : ''}
+          <div style="display:flex;gap:6px;">
+            ${c.archivo_url ? `<a class="btn small" href="${escapeHtml(c.archivo_url)}" target="_blank">Ver</a>` : ''}
+            <button class="btn small" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5;"
+              onclick="pedirBorradoCertifEmp(${c.id}, '${(c.archivo_url||'').replace(/'/g,"\\'")}', '${(c.fecha_desde||'').replace(/'/g,"\\'")}', '${(c.fecha_hasta||'').replace(/'/g,"\\'")}', ${empModalState.empleadoId})"
+              title="Pedir al admin que borre este certificado">🗑️</button>
+          </div>
         </li>
       `).join('') + '</ul>';
 }
+
+// Versión que pide borrado de cert. de OTRA empleada (encargada/admin desde ficha)
+async function pedirBorradoCertifEmp(certId, archivoPath, desde, hasta, empId) {
+  // Si es admin, ofrecer borrado directo
+  if (session.rol === 'admin') {
+    if (!confirm('Sos admin — podés borrar este certificado directamente.\n\n¿Borrar ahora?')) return;
+    try {
+      if (archivoPath) await sb.storage.from('rrhh-certificados').remove([archivoPath]);
+      await sb.from('rrhh_certificados_medicos').delete().eq('id', certId);
+      toast('Certificado borrado ✓', 'success');
+      renderTabCertificados();
+    } catch (e) { toast('Error: ' + e.message, 'error'); }
+    return;
+  }
+  // Encargada: crear solicitud para el admin
+  const motivo = prompt('¿Por qué querés borrar este certificado?\n\nEl admin va a recibir tu solicitud.');
+  if (motivo === null) return;
+  const desc = `Certificado médico ${desde} → ${hasta}`;
+  try {
+    await sb.from('rrhh_solicitudes_borrado_doc').insert({
+      empleado_id: empId,
+      solicitado_por: session.user?.email || 'desconocido',
+      tipo: 'certificado_medico', referencia_id: certId,
+      storage_bucket: 'rrhh-certificados', storage_path: archivoPath || null,
+      descripcion: desc, motivo,
+    });
+    toast('Solicitud enviada ✓', 'success');
+    notifAdmins('🗑️ Solicitud de borrado',
+      `${session.empleadoData?.nombre_completo || 'Encargada'} pide borrar: ${desc}. Motivo: ${motivo}`,
+      { url: './#config' });
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
 async function renderTabApercibimientos() {
   const body = document.getElementById('emp-modal-body');
   document.getElementById('emp-modal-save').style.display = 'none';
@@ -4755,6 +4793,8 @@ async function renderMiLegajo() {
         <div class="section-title" style="margin-top:0;">Mi foto</div>
         <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Subí una foto tuya para tu perfil (JPG o PNG).</div>
         <input type="file" id="self-foto-file" accept="image/*" onchange="subirMiFoto(this)" style="font-size:13px;">
+        ${full?.foto_url ? `<button class="btn small" style="margin-top:8px;background:#fee2e2;color:#991b1b;border-color:#fca5a5;"
+          onclick="pedirBorradoFoto()" title="Pedir al admin que borre tu foto de perfil">🗑️ Pedir borrado de mi foto</button>` : ''}
       </div>
     </div>
 
@@ -6376,7 +6416,12 @@ async function renderMisCertificados() {
               <strong>${fmtFecha(c.fecha_desde)} → ${fmtFecha(c.fecha_hasta)}</strong> (${c.dias} días)
               <div class="meta">${escapeHtml(c.diagnostico||'')} ${c.medico ? '· ' + escapeHtml(c.medico) : ''} ${c.validado ? '· ✅ validado' : '· ⏳ pendiente validación'}</div>
             </div>
-            ${c.archivo_url ? `<button class="btn small" onclick="verCertif('${c.archivo_url}')">Ver</button>` : ''}
+            <div style="display:flex;gap:6px;">
+              ${c.archivo_url ? `<button class="btn small" onclick="verCertif('${c.archivo_url}')">Ver</button>` : ''}
+              <button class="btn small" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5;"
+                onclick="pedirBorradoCertif(${c.id}, '${(c.archivo_url||'').replace(/'/g,"\\'")}', '${(c.fecha_desde||'').replace(/'/g,"\\'")}', '${(c.fecha_hasta||'').replace(/'/g,"\\'")}')"
+                title="Pedir al admin que borre este certificado">🗑️ Pedir borrado</button>
+            </div>
           </li>
         `).join('')}
       </ul>
@@ -6388,6 +6433,45 @@ async function verCertif(path) {
   const { data, error } = await sb.storage.from('rrhh-certificados').createSignedUrl(path, 60);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   window.open(data.signedUrl, '_blank');
+}
+
+// ─── Solicitud de borrado de documentos ─────────────────────────────
+//     Vendedora/encargada NO borra directo. Crea una solicitud que
+//     llega al admin por push y queda en la cola de Configuración.
+async function pedirBorradoCertif(certId, archivoPath, desde, hasta) {
+  const motivo = prompt('¿Por qué querés borrar este certificado?\n(Ej: subí el archivo equivocado, está repetido, etc.)\n\nEl admin va a recibir tu solicitud.');
+  if (motivo === null) return;
+  const desc = `Certificado médico ${desde} → ${hasta}`;
+  await _crearSolicitudBorrado('certificado_medico', certId, 'rrhh-certificados', archivoPath, desc, motivo);
+}
+
+async function pedirBorradoFoto() {
+  const motivo = prompt('¿Por qué querés borrar tu foto de perfil?\n\nEl admin va a recibir tu solicitud.');
+  if (motivo === null) return;
+  await _crearSolicitudBorrado('foto_perfil', null, 'rrhh-fotos', null, 'Foto de perfil', motivo);
+}
+
+async function _crearSolicitudBorrado(tipo, refId, bucket, path, desc, motivo) {
+  try {
+    const { data, error } = await sb.from('rrhh_solicitudes_borrado_doc').insert({
+      empleado_id: session.empleado_id,
+      solicitado_por: session.user?.email || 'desconocido',
+      tipo, referencia_id: refId,
+      storage_bucket: bucket, storage_path: path,
+      descripcion: desc, motivo,
+    }).select().single();
+    if (error) throw error;
+    toast('Solicitud enviada ✓ El admin va a revisarla', 'success');
+    // Notif a admins
+    const nombre = session.empleadoData?.nombre_completo || 'Una empleada';
+    notifAdmins(
+      '🗑️ Solicitud de borrado',
+      `${nombre} pide borrar: ${desc}. Motivo: ${motivo}`,
+      { url: './#config' }
+    );
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function subirMiCertificado() {
@@ -8685,6 +8769,7 @@ async function renderConfigAdmin() {
       <button class="modal-tab ${configState.tab==='salvados'?'active':''}" data-cfg="salvados" style="border-bottom:2px solid transparent;padding:12px 14px;">🛡 Errores salvados</button>
       <button class="modal-tab ${configState.tab==='log'?'active':''}" data-cfg="log" style="border-bottom:2px solid transparent;padding:12px 14px;">📜 Audit log</button>
       <button class="modal-tab ${configState.tab==='notifs'?'active':''}" data-cfg="notifs" style="border-bottom:2px solid transparent;padding:12px 14px;">🔔 Mis notificaciones</button>
+      <button class="modal-tab ${configState.tab==='borrados'?'active':''}" data-cfg="borrados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗑️ Borrados pendientes</button>
     </div>
 
     <div id="cfg-content" style="margin-top:20px;"><div class="spinner"></div></div>
@@ -8710,6 +8795,91 @@ async function renderConfigContent() {
   else if (configState.tab === 'salvados') await renderConfigSalvados(cont);
   else if (configState.tab === 'log')      await renderConfigLog(cont);
   else if (configState.tab === 'notifs')   await renderConfigNotifs(cont);
+  else if (configState.tab === 'borrados') await renderConfigBorrados(cont);
+}
+
+async function renderConfigBorrados(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data, error } = await sb.from('rrhh_solicitudes_borrado_doc')
+    .select('*, empleado:rrhh_empleados(nombre_completo, local)')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) { cont.innerHTML = `<div class="emp-empty">Error: ${escapeHtml(error.message)}</div>`; return; }
+
+  const pendientes = (data||[]).filter(s => s.estado === 'pendiente');
+  const decididas  = (data||[]).filter(s => s.estado !== 'pendiente');
+
+  const renderFila = (s) => {
+    const cuando = new Date(s.created_at).toLocaleString('es-AR');
+    const tipoTxt = s.tipo === 'certificado_medico' ? '🏥 Certificado médico' : '📷 Foto de perfil';
+    const colorEst = s.estado === 'aprobado' ? '#16a34a' : s.estado === 'rechazado' ? '#dc2626' : '#d97706';
+    const bgEst = s.estado === 'aprobado' ? '#dcfce7' : s.estado === 'rechazado' ? '#fee2e2' : '#fef3c7';
+    const decidido = s.decidido_at
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;">Decidido por ${escapeHtml((s.decidido_por||'').split('@')[0])} el ${new Date(s.decidido_at).toLocaleString('es-AR')}${s.comentario_decision ? ` · "${escapeHtml(s.comentario_decision)}"` : ''}</div>`
+      : '';
+    const acciones = s.estado === 'pendiente'
+      ? `<div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn small primary" onclick="aprobarBorradoDoc(${s.id})" title="Borrar el archivo y la referencia">✓ Aprobar y borrar</button>
+          <button class="btn small" onclick="rechazarBorradoDoc(${s.id})" title="Rechazar la solicitud — el archivo se mantiene">✕ Rechazar</button>
+        </div>`
+      : `<div style="padding:4px 8px;border-radius:4px;background:${bgEst};color:${colorEst};font-size:11px;font-weight:600;flex-shrink:0;">${s.estado.toUpperCase()}</div>`;
+    return `<li style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+      <div style="flex:1;min-width:0;">
+        <div><strong>${escapeHtml(s.empleado?.nombre_completo || 'Empleado #'+s.empleado_id)}</strong> <span style="color:var(--muted);font-size:12px;">· ${escapeHtml(s.empleado?.local || '')}</span></div>
+        <div style="font-size:13px;margin-top:4px;">${tipoTxt} · <span style="color:var(--muted);">${escapeHtml(s.descripcion || '')}</span></div>
+        <div style="font-size:12px;color:#92400e;margin-top:6px;background:#fef3c7;padding:6px 8px;border-radius:4px;border-left:3px solid #d97706;">
+          💬 ${escapeHtml(s.motivo || 'Sin motivo')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Solicitado por ${escapeHtml((s.solicitado_por||'').split('@')[0])} · ${cuando}</div>
+        ${decidido}
+      </div>
+      ${acciones}
+    </li>`;
+  };
+
+  cont.innerHTML = `
+    <div class="card">
+      <h3 style="margin-top:0;">Pendientes (${pendientes.length})</h3>
+      ${pendientes.length === 0
+        ? '<div class="emp-empty">No hay solicitudes pendientes 👍</div>'
+        : `<ul style="list-style:none;padding:0;margin:0;">${pendientes.map(renderFila).join('')}</ul>`}
+    </div>
+    ${decididas.length > 0 ? `
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin-top:0;">Histórico (últimas ${decididas.length})</h3>
+        <ul style="list-style:none;padding:0;margin:0;">${decididas.map(renderFila).join('')}</ul>
+      </div>` : ''}
+  `;
+}
+
+async function aprobarBorradoDoc(id) {
+  if (!confirm('¿Aprobar el borrado? Se eliminará el archivo del storage y el registro. Esta acción es irreversible.')) return;
+  const com = prompt('Comentario (opcional):') || null;
+  try {
+    const { data, error } = await sb.rpc('rrhh_aprobar_borrado_doc', { p_solicitud_id: id, p_comentario: com });
+    if (error) throw error;
+    // Borrar archivo del storage
+    if (data?.storage_bucket && data?.storage_path) {
+      const { error: errStor } = await sb.storage.from(data.storage_bucket).remove([data.storage_path]);
+      if (errStor) console.warn('No se pudo borrar el archivo del storage:', errStor);
+    }
+    toast('Solicitud aprobada ✓ Archivo borrado', 'success');
+    renderConfigContent();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function rechazarBorradoDoc(id) {
+  const com = prompt('¿Por qué rechazás la solicitud? (Comentario opcional)') || null;
+  try {
+    const { error } = await sb.rpc('rrhh_rechazar_borrado_doc', { p_solicitud_id: id, p_comentario: com });
+    if (error) throw error;
+    toast('Solicitud rechazada', '');
+    renderConfigContent();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function renderConfigNotifs(cont) {

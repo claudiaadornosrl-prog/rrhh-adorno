@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v151-liquidador-estado-asis-y-sueldos';
+const CACHE_VERSION = 'rrhh-v152-solicitudes-borrado-documentos';
 const ASSETS = [
   './',
   './index.html',
