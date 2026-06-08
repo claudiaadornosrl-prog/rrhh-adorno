@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v147-ficha-asistencias-y-sin-premios';
+const CACHE_VERSION = 'rrhh-v148-admin-activar-notifs';
 const ASSETS = [
   './',
   './index.html',

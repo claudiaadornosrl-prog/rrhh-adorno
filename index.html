@@ -8684,6 +8684,7 @@ async function renderConfigAdmin() {
       <button class="modal-tab ${configState.tab==='feriados'?'active':''}" data-cfg="feriados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗓️ Feriados</button>
       <button class="modal-tab ${configState.tab==='salvados'?'active':''}" data-cfg="salvados" style="border-bottom:2px solid transparent;padding:12px 14px;">🛡 Errores salvados</button>
       <button class="modal-tab ${configState.tab==='log'?'active':''}" data-cfg="log" style="border-bottom:2px solid transparent;padding:12px 14px;">📜 Audit log</button>
+      <button class="modal-tab ${configState.tab==='notifs'?'active':''}" data-cfg="notifs" style="border-bottom:2px solid transparent;padding:12px 14px;">🔔 Mis notificaciones</button>
     </div>
 
     <div id="cfg-content" style="margin-top:20px;"><div class="spinner"></div></div>
@@ -8708,6 +8709,23 @@ async function renderConfigContent() {
   else if (configState.tab === 'feriados') await renderConfigFeriados(cont);
   else if (configState.tab === 'salvados') await renderConfigSalvados(cont);
   else if (configState.tab === 'log')      await renderConfigLog(cont);
+  else if (configState.tab === 'notifs')   await renderConfigNotifs(cont);
+}
+
+async function renderConfigNotifs(cont) {
+  cont.innerHTML = `
+    <div class="card" id="push-card" style="background:#fef3c7;border:1px solid #fde68a;max-width:600px;">
+      <h3 style="margin:0 0 10px;color:#854d0e;">🔔 Notificaciones push (este dispositivo)</h3>
+      <div id="push-card-body" style="font-size:13px;color:#854d0e;">
+        <div class="spinner"></div>
+      </div>
+    </div>
+    <div style="max-width:600px;margin-top:14px;padding:12px;background:#f8f9fa;border-radius:8px;font-size:12px;color:#666;">
+      <strong>📱 iPhone:</strong> Para que andem las notifs en el cel, la app tiene que estar instalada en pantalla de inicio (Compartir → Agregar a pantalla de inicio) y entrar SIEMPRE desde ese ícono, no desde Safari directo.
+      Esta activación es por dispositivo: si activás desde la compu y desde el cel, te llegan en los dos.
+    </div>
+  `;
+  setTimeout(renderPushCard, 0);
 }
 
 async function renderConfigSalvados(cont) {
