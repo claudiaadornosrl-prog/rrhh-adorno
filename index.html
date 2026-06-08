@@ -687,11 +687,13 @@ const pushManager = (() => {
 // acciones que el admin quiere ver (cargar extras, salvar errores de fichada).
 // excluir: empleado_id a saltear (típicamente quien ejecuta la acción si es admin).
 async function notifAdmins(title, body, opts = {}, excluir = null) {
+  // FIX v152b: usar RPC en vez de SELECT directo. La RLS de rrhh_usuarios
+  // solo permite a cada usuario ver su PROPIA fila, así que vendedoras/encargadas
+  // obtenían [] al filtrar por rol='admin'. La RPC SECURITY DEFINER bypasea eso.
   try {
-    const { data: admins } = await sb.from('rrhh_usuarios')
-      .select('empleado_id')
-      .eq('rol', 'admin').eq('activo', true);
-    const ids = (admins || []).map(a => a.empleado_id).filter(id => id && id !== excluir);
+    const { data: ids_rows, error } = await sb.rpc('rrhh_admins_ids');
+    if (error) { console.warn('[notifAdmins] rpc error', error); return; }
+    const ids = (ids_rows || []).map(r => r.empleado_id).filter(id => id && id !== excluir);
     for (const id of ids) {
       enviarPush(id, title, body, opts);  // no esperamos cada uno (fire-and-forget)
     }
