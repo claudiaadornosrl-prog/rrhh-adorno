@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v152c-borrados-en-dashboard';
+const CACHE_VERSION = 'rrhh-v152d-fix-buscar-admin-encargada-rls';
 const ASSETS = [
   './',
   './index.html',

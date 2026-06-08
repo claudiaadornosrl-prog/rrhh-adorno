@@ -6248,22 +6248,24 @@ async function enviarSolicitudPrestamo() {
 
 // Helper: busca el empleado_id asociado al usuario admin para mandarle push
 async function _buscarAdminIdParaPush() {
+  // FIX v152d: usar RPC SECURITY DEFINER. La RLS de rrhh_usuarios bloquea a
+  // vendedoras/encargadas (solo ven su propia fila) → este SELECT devolvía null
+  // y ningún push de préstamo/adelanto/refi llegaba al admin.
   try {
-    const { data } = await sb.from('rrhh_usuarios')
-      .select('empleado_id').eq('rol', 'admin').eq('activo', true).limit(1).maybeSingle();
-    return data?.empleado_id || null;
+    const { data, error } = await sb.rpc('rrhh_admins_ids');
+    if (error) return null;
+    return data?.[0]?.empleado_id || null;
   } catch (_) { return null; }
 }
 
 // Devuelve el empleado_id de la encargada activa de un local (para push)
 async function _buscarEncargadaIdParaPush(local) {
   if (!local) return null;
+  // FIX v152d: usar RPC SECURITY DEFINER por el mismo motivo de _buscarAdminIdParaPush.
   try {
-    const { data } = await sb.from('rrhh_usuarios')
-      .select('empleado_id')
-      .eq('rol', 'gerente').eq('activo', true).eq('local_gerencia', local)
-      .limit(1).maybeSingle();
-    return data?.empleado_id || null;
+    const { data, error } = await sb.rpc('rrhh_encargada_id_local', { p_local: local });
+    if (error) return null;
+    return data || null;
   } catch (_) { return null; }
 }
 
