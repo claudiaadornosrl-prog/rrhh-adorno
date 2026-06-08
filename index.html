@@ -7256,22 +7256,34 @@ async function cerrarMes(periodo, local) {
 
   if (!detalle || detalle.length === 0) throw new Error('No hay datos procesados. Procesá el mes primero.');
 
-  // Cargar config umbral mensual tardanzas
+  // Cargar config tolerancias del local (umbral mensual + tolerancias diarias)
   const { data: tol } = await sb.from('rrhh_config_tolerancias')
-    .select('umbral_mensual_tardanzas').eq('local', local).maybeSingle();
-  const umbralMensual = tol?.umbral_mensual_tardanzas || 60;
+    .select('umbral_mensual_tardanzas, minutos_tarde, minutos_temprano').eq('local', local).maybeSingle();
+  const umbralMensual    = tol?.umbral_mensual_tardanzas || 60;
+  const tolDiariaTarde   = tol?.minutos_tarde     || 5;
+  const tolDiariaTemp    = tol?.minutos_temprano  || 5;
 
-  // Calcular movimientos por día (minutos_banco) + acumular tardanzas mensuales
+  // ════════════════════════════════════════════════════════════
+  // Reglas del banco al cierre (refactor #94):
+  //  - Movimientos diarios (minutos_banco != 0): SOLO extras y permisos compensados.
+  //    Las faltas y tardanzas YA NO escriben minutos_banco diariamente (lo hace procesarMes).
+  //  - Tardanzas + Salidas tempranas: se ACUMULAN al mes (descontando tolerancia diaria).
+  //    Si el acumulado supera el umbral mensual → descontar TODO el acumulado.
+  // ════════════════════════════════════════════════════════════
   const movimientos = [];
-  const tardanzaPorEmp = {};
+  const acumPorEmp = {};  // pool combinado tardanzas + salidas tempranas (con tolerancia)
 
   for (const d of detalle) {
     if (d.error_salvado) continue;  // si el día está salvado, no impacta banco
-    if ((d.minutos_banco || 0) !== 0) {
-      // Movimiento del día (ausente, salida temprana, etc.)
+
+    // 1) Movimientos diarios al banco (extras autorizadas, permisos compensados)
+    //    Excluye estado='ausente' y 'tarde' — esos NO deben generar movimiento diario.
+    if ((d.minutos_banco || 0) !== 0
+        && d.estado !== 'ausente'
+        && d.estado !== 'tarde') {
       let tipo = 'ajuste';
-      if (d.estado === 'ausente') tipo = 'falta';
-      else if (d.estado === 'tarde') tipo = 'tarde';
+      if ((d.minutos_banco || 0) > 0) tipo = 'hora_extra';
+      else tipo = 'permiso_compensado';
       movimientos.push({
         empleado_id: d.empleado_id,
         fecha: d.fecha,
@@ -7283,24 +7295,29 @@ async function cerrarMes(periodo, local) {
         creado_por: session.email,
       });
     }
-    // Acumular tardanzas para el umbral mensual (solo días con minutos_tarde y no salvados)
-    if ((d.minutos_tarde || 0) > 0) {
-      tardanzaPorEmp[d.empleado_id] = (tardanzaPorEmp[d.empleado_id] || 0) + d.minutos_tarde;
+
+    // 2) Acumular para el pool mensual: tardanzas + salidas tempranas
+    //    Solo cuentan los minutos QUE EXCEDEN la tolerancia diaria.
+    const tardeReal = (d.minutos_tarde || 0) > tolDiariaTarde ? (d.minutos_tarde || 0) : 0;
+    const tempReal  = (d.minutos_salida_temp || 0) > tolDiariaTemp ? (d.minutos_salida_temp || 0) : 0;
+    const aSumar = tardeReal + tempReal;
+    if (aSumar > 0) {
+      acumPorEmp[d.empleado_id] = (acumPorEmp[d.empleado_id] || 0) + aSumar;
     }
   }
 
-  // Aplicar umbral mensual de tardanzas
-  for (const empIdStr in tardanzaPorEmp) {
+  // 3) Aplicar umbral mensual — solo descontar si excede
+  for (const empIdStr in acumPorEmp) {
     const empId = parseInt(empIdStr, 10);
-    const acum = tardanzaPorEmp[empId];
+    const acum = acumPorEmp[empId];
     if (acum > umbralMensual) {
       movimientos.push({
         empleado_id: empId,
         fecha: fechaHasta,  // último día del mes
-        minutos: -acum,     // descuenta TODO el acumulado
+        minutos: -acum,     // descuenta TODO el acumulado (no solo el exceso)
         tipo: 'tarde',
         referencia_tipo: 'umbral_mensual',
-        observaciones: `Cierre mes ${periodo}: ${acum} min tarde acumulados (> umbral ${umbralMensual})`,
+        observaciones: `Cierre mes ${periodo}: ${acum} min (tardanzas + salidas tempranas) acumulados — supera umbral ${umbralMensual}min`,
         creado_por: session.email,
       });
     }

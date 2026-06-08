@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v137-sin-recuperar-pass-mail';
+const CACHE_VERSION = 'rrhh-v138-banco-minutos-refactor';
 const ASSETS = [
   './',
   './index.html',
