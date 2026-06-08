@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v144-sin-google-calendar';
+const CACHE_VERSION = 'rrhh-v145-tope-banco-42hs';
 const ASSETS = [
   './',
   './index.html',

@@ -4531,6 +4531,15 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
     minutos_descontar = parseInt(document.getElementById('comp-minutos').value, 10) || 0;
     if (minutos_descontar <= 0) { toast('Indicá los minutos a descontar', 'error'); _restaurarBtn(); return; }
     descontar_banco = true;
+    // ── Tope de saldo negativo del banco: -42 hs = -2520 min ──
+    // No permitir compensar con banco si el saldo resultante baja de -2520 min.
+    const TOPE_NEGATIVO_BANCO = -2520;
+    const saldoPost = saldoBanco - minutos_descontar;
+    if (saldoPost < TOPE_NEGATIVO_BANCO) {
+      const maxPosible = saldoBanco - TOPE_NEGATIVO_BANCO;
+      toast(`No se puede: el banco quedaría en ${saldoPost} min (tope ${TOPE_NEGATIVO_BANCO} = -42hs). Máximo a descontar: ${maxPosible} min.`, 'error');
+      _restaurarBtn(); return;
+    }
   } else {
     dias_descontar = parseInt(document.getElementById('comp-dias').value, 10) || 0;
     if (dias_descontar <= 0) { toast('Indicá los días a descontar', 'error'); _restaurarBtn(); return; }
