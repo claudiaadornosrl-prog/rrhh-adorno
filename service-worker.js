@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v152b-fix-notifadmins-rls';
+const CACHE_VERSION = 'rrhh-v152c-borrados-en-dashboard';
 const ASSETS = [
   './',
   './index.html',

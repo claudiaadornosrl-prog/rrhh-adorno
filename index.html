@@ -1304,6 +1304,18 @@ async function renderDashboard() {
     pagoPendientes = count || 0;
   } catch(_) {}
 
+  // Solicitudes de borrado de documentos pendientes (solo admin las acciona,
+  // pero el gerente puede verlas como info)
+  let borradoPendientes = 0;
+  try {
+    let qBorPend = sb.from('rrhh_solicitudes_borrado_doc')
+      .select('id, empleado:rrhh_empleados!inner(local)', { count: 'exact', head: true })
+      .eq('estado', 'pendiente');
+    if (!isAdmin && local) qBorPend = qBorPend.eq('empleado.local', local);
+    const { count } = await qBorPend;
+    borradoPendientes = count || 0;
+  } catch(_) {}
+
   // ━━━ NOTIFICACIONES CRÍTICAS ━━━
   const hoyStr = hoy.toISOString().split('T')[0];
 
@@ -1479,7 +1491,7 @@ async function renderDashboard() {
     ${(() => {
       const totalCriticas = (vacPendientes||0) + (permPendientes||0) + (pagoPendientes||0)
                           + mesAnteriorSinCerrar.length + (docPendientes||0) + proximasPerderPremio.length + tardanzasAltas.length
-                          + lactanciaProx.length;
+                          + lactanciaProx.length + (borradoPendientes||0);
       const totalInfo = cumpleProx7d.length + anivProx7d.length + (vacEstaSem?.length||0) + empConAtraso30.length;
       if (totalCriticas === 0 && totalInfo === 0) return '';
 
@@ -1511,6 +1523,7 @@ async function renderDashboard() {
               ${cardCritica('#ea580c', '🎖', 'Pueden perder premio', proximasPerderPremio.length, proximasPerderPremio.slice(0,2).map(e => e.nombre.split(' ')[0]+' ('+e.errores+'/'+e.max+')').join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#d97706', '⚠', 'Tardanzas >60min mes', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#db2777', '🤱', 'Lactancia próxima a vencer', lactanciaProx.length, lactanciaProx.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+(e._diasFalta < 0 ? ' (venció hace '+Math.abs(e._diasFalta)+'d)' : e._diasFalta===0 ? ' (HOY)' : ' (+'+e._diasFalta+'d)')).join(', '), `switchTab('empleados')`)}
+              ${isAdmin ? cardCritica('#7c3aed', '🗑️', 'Solicitudes de borrado', borradoPendientes||0, (borradoPendientes===1?'1 solicitud':borradoPendientes+' solicitudes')+' por revisar', `configState.tab='borrados';switchTab('config')`) : ''}
             </div>
           </div>`;
       }
