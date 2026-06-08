@@ -787,12 +787,16 @@ let currentTab = 'dashboard';
 async function init() {
   // ── Detectar si venimos del link de recovery ──
   // El hash trae #access_token=...&type=recovery cuando llegamos desde el mail.
+  // BUG conocido: a veces el cliente de mail (Gmail) pre-visita el link y arma
+  // un hash compuesto: #error=otp_expired&sb=#access_token=...&type=recovery
+  // Tenemos que priorizar el access_token si está presente (la sesión sí se creó),
+  // ignorando el error_code del primer "verify" que ya consumió Gmail.
   const _hash = window.location.hash || '';
   const _esRecovery = _hash.includes('type=recovery');
-  // ── Detectar error del link (expirado / ya usado) ──
-  // Supabase devuelve #error=access_denied&error_code=otp_expired cuando el link
-  // ya no es válido (suele pasar cuando Gmail/Outlook pre-visita el link).
-  if (_hash.includes('error=') || _hash.includes('error_code=')) {
+  const _tieneToken = _hash.includes('access_token=');
+
+  // Solo mostrar el alert de error si NO hay access_token válido en el hash
+  if ((_hash.includes('error=') || _hash.includes('error_code=')) && !_tieneToken) {
     const m = _hash.match(/error_description=([^&]+)/);
     const desc = m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : 'El link no es válido';
     setTimeout(() => {
@@ -803,13 +807,28 @@ async function init() {
             `2. Abrirlo y clickearlo INMEDIATAMENTE (en los siguientes 2 min)\n` +
             `3. NO previsualizar el mail ni copiar el link — cliquear directo\n\n` +
             `Mientras tanto, si necesitás entrar urgente, pedile al admin que te resetee la contraseña desde el panel.`);
-      // Limpiar el hash del URL
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
     }, 100);
     showLogin();
     return;
+  }
+
+  // Si el hash tiene access_token + type=recovery pero también un primer "error="
+  // (caso del double-hash), limpiamos el URL antes para que supabase-js no se confunda
+  // y procese solo el access_token.
+  if (_tieneToken && (_hash.includes('error=') || _hash.includes('error_code=') || _hash.includes('#access_token=', 1))) {
+    // Extraer SOLO el segundo hash (el que tiene el access_token)
+    const idx = _hash.lastIndexOf('#access_token=');
+    if (idx > 0) {
+      const cleanHash = _hash.substring(idx);  // '#access_token=...'
+      window.history.replaceState(null, '', window.location.pathname + window.location.search + cleanHash);
+      console.log('[AUTH] Hash compuesto detectado, limpiado a:', cleanHash.substring(0, 60) + '...');
+      // Recargar para que supabase-js procese el hash limpio
+      window.location.reload();
+      return;
+    }
   }
 
   // ── Registrar listener ANTES de getSession() ──
