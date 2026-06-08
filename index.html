@@ -4193,13 +4193,17 @@ async function renderMiCalendario() {
   const turnoMap = {};
   (turnos || []).forEach(t => { turnoMap[t.fecha] = t; });
 
-  // Marcar días dentro de vacaciones
+  // Marcar días dentro de vacaciones (con info del período para tooltip)
   const enVacaciones = new Set();
+  const vacInfoByFecha = {};
   (vacaciones || []).forEach(v => {
     let d = new Date(v.fecha_desde + 'T12:00:00');
     const fin = new Date(v.fecha_hasta + 'T12:00:00');
+    const dias = Math.round((fin - d) / (1000*60*60*24)) + 1;
     while (d <= fin) {
-      enVacaciones.add(d.toISOString().split('T')[0]);
+      const k = d.toISOString().split('T')[0];
+      enVacaciones.add(k);
+      vacInfoByFecha[k] = { fecha_desde: v.fecha_desde, fecha_hasta: v.fecha_hasta, dias, estado: v.estado };
       d.setDate(d.getDate() + 1);
     }
   });
@@ -4283,6 +4287,11 @@ async function renderMiCalendario() {
             bg = '#d1faf1'; fg = '#0d9488';
             icon = '🌴';
             label = 'Vacaciones';
+            const _vi = vacInfoByFecha[fecha];
+            if (_vi) {
+              const _fc = (s) => s ? s.split('-').slice(1).reverse().join('/') : '';
+              titleAttr = `title="Vacaciones (${_vi.estado}) · del ${_fc(_vi.fecha_desde)} al ${_fc(_vi.fecha_hasta)} · ${_vi.dias} días"`;
+            }
           } else if (cierraLocal) {
             bg = '#fee2e2'; fg = '#b91c1c';
             icon = '🔒';
@@ -6748,13 +6757,20 @@ async function renderCalendarioGrid() {
   const feriadoMap = {};
   (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
 
-  // Vacaciones (set de keys emp_id × fecha)
-  const vacSet = new Set();
+  // Vacaciones — Map (emp_id × fecha) → { fecha_desde, fecha_hasta, dias, estado }
+  // Permite mostrar tooltip con info completa del período de vacaciones.
+  const vacInfoMap = {};
   (vacs || []).forEach(v => {
     let d = new Date(v.fecha_desde + 'T12:00:00');
     const f = new Date(v.fecha_hasta + 'T12:00:00');
+    const dias = Math.round((f - d) / (1000*60*60*24)) + 1;
     while (d <= f) {
-      vacSet.add(`${v.empleado_id}_${d.toISOString().split('T')[0]}`);
+      vacInfoMap[`${v.empleado_id}_${d.toISOString().split('T')[0]}`] = {
+        fecha_desde: v.fecha_desde,
+        fecha_hasta: v.fecha_hasta,
+        dias,
+        estado: v.estado,
+      };
       d.setDate(d.getDate() + 1);
     }
   });
@@ -6831,18 +6847,25 @@ async function renderCalendarioGrid() {
 
       let content = '';
       let style = '';
-      const enVacaciones = vacSet.has(`${e.id}_${fecha}`);
+      let tooltip = '';
+      const vacInfo = vacInfoMap[`${e.id}_${fecha}`];
+      const enVacaciones = !!vacInfo;
       const enLicencia = licSet.has(`${e.id}_${fecha}`);
+
+      // Helper para formatear fecha corta dd/mm
+      const _fmtCorta = (s) => s ? s.split('-').slice(1).reverse().join('/') : '';
 
       if (enVacaciones) {
         cls.push('vacaciones');
         content = '🌴';
+        tooltip = `${e.nombre_completo} — Vacaciones (${vacInfo.estado})\nDel ${_fmtCorta(vacInfo.fecha_desde)} al ${_fmtCorta(vacInfo.fecha_hasta)} · ${vacInfo.dias} días`;
       } else if (enLicencia) {
         cls.push('licencia');
         content = '📋';
+        tooltip = `${e.nombre_completo} — Licencia`;
       } else if (turno) {
-        if (turno.tipo === 'vacaciones')  { cls.push('vacaciones'); content = '🌴'; }
-        else if (turno.tipo === 'licencia') { cls.push('licencia');   content = '📋'; }
+        if (turno.tipo === 'vacaciones')  { cls.push('vacaciones'); content = '🌴'; tooltip = `${e.nombre_completo} — Vacaciones`; }
+        else if (turno.tipo === 'licencia') { cls.push('licencia');   content = '📋'; tooltip = `${e.nombre_completo} — Licencia`; }
         else if (turno.es_franco)         { cls.push('franco');     content = '—'; }
         else {
           cls.push('has-turno');
@@ -6861,7 +6884,8 @@ async function renderCalendarioGrid() {
       } else if (cierra) {
         content = '🔒';
       }
-      return `<div class="${cls.join(' ')}" style="${style}" data-emp="${e.id}" data-fecha="${fecha}" data-local="${e.local}">${content}</div>`;
+      const titleAttr = tooltip ? ` title="${tooltip.replace(/"/g, '&quot;')}"` : '';
+      return `<div class="${cls.join(' ')}" style="${style}"${titleAttr} data-emp="${e.id}" data-fecha="${fecha}" data-local="${e.local}">${content}</div>`;
     }).join('');
 
     return `

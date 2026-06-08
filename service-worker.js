@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v142-tope-prestamos-antiguedad';
+const CACHE_VERSION = 'rrhh-v143-tooltip-vacaciones-calendario';
 const ASSETS = [
   './',
   './index.html',
