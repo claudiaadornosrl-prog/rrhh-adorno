@@ -12071,9 +12071,28 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text('INGRESO',     colX1, y + 33);
     doc.text('OBRA SOCIAL', colX2, y + 33);
     doc.text('DÍAS LIQUIDADOS', colX3, y + 33);
-    // Una sub-línea ya queda apretado — la ponemos en el mismo y+33 con alineación
-    // Voy a achicar y poner los datos a la derecha del label
-    // (modifico: en realidad los datos quedaron en y+29 y los labels en y+33, intercambio)
+
+    // Datos en la línea siguiente (y+38)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLOR_TEXT);
+    const _ingresoTxt = emp?.fecha_ingreso
+      ? new Date(emp.fecha_ingreso + 'T12:00:00').toLocaleDateString('es-AR')
+      : '—';
+    const _osTxt = emp?.obra_social || cat?.obra_social || 'OSECAC';
+    // Días trabajados / días del mes — formato 28/30 (en vez de %).
+    // Días del mes = días reales del mes calendario del período.
+    let _diasMes = 30;
+    try {
+      if (liq?.periodo) {
+        const [_py, _pm] = liq.periodo.split('-').map(Number);
+        _diasMes = new Date(_py, _pm, 0).getDate();
+      }
+    } catch (_) {}
+    const _diasTrab = Number(liq?.dias_trabajados || _diasMes);
+    doc.text(_ingresoTxt, colX1, y + 38);
+    doc.text(String(_osTxt).slice(0, 18), colX2, y + 38);
+    doc.text(`${_diasTrab}/${_diasMes}`, colX3, y + 38);
 
     // 7. TABLA DEVENGADO
     y = 105;

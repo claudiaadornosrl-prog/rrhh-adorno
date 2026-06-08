@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v145-tope-banco-42hs';
+const CACHE_VERSION = 'rrhh-v146-recibo-dias-fraccion';
 const ASSETS = [
   './',
   './index.html',
