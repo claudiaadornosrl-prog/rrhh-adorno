@@ -403,8 +403,9 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
     </div>
     <div class="login-footer" id="login-footer-signup">
       ¿Primera vez? <a id="signup-link" style="cursor:pointer;font-weight:600;">Crear mi cuenta</a>
-      &nbsp;·&nbsp;
-      ¿Olvidaste tu contraseña? <a id="forgot-link" style="cursor:pointer;">Recuperar</a>
+      <div style="margin-top:10px;font-size:12px;color:#94a3b8;">
+        ¿Olvidaste tu contraseña? Contactá al admin por WhatsApp.
+      </div>
     </div>
     <div class="login-footer" id="login-footer-back" style="display:none;">
       ¿Ya tenés cuenta? <a id="back-to-login-link" style="cursor:pointer;font-weight:600;">Volver al login</a>
@@ -1756,20 +1757,7 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   location.reload();
 });
 
-document.getElementById('forgot-link').addEventListener('click', async () => {
-  const email = document.getElementById('login-email').value.trim();
-  if (!email) { showLoginError('Ingresá tu email primero arriba.'); return; }
-  hideLoginError();
-  try {
-    const { error } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.href
-    });
-    if (error) throw error;
-    alert('Te mandamos un mail con el link para resetear la contraseña. Revisá tu casilla (puede caer en spam).');
-  } catch (err) {
-    showLoginError(err.message || 'Error al pedir recuperación');
-  }
-});
+// forgot-link removido — el reset se hace desde el panel admin (botón 🔑 Pass)
 
 // ════════════════════════════════════════════════════════════
 // UTILS
