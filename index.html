@@ -11654,6 +11654,139 @@ async function _loadForumFont(doc) {
 }
 
 // Helper: ver el recibo PDF en una ventana nueva (vista previa, no descarga)
+// ════════════════════════════════════════════════════════════
+// CONFIRMACIÓN PREVIA AL PDF — workflow de revisión de faltas
+// ════════════════════════════════════════════════════════════
+// Muestra un modal con: días trabajados, faltas (compensadas y sin),
+// tardanzas acumuladas, préstamos y descuentos. Solo si el usuario
+// confirma, se genera el PDF (delegando a verReciboPDF).
+async function abrirConfirmacionRecibo(liqId) {
+  try {
+    // Cargar liquidación + empleado
+    const { data: liq, error } = await sb.from('rrhh_liquidacion')
+      .select('*, empleado:rrhh_empleados(id, nombre_completo, local, categoria:rrhh_categorias_cct(nombre))')
+      .eq('id', liqId).maybeSingle();
+    if (error || !liq) { toast('No se pudo cargar la liquidación', 'error'); return; }
+
+    const periodo = (liq.periodo || '').substring(0,7);
+    const [y, m] = periodo.split('-').map(Number);
+    const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
+    const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
+
+    // Permisos día completo aprobados del mes (faltas compensadas/justificadas)
+    const { data: permisos } = await sb.from('rrhh_permisos_puntuales')
+      .select('id, fecha, tipo, motivo, descontar_banco, minutos_descontar, descontar_vacaciones, dias_descontar, estado')
+      .eq('empleado_id', liq.empleado_id)
+      .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+      .eq('estado', 'aprobado');
+
+    // Asistencias del mes (para tardanzas + ausencias sin compensar)
+    const { data: detalles } = await sb.from('rrhh_asistencias_detalle')
+      .select('fecha, estado, minutos_tarde, minutos_salida_temp, error_salvado')
+      .eq('empleado_id', liq.empleado_id)
+      .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
+
+    const ausentes = (detalles || []).filter(d => d.estado === 'ausente');
+    const permisosByFecha = {};
+    (permisos || []).forEach(p => { permisosByFecha[p.fecha] = p; });
+
+    // Clasificar ausencias: con compensación vs sin compensar
+    const faltasCompensadas = [];
+    const faltasSinCompensar = [];
+    ausentes.forEach(d => {
+      const p = permisosByFecha[d.fecha];
+      if (p && (p.descontar_banco || p.descontar_vacaciones)) {
+        faltasCompensadas.push({ fecha: d.fecha, permiso: p });
+      } else if (p) {
+        // tiene permiso pero sin compensación (descuento de sueldo justificado)
+        faltasCompensadas.push({ fecha: d.fecha, permiso: p, descontaSueldo: true });
+      } else {
+        // sin permiso = injustificada
+        faltasSinCompensar.push(d);
+      }
+    });
+
+    // Tardanzas + salidas tempranas acumuladas
+    const acumTarde = (detalles || []).reduce((s,d) => {
+      if (d.error_salvado) return s;
+      return s + (d.minutos_tarde || 0) + (d.minutos_salida_temp || 0);
+    }, 0);
+
+    // Cargar config umbral
+    const { data: tol } = await sb.from('rrhh_config_tolerancias')
+      .select('umbral_mensual_tardanzas').eq('local', liq.empleado.local).maybeSingle();
+    const umbralMensual = tol?.umbral_mensual_tardanzas || 60;
+
+    const fmtFechaCorta = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) : '';
+
+    const compHtml = faltasCompensadas.length === 0
+      ? '<div style="color:#94a3b8;font-style:italic;">— sin faltas compensadas —</div>'
+      : faltasCompensadas.map(f => {
+          let cómo = '';
+          if (f.permiso.descontar_banco) cómo = `🏦 banco (-${f.permiso.minutos_descontar} min)`;
+          else if (f.permiso.descontar_vacaciones) cómo = `🌴 vacaciones (-${f.permiso.dias_descontar} día)`;
+          else cómo = `📝 justificada (descuenta sueldo, NO cuenta como falta de fichada)`;
+          return `<div style="padding:6px;border-left:3px solid #0d9488;background:#f0fdfa;margin-bottom:4px;font-size:13px;">
+            ${fmtFechaCorta(f.fecha)} → ${cómo}
+            ${f.permiso.motivo ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">"${escapeHtml(f.permiso.motivo)}"</div>` : ''}
+          </div>`;
+        }).join('');
+
+    const sinCompHtml = faltasSinCompensar.length === 0
+      ? '<div style="color:#16a34a;font-weight:600;">✅ Sin faltas pendientes</div>'
+      : `<div style="padding:8px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;">
+          <div style="color:#991b1b;font-weight:600;margin-bottom:4px;">⚠️ ${faltasSinCompensar.length} falta(s) INJUSTIFICADAS</div>
+          ${faltasSinCompensar.map(d => `<div style="font-size:13px;">• ${fmtFechaCorta(d.fecha)}</div>`).join('')}
+          <div style="font-size:11px;color:#7f1d1d;margin-top:6px;">Estas faltas descuentan del sueldo Y suman 2 faltas de fichada (entrada + salida) que afectan el premio.</div>
+        </div>`;
+
+    const tardanzaHtml = acumTarde === 0
+      ? '<div style="color:#16a34a;">✅ Sin tardanzas/salidas tempranas en el mes</div>'
+      : acumTarde > umbralMensual
+        ? `<div style="color:#dc2626;font-weight:600;">⚠️ ${acumTarde} min acumulados (> umbral ${umbralMensual}) → se descuenta TODO del banco al cerrar el mes</div>`
+        : `<div style="color:#16a34a;">${acumTarde} min acumulados (≤ ${umbralMensual} → perdonados)</div>`;
+
+    const fmt = (n) => '$' + (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
+
+    const html = `
+      <div class="modal-bg" id="conf-recibo-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;">
+        <div style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,0.3);max-height:90vh;overflow:auto;">
+          <h2 style="margin:0 0 6px 0;font-size:18px;color:#0d9488;">📋 Revisión previa al recibo</h2>
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px;">${escapeHtml(liq.empleado.nombre_completo)} · ${LOCALES[liq.empleado.local]?.nombre || liq.empleado.local} · ${periodo}</div>
+
+          <div style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;">
+            <div style="font-size:12px;color:#64748b;text-transform:uppercase;margin-bottom:6px;">FALTAS DEL MES</div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">✅ Compensadas / justificadas:</div>
+            ${compHtml}
+            <div style="font-size:13px;font-weight:600;margin:10px 0 4px;">⚠️ Sin compensar:</div>
+            ${sinCompHtml}
+          </div>
+
+          <div style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;">
+            <div style="font-size:12px;color:#64748b;text-transform:uppercase;margin-bottom:6px;">TARDANZAS + SALIDAS TEMPRANAS</div>
+            ${tardanzaHtml}
+          </div>
+
+          <div style="background:#fef3c7;border-radius:8px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:12px;color:#92400e;text-transform:uppercase;margin-bottom:4px;">RECIBO CCT (lo que va al estudio)</div>
+            <div style="font-size:18px;font-weight:700;color:#92400e;">${fmt(liq.recibo_neto)}</div>
+          </div>
+
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn" onclick="document.getElementById('conf-recibo-modal').remove()">← Volver</button>
+            <button class="btn primary" style="background:#0d9488;border-color:#0f766e;" onclick="document.getElementById('conf-recibo-modal').remove(); verReciboPDF(${liqId}); auditLog('confirmar_recibo', 'rrhh_liquidacion', ${liqId}, null, null, 'PDF generado tras confirmación de faltas');">✅ Confirmar y ver PDF</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+  } catch (e) {
+    console.error('[abrirConfirmacionRecibo]', e);
+    toast('Error: ' + (e.message || e), 'error');
+  }
+}
+
+
 async function verReciboPDF(liqId) {
   try {
     const doc = await generarPDFRecibo(liqId, { autoSave: false });
@@ -13763,7 +13896,7 @@ async function renderLiquidaciones() {
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
             { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo CCT (lo que dice el recibo legal). Click descarga el PDF firmable.'},
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="verReciboPDF(${l.id})" title="Click para vista previa del recibo en una ventana nueva. Click derecho = desglose." oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(l.recibo_neto)} 👁</td>` },
+              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="Click → revisar faltas y confirmar antes de generar PDF. Click derecho = desglose." oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(l.recibo_neto)} 👁</td>` },
             { id:'prestamos', label:'Préstamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco'},
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):'—'}</td>`; } },
             { id:'adelantos', label:'Adelantos',  thOpts:{title:'Adelantos del mes (préstamos 1 cuota tasa 0%)'},
