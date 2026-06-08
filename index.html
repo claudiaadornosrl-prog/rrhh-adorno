@@ -5789,19 +5789,130 @@ async function rechazarMiPrestamo(prestamoId) {
 // ─────────────────────────────────────────────────────────────────────
 // Self-service: pedir adelanto de sueldo (ventana 5-14)
 // ─────────────────────────────────────────────────────────────────────
-async function abrirPedirAdelantoSueldo() {
-  const hoy = new Date();
-  const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-  const periodoMA = mesAnterior.toISOString().slice(0,10);
-  let topeTxt = 'No hay liquidación del mes pasado cargada — admin valida el tope.';
+// ════════════════════════════════════════════════════════════
+// TOPES Y LÍMITES — Préstamos y Adelantos
+// ════════════════════════════════════════════════════════════
+// Reglas (config con JP):
+//   - Cap préstamo:        3 × sueldo promedio (sin SAC)
+//   - Cuotas máx:          12
+//   - Cuota mensual préstamo:    ≤ 30% sueldo promedio
+//   - Adelanto + cuota préstamo: ≤ 50% sueldo promedio
+//   - Sueldo total = recibo_neto + total_negro (lo que efectivamente cobra)
+//   - SAC se descarta (excluye meses junio + diciembre)
+//
+// Retorna: { ok, sueldoPromedio, mesesUsados, capMaxPrestamo, cuotaMaxPrestamo,
+//            adelantoMaxAislado, cuotaPrestamoVigente, adelantoMaxPedible, mensaje }
+async function _calcularTopesPrestamo(empleadoId) {
   try {
-    const { data: liqAnt } = await sb.from('rrhh_liquidacion')
-      .select('recibo_neto').eq('empleado_id', session.empleado_id).eq('periodo', periodoMA).maybeSingle();
-    if (liqAnt?.recibo_neto) {
-      const tope = Math.floor(Number(liqAnt.recibo_neto) * 0.5);
-      topeTxt = `Tope: <strong>$${tope.toLocaleString('es-AR')}</strong> (50% de tu neto del mes pasado: $${Math.round(Number(liqAnt.recibo_neto)).toLocaleString('es-AR')})`;
+    // 1) Traer empleado para conocer la antigüedad (fecha_ingreso)
+    const { data: emp } = await sb.from('rrhh_empleados')
+      .select('fecha_ingreso, nombre_completo')
+      .eq('id', empleadoId).maybeSingle();
+
+    // Calcular antigüedad en meses
+    let antigMeses = 0;
+    if (emp?.fecha_ingreso) {
+      const ingreso = new Date(emp.fecha_ingreso + 'T12:00:00');
+      const hoy = new Date();
+      antigMeses = (hoy.getFullYear() - ingreso.getFullYear()) * 12
+                 + (hoy.getMonth() - ingreso.getMonth());
+      if (hoy.getDate() < ingreso.getDate()) antigMeses -= 1;
+      antigMeses = Math.max(0, antigMeses);
     }
-  } catch(_) {}
+
+    // Multiplicador del capital máximo según antigüedad:
+    //   0-6 meses → 0 (NO puede pedir préstamo)
+    //   6-12 meses → 1× sueldo
+    //   12-36 meses → 2× sueldo
+    //   36+ meses → 3× sueldo
+    let multiplicador = 0;
+    let antigTxt = '';
+    if (antigMeses < 6)       { multiplicador = 0; antigTxt = `${antigMeses} meses`; }
+    else if (antigMeses < 12) { multiplicador = 1; antigTxt = `${antigMeses} meses`; }
+    else if (antigMeses < 36) { multiplicador = 2; antigTxt = `${(antigMeses/12).toFixed(1)} años`; }
+    else                       { multiplicador = 3; antigTxt = `${Math.floor(antigMeses/12)} años`; }
+
+    if (multiplicador === 0) {
+      return {
+        ok: false,
+        mensaje: `Por antigüedad (${antigTxt}) todavía no podés pedir préstamo. Tenés que tener más de 6 meses en la empresa.`,
+        antigMeses, antigTxt
+      };
+    }
+
+    // 2) Traer los últimos 5 meses cerrados (para tener margen y descartar SAC)
+    const { data: liqs } = await sb.from('rrhh_liquidacion')
+      .select('periodo, recibo_neto, total_negro')
+      .eq('empleado_id', empleadoId)
+      .order('periodo', { ascending: false })
+      .limit(5);
+
+    if (!liqs || liqs.length === 0) {
+      return { ok: false, mensaje: 'No tenés liquidaciones cargadas — pedile al admin que defina tu tope manualmente.' };
+    }
+
+    // Filtrar meses no-SAC (excluir junio = -06 y diciembre = -12)
+    const sinSAC = liqs.filter(l => {
+      const mes = (l.periodo || '').substring(5, 7);
+      return mes !== '06' && mes !== '12';
+    });
+    const consideradas = sinSAC.slice(0, 3);
+    if (consideradas.length === 0) {
+      return { ok: false, mensaje: 'Tus últimas liquidaciones son meses de SAC. Pedile al admin que defina tu tope manualmente.' };
+    }
+
+    const totalAdorno = (l) => (Number(l.recibo_neto) || 0) + (Number(l.total_negro) || 0);
+    const suma = consideradas.reduce((s, l) => s + totalAdorno(l), 0);
+    const sueldoPromedio = Math.round(suma / consideradas.length);
+
+    // Cuota de préstamos activos en el mes corriente
+    const hoy = new Date();
+    const mesYM = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-01';
+    const { data: cuotasActivas } = await sb.from('rrhh_prestamo_cuota')
+      .select('monto_total, mes_descuento, estado, prestamo:rrhh_prestamo(empleado_id, estado)')
+      .eq('mes_descuento', mesYM)
+      .eq('estado', 'pendiente');
+    const cuotaPrestamoVigente = (cuotasActivas || [])
+      .filter(c => c.prestamo?.empleado_id === empleadoId && c.prestamo?.estado === 'activo')
+      .reduce((s, c) => s + (Number(c.monto_total) || 0), 0);
+
+    const capMaxPrestamo     = sueldoPromedio * multiplicador;
+    const cuotaMaxPrestamo   = Math.round(sueldoPromedio * 0.30);
+    const adelantoMaxAislado = Math.round(sueldoPromedio * 0.50);  // si no tiene préstamo
+    const adelantoMaxPedible = Math.max(0, adelantoMaxAislado - cuotaPrestamoVigente);
+
+    return {
+      ok: true,
+      sueldoPromedio,
+      mesesUsados: consideradas.length,
+      antigMeses,
+      antigTxt,
+      multiplicador,
+      capMaxPrestamo,
+      cuotaMaxPrestamo,
+      adelantoMaxAislado,
+      cuotaPrestamoVigente,
+      adelantoMaxPedible,
+    };
+  } catch (e) {
+    console.warn('[_calcularTopesPrestamo]', e);
+    return { ok: false, mensaje: 'Error calculando topes: ' + (e.message || e) };
+  }
+}
+
+
+async function abrirPedirAdelantoSueldo() {
+  const topes = await _calcularTopesPrestamo(session.empleado_id);
+  let topeTxt = '';
+  let topeMax = 0;
+  if (!topes.ok) {
+    topeTxt = `<span style="color:#92400e;">⚠️ ${topes.mensaje}</span>`;
+    topeMax = 0;
+  } else {
+    topeMax = topes.adelantoMaxPedible;
+    topeTxt = `Tope: <strong>$${topeMax.toLocaleString('es-AR')}</strong> (50% sueldo promedio − cuotas préstamo activo)<br>
+               <span style="font-size:11px;color:#475569;">Sueldo promedio: $${topes.sueldoPromedio.toLocaleString('es-AR')} · Cuota préstamo vigente: $${topes.cuotaPrestamoVigente.toLocaleString('es-AR')}</span>`;
+  }
 
   const htmlModal = `
     <h3 style="margin:0 0 8px;">💵 Solicitar adelanto de sueldo</h3>
@@ -5809,6 +5920,7 @@ async function abrirPedirAdelantoSueldo() {
       ${topeTxt}<br>
       Se va a descontar del recibo del mes en curso.
     </div>
+    <input type="hidden" id="adelsueldo-tope" value="${topeMax}">
     <div class="form-grid">
       <div class="form-row full">
         <label>¿Cuánto necesitás?</label>
@@ -5831,7 +5943,12 @@ async function abrirPedirAdelantoSueldo() {
 async function enviarSolicitudAdelantoSueldo() {
   const monto = parseMoneyInput(document.getElementById('adelsueldo-monto'));
   const motivo = (document.getElementById('adelsueldo-motivo').value || '').trim() || null;
+  const topeMax = parseInt(document.getElementById('adelsueldo-tope')?.value || '0', 10) || 0;
   if (!(monto > 0)) { toast('Cargá un monto mayor a 0', 'error'); return; }
+  if (topeMax > 0 && monto > topeMax) {
+    toast(`El monto supera tu tope ($${topeMax.toLocaleString('es-AR')}). Pedí menos o consultá al admin.`, 'error');
+    return;
+  }
   try {
     const { data, error } = await sb.rpc('rrhh_solicitar_adelanto_sueldo', {
       p_monto: monto, p_motivo: motivo
@@ -5861,8 +5978,28 @@ let _opcionesCuotasPrestamo = [6];
 
 async function abrirPedirPrestamo() {
   _opcionesCuotasPrestamo = [6]; // default
+  const topes = await _calcularTopesPrestamo(session.empleado_id);
+  let topesHtml = '';
+  let capMax = 0, cuotaMax = 0;
+  if (topes.ok) {
+    capMax = topes.capMaxPrestamo;
+    cuotaMax = topes.cuotaMaxPrestamo;
+    topesHtml = `
+      <div style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;margin-bottom:14px;line-height:1.5;">
+        <strong>Tus topes</strong><br>
+        • Capital máximo: <strong>$${capMax.toLocaleString('es-AR')}</strong> (${topes.multiplicador} × sueldo, por antigüedad de ${topes.antigTxt})<br>
+        • Cuota mensual máxima: <strong>$${cuotaMax.toLocaleString('es-AR')}</strong> (30% sueldo promedio)<br>
+        • Cuotas máximas: <strong>12</strong>
+        <div style="font-size:11px;color:#a16207;margin-top:4px;">Sueldo promedio últimos ${topes.mesesUsados} meses (sin SAC): $${topes.sueldoPromedio.toLocaleString('es-AR')}</div>
+      </div>`;
+  } else {
+    topesHtml = `<div style="background:#fee2e2;padding:10px 12px;border-radius:6px;font-size:12px;color:#991b1b;margin-bottom:14px;">⚠️ ${topes.mensaje}</div>`;
+  }
   const htmlModal = `
     <h3 style="margin:0 0 8px;">🏦 Solicitar préstamo</h3>
+    ${topesHtml}
+    <input type="hidden" id="presnuevo-capmax" value="${capMax}">
+    <input type="hidden" id="presnuevo-cuotamax" value="${cuotaMax}">
     <div style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;margin-bottom:14px;line-height:1.5;">
       Cargá el capital que querés y una o varias opciones de cuotas para que el admin te prepare las propuestas correspondientes.
     </div>
@@ -5964,10 +6101,25 @@ function renderOpcionesCuotasPrestamo() {
 async function enviarSolicitudPrestamo() {
   const capital = parseMoneyInput(document.getElementById('presnuevo-capital'));
   const motivo = (document.getElementById('presnuevo-motivo').value || '').trim() || null;
+  const capMax = parseInt(document.getElementById('presnuevo-capmax')?.value || '0', 10) || 0;
+  const cuotaMax = parseInt(document.getElementById('presnuevo-cuotamax')?.value || '0', 10) || 0;
   if (!(capital > 0)) { toast('Cargá un capital mayor a 0', 'error'); return; }
   if (_opcionesCuotasPrestamo.length === 0) {
     toast('Agregá al menos una opción de cuotas', 'error');
     return;
+  }
+  if (capMax > 0 && capital > capMax) {
+    toast(`El capital supera tu tope ($${capMax.toLocaleString('es-AR')} = 3 × sueldo promedio).`, 'error');
+    return;
+  }
+  if (cuotaMax > 0) {
+    // La opción más alta debe dar cuota ≤ cuotaMax
+    const cuotaMinPosible = Math.ceil(capital / Math.max(..._opcionesCuotasPrestamo));
+    if (cuotaMinPosible > cuotaMax) {
+      const cuotasNecesarias = Math.ceil(capital / cuotaMax);
+      toast(`La cuota mensual ($${cuotaMinPosible.toLocaleString('es-AR')}) supera tu tope ($${cuotaMax.toLocaleString('es-AR')} = 30% sueldo). Necesitás al menos ${cuotasNecesarias} cuotas o pedir menos capital.`, 'error');
+      return;
+    }
   }
   try {
     const { data, error } = await sb.rpc('rrhh_solicitar_prestamo', {
