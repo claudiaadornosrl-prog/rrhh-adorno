@@ -2056,7 +2056,6 @@ const EMP_MODAL_TABS = [
   { id: 'licencias',  label: 'Licencias / Permisos', icon: '📋' },
   { id: 'certificados',label:'Certif. médicos',   icon: '🏥' },
   { id: 'apercibimientos',label:'Apercibimientos',icon: '⚠️' },
-  { id: 'premios',    label: 'Premios',           icon: '🏆' },
   { id: 'notas',      label: 'Notas',             icon: '📝' },
 ];
 
@@ -2143,7 +2142,6 @@ async function renderModalBody() {
     case 'licencias':   await renderTabLicencias();   break;
     case 'certificados':await renderTabCertificados();break;
     case 'apercibimientos': await renderTabApercibimientos(); break;
-    case 'premios':     await renderTabPremios();     break;
     case 'notas':       await renderTabNotas();       break;
   }
 }
@@ -2890,25 +2888,58 @@ async function renderTabAsistencias() {
     return;
   }
 
-  // Últimos 6 meses de resumen
-  const { data: resumenes, error } = await sb.from('rrhh_asistencias')
-    .select('*')
+  // Calcular el resumen al vuelo a partir de rrhh_asistencias_detalle de los últimos 6 meses.
+  // (La tabla rrhh_asistencias agregada nunca se llena, así que computamos directo del detalle.)
+  const hoy = new Date();
+  const fechaDesde = new Date(hoy.getFullYear(), hoy.getMonth() - 5, 1).toISOString().split('T')[0];
+  const fechaHasta = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().split('T')[0];
+  const { data: detalle, error } = await sb.from('rrhh_asistencias_detalle')
+    .select('fecha, estado, minutos_tarde, minutos_salida_temp, minutos_extra, minutos_banco, error_salvado')
     .eq('empleado_id', empleadoId)
-    .order('periodo', { ascending: false })
-    .limit(6);
+    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+    .order('fecha', { ascending: false });
 
   if (error) {
     body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${escapeHtml(error.message)}</p></div>`;
     return;
   }
-  if (!resumenes || resumenes.length === 0) {
+  if (!detalle || detalle.length === 0) {
     body.innerHTML = `<div class="placeholder">
       <div class="icon">🕐</div>
-      <h3>Aún no hay resumen procesado</h3>
-      <p>El resumen mensual se genera desde Asistencias → Procesar mes. Cuando esté listo, vas a verlo acá.</p>
+      <h3>Aún no hay datos de asistencia</h3>
+      <p>Los datos del calendario se generan desde Asistencias → Procesar mes. Cuando esté listo, vas a verlo acá.</p>
     </div>`;
     return;
   }
+
+  // Agregar por período (YYYY-MM)
+  const porPeriodo = {};
+  detalle.forEach(d => {
+    const p = (d.fecha || '').substring(0, 7);
+    if (!porPeriodo[p]) {
+      porPeriodo[p] = {
+        periodo: p,
+        dias_trabajados: 0, dias_ausente: 0, dias_vacaciones: 0,
+        dias_licencia: 0, dias_feriado: 0,
+        llegadas_tarde: 0, salidas_tempranas: 0,
+        minutos_tarde_total: 0, minutos_extra_total: 0,
+        anomalias_fichada: 0,
+      };
+    }
+    const r = porPeriodo[p];
+    if (['puntual','tarde'].includes(d.estado)) r.dias_trabajados++;
+    if (d.estado === 'ausente')    r.dias_ausente++;
+    if (d.estado === 'vacaciones') r.dias_vacaciones++;
+    if (d.estado === 'licencia')   r.dias_licencia++;
+    if (d.estado === 'feriado')    r.dias_feriado++;
+    if ((d.minutos_tarde || 0) > 0)   { r.llegadas_tarde++; r.minutos_tarde_total += d.minutos_tarde; }
+    if ((d.minutos_salida_temp || 0) > 0) r.salidas_tempranas++;
+    if ((d.minutos_extra || 0) > 0) r.minutos_extra_total += d.minutos_extra;
+    if (d.estado === 'falta_fichada' && !d.error_salvado) r.anomalias_fichada++;
+  });
+  const resumenes = Object.values(porPeriodo)
+    .map(r => ({ ...r, horas_extras: (r.minutos_extra_total / 60).toFixed(1) }))
+    .sort((a, b) => b.periodo.localeCompare(a.periodo));
 
   const labelMes = (iso) => {
     // periodo puede venir como 'YYYY-MM' o 'YYYY-MM-DD'
