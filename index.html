@@ -785,85 +785,80 @@ let currentTab = 'dashboard';
 // AUTH FLOW
 // ════════════════════════════════════════════════════════════
 async function init() {
-  // ── Detectar si venimos del link de recovery ──
-  // El hash trae #access_token=...&type=recovery cuando llegamos desde el mail.
-  // BUG conocido: a veces el cliente de mail (Gmail) pre-visita el link y arma
-  // un hash compuesto: #error=otp_expired&sb=#access_token=...&type=recovery
-  // Tenemos que priorizar el access_token si está presente (la sesión sí se creó),
-  // ignorando el error_code del primer "verify" que ya consumió Gmail.
-  const _hash = window.location.hash || '';
-  const _esRecovery = _hash.includes('type=recovery');
-  const _tieneToken = _hash.includes('access_token=');
+  // ════════════════════════════════════════════════════════════
+  // RECOVERY DETECTION — robusto contra hashes corruptos de Gmail
+  // ════════════════════════════════════════════════════════════
+  // Parseamos el hash buscando access_token + refresh_token en CUALQUIER parte.
+  // No dependemos de eventos de supabase-js (que fallan con hashes raros).
+  const _rawHash = window.location.hash || '';
+  console.log('[AUTH-INIT] hash raw:', _rawHash.substring(0, 200));
 
-  // Solo mostrar el alert de error si NO hay access_token válido en el hash
-  if ((_hash.includes('error=') || _hash.includes('error_code=')) && !_tieneToken) {
-    const m = _hash.match(/error_description=([^&]+)/);
-    const desc = m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : 'El link no es válido';
-    setTimeout(() => {
-      alert(`⚠️ El link de recuperación expiró o ya fue usado.\n\n` +
-            `Detalle: ${desc}\n\n` +
-            `Para que ande, tenés que:\n` +
-            `1. Pedir un mail NUEVO desde "Olvidé mi contraseña"\n` +
-            `2. Abrirlo y clickearlo INMEDIATAMENTE (en los siguientes 2 min)\n` +
-            `3. NO previsualizar el mail ni copiar el link — cliquear directo\n\n` +
-            `Mientras tanto, si necesitás entrar urgente, pedile al admin que te resetee la contraseña desde el panel.`);
-      if (window.history && window.history.replaceState) {
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  // Buscar tokens en TODO el hash (incluso si hay basura adelante como #error=...&sb=#)
+  const _tokenMatch = _rawHash.match(/access_token=([^&#]+)/);
+  const _refreshMatch = _rawHash.match(/refresh_token=([^&#]+)/);
+  const _typeMatch = _rawHash.match(/type=([^&#]+)/);
+  const _esRecovery = _typeMatch && _typeMatch[1] === 'recovery';
+
+  console.log('[AUTH-INIT] tieneToken:', !!_tokenMatch, 'esRecovery:', _esRecovery);
+
+  // Caso 1: tenemos access_token Y es recovery → procesar manualmente
+  if (_tokenMatch && _esRecovery) {
+    console.log('[AUTH-INIT] Recovery con token detectado, seteando sesión manual…');
+    showLogin();  // mostrar login de fondo
+
+    // Limpiar URL ANTES de setear sesión
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
+    try {
+      const { error: setErr } = await sb.auth.setSession({
+        access_token: _tokenMatch[1],
+        refresh_token: _refreshMatch ? _refreshMatch[1] : '',
+      });
+      if (setErr) {
+        console.error('[AUTH-INIT] setSession error:', setErr);
+        alert(`⚠️ No se pudo procesar el link de recuperación.\n\nError: ${setErr.message}\n\nPedí un mail nuevo o avisale al admin para que te resetee la pass.`);
+        return;
       }
-    }, 100);
-    showLogin();
-    return;
-  }
-
-  // Si el hash tiene access_token + type=recovery pero también un primer "error="
-  // (caso del double-hash), limpiamos el URL antes para que supabase-js no se confunda
-  // y procese solo el access_token.
-  if (_tieneToken && (_hash.includes('error=') || _hash.includes('error_code=') || _hash.includes('#access_token=', 1))) {
-    // Extraer SOLO el segundo hash (el que tiene el access_token)
-    const idx = _hash.lastIndexOf('#access_token=');
-    if (idx > 0) {
-      const cleanHash = _hash.substring(idx);  // '#access_token=...'
-      window.history.replaceState(null, '', window.location.pathname + window.location.search + cleanHash);
-      console.log('[AUTH] Hash compuesto detectado, limpiado a:', cleanHash.substring(0, 60) + '...');
-      // Recargar para que supabase-js procese el hash limpio
-      window.location.reload();
+      console.log('[AUTH-INIT] Sesión seteada, abriendo modal de recovery');
+      _abrirRecoveryModal();
+      return;
+    } catch (e) {
+      console.error('[AUTH-INIT] setSession exception:', e);
+      alert(`⚠️ Error procesando el link: ${e.message}\n\nPedí un mail nuevo o avisale al admin.`);
       return;
     }
   }
 
-  // ── Registrar listener ANTES de getSession() ──
-  // Si lo hacemos después, el evento PASSWORD_RECOVERY puede dispararse antes
-  // de tener el listener y lo perdemos.
+  // Caso 2: hay error sin token (link totalmente expirado/inválido)
+  if ((_rawHash.includes('error=') || _rawHash.includes('error_code=')) && !_tokenMatch) {
+    const m = _rawHash.match(/error_description=([^&]+)/);
+    const desc = m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : 'El link no es válido';
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    showLogin();
+    setTimeout(() => {
+      alert(`⚠️ El link de recuperación expiró o ya fue usado.\n\nDetalle: ${desc}\n\nPedí un mail nuevo o avisale al admin para que te resetee la pass desde el panel.`);
+    }, 100);
+    return;
+  }
+
+  // Caso 3: flujo normal
   sb.auth.onAuthStateChange((event, authSession) => {
-    console.log('[AUTH] event=', event, 'hasSession=', !!authSession, 'recovery=', _esRecovery);
+    console.log('[AUTH] event=', event, 'hasSession=', !!authSession);
     if (event === 'SIGNED_OUT') {
       showLogin();
       const btn = document.getElementById('login-submit');
       if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
     }
-    // Recovery: abrir modal sí o sí (puede dispararse al inicio o después)
     if (event === 'PASSWORD_RECOVERY') {
       _abrirRecoveryModal();
     }
-    // Si llegamos por recovery y hay SIGNED_IN, NO ir al dashboard — abrir modal
-    if (event === 'SIGNED_IN' && _esRecovery && !document.getElementById('recovery-modal')) {
-      _abrirRecoveryModal();
-    }
-    // SIGNED_IN normal ya se maneja en el handler del form (llamando onLoggedIn directamente)
   });
 
   const { data: { session: authSession } } = await sb.auth.getSession();
-
-  // Si el URL viene con recovery, NO ir al dashboard — esperar el modal.
-  if (_esRecovery) {
-    showLogin();  // mostrar el login de fondo; el modal aparece como overlay
-    // Por las dudas, si el listener ya disparó antes, igualmente abrimos el modal
-    setTimeout(() => {
-      if (!document.getElementById('recovery-modal')) _abrirRecoveryModal();
-    }, 500);
-    return;
-  }
-
   if (authSession) {
     await onLoggedIn(authSession.user);
   } else {
