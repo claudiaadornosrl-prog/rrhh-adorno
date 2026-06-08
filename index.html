@@ -722,6 +722,8 @@ const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
     persistSession: true,
     autoRefreshToken: true,
     storageKey: 'rrhh-adorno-auth',  // distinto al CRM para no chocar
+    detectSessionInUrl: true,  // detectar #access_token del hash (recovery / OAuth)
+    flowType: 'implicit',      // usar implicit flow (token en hash, no PKCE en query)
   }
 });
 
@@ -783,21 +785,102 @@ let currentTab = 'dashboard';
 // AUTH FLOW
 // ════════════════════════════════════════════════════════════
 async function init() {
-  const { data: { session: authSession } } = await sb.auth.getSession();
-  if (authSession) {
-    await onLoggedIn(authSession.user);
-  } else {
-    showLogin();
-  }
+  // ── Detectar si venimos del link de recovery ──
+  // El hash trae #access_token=...&type=recovery cuando llegamos desde el mail.
+  const _hash = window.location.hash || '';
+  const _esRecovery = _hash.includes('type=recovery');
+
+  // ── Registrar listener ANTES de getSession() ──
+  // Si lo hacemos después, el evento PASSWORD_RECOVERY puede dispararse antes
+  // de tener el listener y lo perdemos.
   sb.auth.onAuthStateChange((event, authSession) => {
-    console.log('[AUTH] event=', event, 'hasSession=', !!authSession);
+    console.log('[AUTH] event=', event, 'hasSession=', !!authSession, 'recovery=', _esRecovery);
     if (event === 'SIGNED_OUT') {
       showLogin();
       const btn = document.getElementById('login-submit');
       if (btn) { btn.disabled = false; btn.textContent = 'Ingresar'; }
     }
-    // SIGNED_IN ya se maneja en el handler del form (llamando onLoggedIn directamente)
+    // Recovery: abrir modal sí o sí (puede dispararse al inicio o después)
+    if (event === 'PASSWORD_RECOVERY') {
+      _abrirRecoveryModal();
+    }
+    // Si llegamos por recovery y hay SIGNED_IN, NO ir al dashboard — abrir modal
+    if (event === 'SIGNED_IN' && _esRecovery && !document.getElementById('recovery-modal')) {
+      _abrirRecoveryModal();
+    }
+    // SIGNED_IN normal ya se maneja en el handler del form (llamando onLoggedIn directamente)
   });
+
+  const { data: { session: authSession } } = await sb.auth.getSession();
+
+  // Si el URL viene con recovery, NO ir al dashboard — esperar el modal.
+  if (_esRecovery) {
+    showLogin();  // mostrar el login de fondo; el modal aparece como overlay
+    // Por las dudas, si el listener ya disparó antes, igualmente abrimos el modal
+    setTimeout(() => {
+      if (!document.getElementById('recovery-modal')) _abrirRecoveryModal();
+    }, 500);
+    return;
+  }
+
+  if (authSession) {
+    await onLoggedIn(authSession.user);
+  } else {
+    showLogin();
+  }
+}
+
+// Modal para resetear password (disparado por evento PASSWORD_RECOVERY de Supabase)
+function _abrirRecoveryModal() {
+  // Si ya está abierto, no duplicar
+  if (document.getElementById('recovery-modal')) return;
+  const html = `
+    <div id="recovery-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:white;border-radius:12px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+        <h2 style="margin:0 0 6px 0;font-size:20px;color:#0d9488;">🔒 Recuperar contraseña</h2>
+        <p style="margin:0 0 14px 0;font-size:13px;color:#64748b;">
+          Llegaste desde el link de "Olvidé mi contraseña". Elegí una nueva contraseña.
+        </p>
+        <div style="display:grid;gap:10px;">
+          <input type="password" id="rec-pass1" placeholder="Nueva contraseña (mín 6)" autocomplete="new-password"
+                 style="padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;">
+          <input type="password" id="rec-pass2" placeholder="Repetí la nueva contraseña" autocomplete="new-password"
+                 style="padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;">
+          <div id="rec-error" style="color:#dc2626;font-size:12px;display:none;"></div>
+          <button class="btn primary" id="rec-btn-guardar" onclick="_guardarRecoveryPass()" style="background:#0d9488;border-color:#0f766e;">Guardar nueva contraseña</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+  setTimeout(() => document.getElementById('rec-pass1')?.focus(), 50);
+}
+
+async function _guardarRecoveryPass() {
+  const pass1 = document.getElementById('rec-pass1').value;
+  const pass2 = document.getElementById('rec-pass2').value;
+  const errEl = document.getElementById('rec-error');
+  const btn = document.getElementById('rec-btn-guardar');
+  const showErr = (m) => { if (errEl) { errEl.textContent = m; errEl.style.display = 'block'; } };
+
+  if (!pass1 || pass1.length < 6) { showErr('La contraseña tiene que tener al menos 6 caracteres'); return; }
+  if (pass1 !== pass2) { showErr('Las contraseñas no coinciden'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    const { error } = await sb.auth.updateUser({ password: pass1 });
+    if (error) throw error;
+    document.getElementById('recovery-modal')?.remove();
+    alert('✅ Contraseña actualizada. Ya estás dentro de la app.');
+    // Limpiar el hash del URL (sino queda el access_token visible)
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  } catch (err) {
+    console.error('[recovery]', err);
+    showErr('Error: ' + (err.message || 'no se pudo guardar'));
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar nueva contraseña'; }
+  }
 }
 
 function showLogin() {
