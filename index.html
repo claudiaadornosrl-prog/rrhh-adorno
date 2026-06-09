@@ -10764,9 +10764,9 @@ function _textTracked(doc, text, x, y, options = {}) {
 }
 
 async function generarNotificacionVacaciones(movId) {
-  // Cargar movimiento + empleado
+  // Cargar movimiento + empleado + saldo de vacaciones (para sacar el año fiscal correcto)
   const { data: mov, error } = await sb.from('rrhh_vacaciones_movimientos')
-    .select('*, empleado:rrhh_empleados(nombre_completo, dni, local)')
+    .select('*, empleado:rrhh_empleados(nombre_completo, dni, local), saldo:rrhh_vacaciones(año)')
     .eq('id', movId).single();
   if (error || !mov) { toast('No se pudo cargar la vacación', 'error'); return; }
 
@@ -10775,7 +10775,9 @@ async function generarNotificacionVacaciones(movId) {
   const desde = _fechaLargaEs(mov.fecha_desde);
   const hasta = _fechaLargaEs(mov.fecha_hasta);
   const reintegro = _fechaLargaEs(_diaSiguiente(mov.fecha_hasta));
-  const año = mov.fecha_desde.substring(0, 4);
+  // El año correcto es el del saldo fiscal imputado (vacaciones_id),
+  // NO el de fecha_desde — la vendedora puede tomar en 2026 días pendientes de 2025.
+  const año = mov.saldo?.año || mov.fecha_desde.substring(0, 4);
   const dias = mov.dias;
   const nombre = emp?.nombre_completo || '—';
   const dni = emp?.dni || '';
