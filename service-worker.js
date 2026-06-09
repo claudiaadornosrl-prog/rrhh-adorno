@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v153-notifs-faltantes-y-sin-tab-calendario-vac';
+const CACHE_VERSION = 'rrhh-v154-mi-legajo-para-encargadas';
 const ASSETS = [
   './',
   './index.html',
