@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v156-fix-solicitudes-prestamos-admin';
+const CACHE_VERSION = 'rrhh-v157-dashboard-card-prestamos-pendientes';
 const ASSETS = [
   './',
   './index.html',

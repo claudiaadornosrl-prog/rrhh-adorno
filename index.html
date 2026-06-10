@@ -1316,6 +1316,28 @@ async function renderDashboard() {
     borradoPendientes = count || 0;
   } catch(_) {}
 
+  // Solicitudes de préstamos/adelantos pendientes (solo admin las puede resolver)
+  let prestamoSolicPendientes = 0;
+  let prestamoSolicDetalle = '';
+  if (isAdmin) {
+    try {
+      const { data: solicPres } = await sb.from('rrhh_prestamo_solicitud')
+        .select('tipo, empleado:rrhh_empleados(nombre_completo)')
+        .eq('estado', 'pendiente');
+      prestamoSolicPendientes = (solicPres || []).length;
+      if (prestamoSolicPendientes > 0) {
+        const grupos = { adelanto_sueldo: 0, prestamo_nuevo: 0, refinanciacion: 0, adelantar_cuotas: 0 };
+        (solicPres || []).forEach(s => { if (grupos[s.tipo] !== undefined) grupos[s.tipo]++; });
+        const partes = [];
+        if (grupos.adelanto_sueldo)    partes.push(`${grupos.adelanto_sueldo} adelanto${grupos.adelanto_sueldo>1?'s':''}`);
+        if (grupos.prestamo_nuevo)     partes.push(`${grupos.prestamo_nuevo} préstamo${grupos.prestamo_nuevo>1?'s':''}`);
+        if (grupos.refinanciacion)     partes.push(`${grupos.refinanciacion} refinanciación${grupos.refinanciacion>1?'es':''}`);
+        if (grupos.adelantar_cuotas)   partes.push(`${grupos.adelantar_cuotas} adelantar cuotas`);
+        prestamoSolicDetalle = partes.join(' · ');
+      }
+    } catch(_) {}
+  }
+
   // ━━━ NOTIFICACIONES CRÍTICAS ━━━
   const hoyStr = hoy.toISOString().split('T')[0];
 
@@ -1491,7 +1513,7 @@ async function renderDashboard() {
     ${(() => {
       const totalCriticas = (vacPendientes||0) + (permPendientes||0) + (pagoPendientes||0)
                           + mesAnteriorSinCerrar.length + (docPendientes||0) + proximasPerderPremio.length + tardanzasAltas.length
-                          + lactanciaProx.length + (borradoPendientes||0);
+                          + lactanciaProx.length + (borradoPendientes||0) + (prestamoSolicPendientes||0);
       const totalInfo = cumpleProx7d.length + anivProx7d.length + (vacEstaSem?.length||0) + empConAtraso30.length;
       if (totalCriticas === 0 && totalInfo === 0) return '';
 
@@ -1524,6 +1546,7 @@ async function renderDashboard() {
               ${cardCritica('#d97706', '⚠', 'Tardanzas >60min mes', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#db2777', '🤱', 'Lactancia próxima a vencer', lactanciaProx.length, lactanciaProx.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+(e._diasFalta < 0 ? ' (venció hace '+Math.abs(e._diasFalta)+'d)' : e._diasFalta===0 ? ' (HOY)' : ' (+'+e._diasFalta+'d)')).join(', '), `switchTab('empleados')`)}
               ${isAdmin ? cardCritica('#7c3aed', '🗑️', 'Solicitudes de borrado', borradoPendientes||0, (borradoPendientes===1?'1 solicitud':borradoPendientes+' solicitudes')+' por revisar', `configState.tab='borrados';switchTab('config')`) : ''}
+              ${isAdmin ? cardCritica('#0ea5e9', '💵', 'Préstamos/Adelantos pendientes', prestamoSolicPendientes||0, prestamoSolicDetalle || ((prestamoSolicPendientes===1?'1 solicitud':prestamoSolicPendientes+' solicitudes')+' por resolver'), `switchTab('prestamos')`) : ''}
             </div>
           </div>`;
       }
