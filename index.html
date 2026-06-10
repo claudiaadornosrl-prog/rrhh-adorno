@@ -5700,8 +5700,18 @@ async function renderMisPrestamos() {
   };
 
   const propuestos = (prestamos||[]).filter(p => p.estado === 'propuesto');
-  const activos    = (prestamos||[]).filter(p => p.estado === 'activo');
-  const cerrados   = (prestamos||[]).filter(p => ['pagado','cancelado_anticipado','rechazado'].includes(p.estado));
+  const _esAdelanto = (p) => Number(p.cuotas_totales) === 1 && Number(p.tasa_mensual||0) === 0;
+  const activos    = (prestamos||[]).filter(p => p.estado === 'activo' && !_esAdelanto(p));
+  const adelantosActivos = (prestamos||[]).filter(p => p.estado === 'activo' && _esAdelanto(p));
+  const cerrados   = (prestamos||[]).filter(p => ['pagado','cancelado_anticipado','rechazado'].includes(p.estado) && !_esAdelanto(p));
+  const adelantosCerrados = (prestamos||[]).filter(p => ['pagado','cancelado_anticipado','rechazado'].includes(p.estado) && _esAdelanto(p));
+
+  // Mis solicitudes pendientes (TODAS: adelantos + préstamos + refinanciaciones + adelantar cuotas)
+  const { data: misSolicPendientes } = await sb.from('rrhh_prestamo_solicitud')
+    .select('*')
+    .eq('empleado_id', session.empleado_id)
+    .eq('estado', 'pendiente')
+    .order('solicitado_at', { ascending: false });
 
   const renderCuotas = (cuotas) => `
     <div style="max-height:240px;overflow:auto;margin-top:10px;">
@@ -5799,6 +5809,39 @@ async function renderMisPrestamos() {
       </div>
     </div>
 
+    ${(misSolicPendientes||[]).length === 0 ? '' : `
+      <div class="section-title" style="color:#d97706;">📩 Mis solicitudes pendientes (${misSolicPendientes.length})</div>
+      ${misSolicPendientes.map(s => {
+        const tipoLabel = {
+          'adelanto_sueldo':   { emoji:'💵', titulo:'Adelanto de sueldo' },
+          'prestamo_nuevo':    { emoji:'🏦', titulo:'Préstamo nuevo' },
+          'refinanciacion':    { emoji:'💸', titulo:'Refinanciación' },
+          'adelantar_cuotas':  { emoji:'⚡', titulo:'Adelantar cuotas' },
+        }[s.tipo] || { emoji:'📩', titulo:s.tipo };
+        let detalle = '';
+        if (s.tipo === 'adelanto_sueldo') {
+          detalle = `Pediste: <strong>${fmt(s.monto_solicitado)}</strong>`;
+        } else if (s.tipo === 'prestamo_nuevo') {
+          const opcs = s.cuotas_opciones || [s.cuotas_solicitadas];
+          detalle = `Capital: <strong>${fmt(s.monto_solicitado)}</strong> · opciones: <strong>${opcs.join(' / ')}</strong> cuotas`;
+        } else if (s.tipo === 'refinanciacion') {
+          detalle = `Préstamo #${s.prestamo_id} · pedís <strong>${fmt(s.capital_adicional)}</strong> adicionales en <strong>${s.cuotas_solicitadas}</strong> cuotas total`;
+        } else if (s.tipo === 'adelantar_cuotas') {
+          detalle = `Préstamo #${s.prestamo_id} · adelantar <strong>${s.cuotas_a_adelantar}</strong> cuotas`;
+        }
+        return `
+          <div class="card" style="background:#fef3c7;border:1px solid #fcd34d;margin-bottom:10px;">
+            <div style="padding:6px;">
+              <div style="font-size:13px;font-weight:600;color:#854d0e;">${tipoLabel.emoji} ${tipoLabel.titulo}</div>
+              <div style="font-size:13px;color:#92400e;margin-top:6px;">${detalle}</div>
+              ${s.motivo ? `<div style="font-size:12px;color:#a16207;margin-top:4px;font-style:italic;">"${escapeHtml(s.motivo)}"</div>` : ''}
+              <div style="font-size:11px;color:#a16207;margin-top:6px;">📅 Enviada ${fmtFecha(s.solicitado_at?.slice(0,10))} · Esperando respuesta del admin</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    `}
+
     ${propuestos.length === 0 ? '' : `
       <div class="section-title" style="color:#6366f1;">📩 Propuestas pendientes (${propuestos.length})</div>
       ${propuestos.map(p => `
@@ -5820,6 +5863,20 @@ async function renderMisPrestamos() {
             <summary style="cursor:pointer;font-size:13px;color:#6366f1;font-weight:600;">Ver plan completo de cuotas</summary>
             ${renderCuotas(cuotasPorPres[p.id])}
           </details>
+        </div>
+      `).join('')}
+    `}
+
+    ${adelantosActivos.length === 0 ? '' : `
+      <div class="section-title" style="color:#0891b2;">💵 Adelantos otorgados (${adelantosActivos.length})</div>
+      ${adelantosActivos.map(p => `
+        <div class="card" style="background:#ecfeff;border:1px solid #a5f3fc;margin-bottom:10px;">
+          <div style="padding:6px;">
+            <div style="font-size:11px;color:#0891b2;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Adelanto · otorgado ${fmtFecha(p.fecha_otorgamiento)}</div>
+            <div style="font-size:18px;font-weight:600;color:#155e75;">${fmt(p.capital)}</div>
+            <div style="font-size:12px;color:#0e7490;margin-top:4px;">Se descuenta en: <strong>${labelMes(p.mes_primer_descuento)}</strong></div>
+            ${p.notas ? `<div style="font-size:12px;color:#0891b2;margin-top:6px;font-style:italic;">"${escapeHtml(p.notas)}"</div>` : ''}
+          </div>
         </div>
       `).join('')}
     `}

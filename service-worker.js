@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v157-dashboard-card-prestamos-pendientes';
+const CACHE_VERSION = 'rrhh-v158-mis-prestamos-solicitudes-y-adelantos-separados';
 const ASSETS = [
   './',
   './index.html',
