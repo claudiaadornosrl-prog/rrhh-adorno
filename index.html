@@ -18360,11 +18360,28 @@ async function renderPrestamos() {
     .select('id, apellido, nombre, local').eq('estado', 'activo').order('apellido');
   const localesUnicos = [...new Set((empleadosTodos || []).map(e => e.local).filter(Boolean))].sort();
 
-  // Cargar solicitudes pendientes (refinanciación + adelanto)
-  const { data: solicitudes } = await sb.from('rrhh_prestamo_solicitud')
-    .select('*, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local), prestamo:rrhh_prestamo(id, capital, cuota_monto, cuotas_totales)')
+  // Cargar solicitudes pendientes (refinanciación + adelanto + préstamo nuevo + adelanto sueldo)
+  // Hacemos dos queries para evitar embed problemático del JOIN con rrhh_prestamo
+  // (la relación es opcional: muchas solicitudes no tienen prestamo_id porque son nuevas)
+  const { data: solicitudesRaw, error: errSol } = await sb.from('rrhh_prestamo_solicitud')
+    .select('*, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, local)')
     .eq('estado', 'pendiente')
     .order('solicitado_at', { ascending: false });
+  if (errSol) { console.warn('[solicitudes]', errSol); }
+
+  // Para las que tienen prestamo_id, traer datos del préstamo en una segunda query
+  const presIdsSol = [...new Set((solicitudesRaw || []).map(s => s.prestamo_id).filter(Boolean))];
+  let presMap = {};
+  if (presIdsSol.length) {
+    const { data: presList } = await sb.from('rrhh_prestamo')
+      .select('id, capital, cuota_monto, cuotas_totales')
+      .in('id', presIdsSol);
+    (presList || []).forEach(p => { presMap[p.id] = p; });
+  }
+  const solicitudes = (solicitudesRaw || []).map(s => ({
+    ...s,
+    prestamo: s.prestamo_id ? presMap[s.prestamo_id] || null : null
+  }));
 
   // Cargar adelantos OTORGADOS (rrhh_prestamo cuotas=1 tasa=0) — últimos 60 días
   const _hoyAd = new Date();

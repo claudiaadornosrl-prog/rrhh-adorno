@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v155-retiros-resumen-por-empleada';
+const CACHE_VERSION = 'rrhh-v156-fix-solicitudes-prestamos-admin';
 const ASSETS = [
   './',
   './index.html',
