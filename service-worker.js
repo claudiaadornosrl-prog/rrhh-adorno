@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v158-mis-prestamos-solicitudes-y-adelantos-separados';
+const CACHE_VERSION = 'rrhh-v159-vacaciones-reintegro-dia-habil-oficina';
 const ASSETS = [
   './',
   './index.html',

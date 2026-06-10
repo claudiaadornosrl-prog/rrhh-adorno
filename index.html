@@ -10791,6 +10791,39 @@ function _diaSiguiente(ymd) {
   return d.toISOString().split('T')[0];
 }
 
+// Calcula el próximo día de REINTEGRO a vacaciones.
+// - Locales (alcorta/unicenter): trabajan todos los días → día siguiente literal
+// - Oficina (Don Torcuato): no trabaja sáb/dom ni feriados que cierran oficina
+//   → saltar al próximo día hábil
+async function _proximoDiaReintegro(ymd, local) {
+  let d = new Date(ymd + 'T12:00:00');
+  d.setDate(d.getDate() + 1);
+  if (local !== 'oficina') return d.toISOString().split('T')[0];
+
+  // Para oficina: cargar feriados de los próximos 14 días que cierran oficina
+  const fechaIni = d.toISOString().split('T')[0];
+  const fechaFin = new Date(d); fechaFin.setDate(fechaFin.getDate() + 14);
+  const feriadosCierra = new Set();
+  try {
+    const { data: fer } = await sb.from('rrhh_feriados')
+      .select('fecha, cierra_oficina')
+      .gte('fecha', fechaIni)
+      .lte('fecha', fechaFin.toISOString().split('T')[0]);
+    (fer || []).forEach(f => { if (f.cierra_oficina) feriadosCierra.add(f.fecha); });
+  } catch(_) {}
+
+  // Saltar sábado(6), domingo(0) y feriados que cierran oficina
+  for (let i = 0; i < 14; i++) {
+    const dow = d.getDay();
+    const ymdActual = d.toISOString().split('T')[0];
+    if (dow !== 0 && dow !== 6 && !feriadosCierra.has(ymdActual)) {
+      return ymdActual;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return d.toISOString().split('T')[0];  // fallback (no debería pasar)
+}
+
 // Cache para la fuente del logo (se carga una sola vez)
 let _logoFontLoaded = false;
 let _logoFontName = 'ArchitectsDaughter';
@@ -10855,7 +10888,10 @@ async function generarNotificacionVacaciones(movId) {
   const fechaActual = _fechaLargaEs(new Date().toISOString().split('T')[0]);
   const desde = _fechaLargaEs(mov.fecha_desde);
   const hasta = _fechaLargaEs(mov.fecha_hasta);
-  const reintegro = _fechaLargaEs(_diaSiguiente(mov.fecha_hasta));
+  // Reintegro: si la empleada es de oficina, salta sáb/dom y feriados que cierran oficina
+  // (la oficina trabaja días hábiles). Para locales (alcorta/unicenter) es el día siguiente literal.
+  const reintegroYmd = await _proximoDiaReintegro(mov.fecha_hasta, emp?.local);
+  const reintegro = _fechaLargaEs(reintegroYmd);
   // El año correcto es el del saldo fiscal imputado (vacaciones_id),
   // NO el de fecha_desde — la vendedora puede tomar en 2026 días pendientes de 2025.
   const año = mov.saldo?.año || mov.fecha_desde.substring(0, 4);
