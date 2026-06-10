@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v154-mi-legajo-para-encargadas';
+const CACHE_VERSION = 'rrhh-v155-retiros-resumen-por-empleada';
 const ASSETS = [
   './',
   './index.html',

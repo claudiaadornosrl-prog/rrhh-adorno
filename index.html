@@ -16097,6 +16097,61 @@ async function renderRetirosMercaderia() {
       <div class="metric-card accent2"><div class="label">Total $ del mes</div><div class="value">${fmt(totalMes)}</div></div>
     </div>
 
+    ${(() => {
+      // ── Resumen por empleada del mes ─────────────────────────────
+      if (!(retiros||[]).length) return '';
+      const porEmp = {};
+      retiros.forEach(r => {
+        const empId = r.empleado_id;
+        if (!porEmp[empId]) {
+          porEmp[empId] = {
+            nombre: `${r.empleado?.apellido||''}, ${r.empleado?.nombre||''}`.trim().replace(/^,\s*/,''),
+            local: r.local,
+            cantidad: 0,
+            total: 0,
+          };
+        }
+        porEmp[empId].cantidad += 1;
+        porEmp[empId].total += Number(r.monto||0);
+      });
+      const filasEmp = Object.values(porEmp).sort((a,b) => b.total - a.total);
+      const maxTotal = filasEmp[0]?.total || 1;
+      return `
+        <div class="card" style="margin-bottom:14px;">
+          <div class="section-title">📊 Resumen por empleada</div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:#f9fafb;text-align:left;">
+              <th style="padding:8px;">Empleada</th>
+              ${isAdmin ? '<th style="padding:8px;">Local</th>' : ''}
+              <th style="padding:8px;text-align:right;">Retiros</th>
+              <th style="padding:8px;text-align:right;">Total $</th>
+              <th style="padding:8px;width:180px;">% del mes</th>
+            </tr></thead>
+            <tbody>
+              ${filasEmp.map(e => {
+                const pct = totalMes > 0 ? (e.total/totalMes*100) : 0;
+                const pctWidth = maxTotal > 0 ? (e.total/maxTotal*100) : 0;
+                return `<tr style="border-top:1px solid var(--border);">
+                  <td style="padding:8px;font-weight:500;">${escapeHtml(e.nombre)}</td>
+                  ${isAdmin ? `<td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(e.local)}</td>` : ''}
+                  <td style="padding:8px;text-align:right;font-family:monospace;">${e.cantidad}</td>
+                  <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(e.total)}</td>
+                  <td style="padding:8px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <div style="flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;">
+                        <div style="width:${pctWidth.toFixed(1)}%;height:100%;background:#534ab7;"></div>
+                      </div>
+                      <span style="font-size:11px;color:var(--muted);min-width:42px;text-align:right;">${pct.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    })()}
+
     <div class="card">
       <div class="section-title">Retiros de ${new Date(y,m-1,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'})}</div>
       ${(retiros||[]).length === 0 ? `<div style="color:var(--muted);padding:12px;">Sin retiros cargados este mes.</div>` : `
