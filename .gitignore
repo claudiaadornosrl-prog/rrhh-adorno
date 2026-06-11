@@ -29,3 +29,16 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# === Material interno: NUNCA al repo publico (Pages solo necesita la app) ===
+sql/
+migrations/
+sync_anviz/
+supabase/
+backups/
+Firma JP.png
+*.xls
+*.xlsx
+*.csv
+google_credentials.json
+google_token*.json
