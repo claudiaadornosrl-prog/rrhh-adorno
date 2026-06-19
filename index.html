@@ -16143,7 +16143,7 @@ function retmercCambiarMes(periodo) {
 }
 
 async function renderRetirosMercaderia() {
-  const isAdmin   = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin';
   const localFiltro = isAdmin ? null : session.empleadoData?.local;
   const periodo = window.retmercState.periodo;
   const [y, m] = periodo.split('-').map(Number);
@@ -16151,29 +16151,33 @@ async function renderRetirosMercaderia() {
   const ultimoDia = new Date(y, m, 0).getDate();
   const hasta = `${y}-${String(m).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
 
-  // Empleadas del local
+  // Empleadas activas
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, apellido, nombre, local').eq('estado','activo');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
   const { data: empleadas } = await qEmp.order('apellido');
+  const opcionesEmp = (empleadas||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
 
-  // Retiros del mes
-  let qRet = sb.from('rrhh_retiro_mercaderia')
-    .select('*, empleado:rrhh_empleados(apellido, nombre, local)')
+  // Retiros del mes (vista enriquecida con info de cuotas + empleada)
+  let qRet = sb.from('rrhh_retiros_mercaderia_view').select('*')
     .gte('fecha', desde).lte('fecha', hasta)
+    .neq('estado', 'cancelado')
     .order('fecha', { ascending: false });
   if (localFiltro) qRet = qRet.eq('local', localFiltro);
   const { data: retiros } = await qRet;
 
-  const totalMes = (retiros||[]).reduce((a, r) => a + Number(r.monto||0), 0);
+  // Pendientes de asignación (de cualquier mes, no solo el actual)
+  let qPend = sb.from('rrhh_retiros_mercaderia_view').select('*').eq('estado', 'pendiente_asignacion').order('fecha', { ascending: false });
+  if (localFiltro) qPend = qPend.eq('local', localFiltro);
+  const { data: pendientes } = await qPend;
+
+  const totalMes = (retiros||[]).reduce((a, r) => a + Number(r.importe||0), 0);
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
-  const opcionesEmp = (empleadas||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
-
-  return `
+  const html = `
     <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2>Retiros de mercadería</h2>
-        <div class="subtitle">Registrá acá cuando una empleada se lleva mercadería. Se descuentan automáticamente al cerrar el mes en su liquidación.</div>
+        <h2>📦 Retiros de mercadería</h2>
+        <div class="subtitle">Sincronizado automáticamente desde Dragonfish (MOTIVO=RMP). Al cierre del mes se descuentan del efectivo del sueldo.</div>
       </div>
       <div>
         <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Mostrar mes</label>
@@ -16181,7 +16185,6 @@ async function renderRetirosMercaderia() {
           ${(() => {
             const hoy = new Date();
             const opts = [];
-            // Últimos 24 meses + 1 futuro
             for (let i = -1; i < 24; i++) {
               const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
               const p = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -16195,45 +16198,76 @@ async function renderRetirosMercaderia() {
       </div>
     </div>
 
+    <div class="metrics-grid" style="margin:14px 0;">
+      <div class="metric-card"><div class="label">Retiros del mes</div><div class="value">${(retiros||[]).length}</div></div>
+      <div class="metric-card accent2"><div class="label">Total $ del mes</div><div class="value">${fmt(totalMes)}</div></div>
+      ${(pendientes||[]).length > 0 ? `<div class="metric-card" style="background:#fef2f2;border-left:4px solid #dc2626;"><div class="label" style="color:#991b1b;">⚠ Pendientes asignar</div><div class="value" style="color:#dc2626;">${pendientes.length}</div></div>` : ''}
+    </div>
+
+    ${isAdmin && (pendientes||[]).length > 0 ? `
+      <div class="card" style="margin-bottom:14px;background:#fef2f2;border-left:4px solid #dc2626;">
+        <div class="section-title" style="color:#991b1b;">🚨 Retiros pendientes de asignar (${pendientes.length})</div>
+        <div style="font-size:12px;color:#7f1d1d;margin-bottom:10px;">El sync no pudo identificar al empleado. Asignalo manualmente:</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#fee2e2;text-align:left;">
+            <th style="padding:6px;">Fecha</th><th style="padding:6px;">Local</th><th style="padding:6px;">Vendedor (DF)</th><th style="padding:6px;">Obs.</th><th style="padding:6px;text-align:right;">Importe</th><th style="padding:6px;">Asignar a</th>
+          </tr></thead>
+          <tbody>
+            ${pendientes.map(p => `<tr style="border-top:1px solid #fecaca;">
+              <td style="padding:6px;font-family:monospace;">${fmtFecha(p.fecha)}</td>
+              <td style="padding:6px;font-size:12px;">${escapeHtml(p.local)}</td>
+              <td style="padding:6px;font-family:monospace;font-size:12px;">${escapeHtml(p.vendedor_dragonfish||'—')}</td>
+              <td style="padding:6px;font-size:12px;color:#7f1d1d;">${escapeHtml((p.observacion||'').substring(0,60))}</td>
+              <td style="padding:6px;text-align:right;font-family:monospace;font-weight:600;">${fmt(p.importe)}</td>
+              <td style="padding:6px;">
+                <select onchange="retAsignarEmpleado(${p.id}, this.value)" style="width:100%;padding:4px;font-size:12px;">
+                  <option value="">— Elegir —</option>${opcionesEmp}
+                </select>
+                <button class="btn small" style="margin-top:3px;background:#fee2e2;color:#991b1b;" onclick="retCancelar(${p.id})">🗑 Cancelar</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
+
+    ${isAdmin ? `
     <div class="card" style="padding:16px;">
-      <h3 style="margin:0 0 12px;">➕ Nuevo retiro</h3>
-      <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
+      <h3 style="margin:0 0 12px;">➕ Cargar retiro manual</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Usar solo si NO se cargó en Dragonfish. Lo normal es que el sync los traiga automáticamente cada hora.</div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 2fr 70px auto;gap:10px;align-items:end;">
         <div class="form-row"><label>Empleada</label>
           <select id="ret-emp"><option value="">— Elegir —</option>${opcionesEmp}</select>
         </div>
         <div class="form-row"><label>Fecha</label><input type="date" id="ret-fecha" value="${new Date().toISOString().slice(0,10)}"></div>
-        <div class="form-row"><label>Monto</label><input type="number" id="ret-monto" placeholder="0" min="0" step="any"></div>
-        <div class="form-row"><label>Descripción (opcional)</label><input type="text" id="ret-desc" placeholder="Ej: SET MANTELES + 2 VELAS"></div>
+        <div class="form-row"><label>Importe</label><input type="number" id="ret-monto" placeholder="0" min="0" step="any"></div>
+        <div class="form-row"><label>Descripción</label><input type="text" id="ret-desc" placeholder="Ej: SET MANTELES"></div>
+        <div class="form-row"><label>Cuotas</label><input type="number" id="ret-cuotas" value="1" min="1" max="12" step="1"></div>
         <button class="btn primary" onclick="retCargar()">💾 Cargar</button>
       </div>
     </div>
-
-    <div class="metrics-grid" style="margin:14px 0;">
-      <div class="metric-card"><div class="label">Retiros del mes</div><div class="value">${(retiros||[]).length}</div></div>
-      <div class="metric-card accent2"><div class="label">Total $ del mes</div><div class="value">${fmt(totalMes)}</div></div>
-    </div>
+    ` : ''}
 
     ${(() => {
-      // ── Resumen por empleada del mes ─────────────────────────────
       if (!(retiros||[]).length) return '';
       const porEmp = {};
       retiros.forEach(r => {
         const empId = r.empleado_id;
         if (!porEmp[empId]) {
           porEmp[empId] = {
-            nombre: `${r.empleado?.apellido||''}, ${r.empleado?.nombre||''}`.trim().replace(/^,\s*/,''),
-            local: r.local,
+            nombre: escapeHtml(r.empleado_nombre_completo || '—'),
+            local: r.empleado_local || r.local,
             cantidad: 0,
             total: 0,
           };
         }
         porEmp[empId].cantidad += 1;
-        porEmp[empId].total += Number(r.monto||0);
+        porEmp[empId].total += Number(r.importe||0);
       });
       const filasEmp = Object.values(porEmp).sort((a,b) => b.total - a.total);
       const maxTotal = filasEmp[0]?.total || 1;
       return `
-        <div class="card" style="margin-bottom:14px;">
+        <div class="card" style="margin:14px 0;">
           <div class="section-title">📊 Resumen por empleada</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead><tr style="background:#f9fafb;text-align:left;">
@@ -16248,7 +16282,7 @@ async function renderRetirosMercaderia() {
                 const pct = totalMes > 0 ? (e.total/totalMes*100) : 0;
                 const pctWidth = maxTotal > 0 ? (e.total/maxTotal*100) : 0;
                 return `<tr style="border-top:1px solid var(--border);">
-                  <td style="padding:8px;font-weight:500;">${escapeHtml(e.nombre)}</td>
+                  <td style="padding:8px;font-weight:500;">${e.nombre}</td>
                   ${isAdmin ? `<td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(e.local)}</td>` : ''}
                   <td style="padding:8px;text-align:right;font-family:monospace;">${e.cantidad}</td>
                   <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(e.total)}</td>
@@ -16273,67 +16307,127 @@ async function renderRetirosMercaderia() {
       ${(retiros||[]).length === 0 ? `<div style="color:var(--muted);padding:12px;">Sin retiros cargados este mes.</div>` : `
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;">Fecha</th><th style="padding:8px;">Empleada</th>
+          <th style="padding:8px;">Fecha</th>
+          <th style="padding:8px;">Origen</th>
+          <th style="padding:8px;">Empleada</th>
           ${isAdmin ? '<th style="padding:8px;">Local</th>' : ''}
-          <th style="padding:8px;text-align:right;">Monto</th><th style="padding:8px;">Descripción</th><th style="padding:8px;"></th>
+          <th style="padding:8px;text-align:right;">Importe</th>
+          <th style="padding:8px;text-align:center;">Cuotas</th>
+          <th style="padding:8px;">Observación</th>
+          <th style="padding:8px;text-align:center;">Estado</th>
+          ${isAdmin ? '<th style="padding:8px;"></th>' : ''}
         </tr></thead>
         <tbody>
-          ${retiros.map(r => `<tr style="border-top:1px solid var(--border);">
-            <td style="padding:8px;font-family:monospace;">${fmtFecha(r.fecha)}</td>
-            <td style="padding:8px;">${escapeHtml(r.empleado?.apellido||'')}, ${escapeHtml(r.empleado?.nombre||'')}</td>
-            ${isAdmin ? `<td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(r.local)}</td>` : ''}
-            <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(r.monto)}</td>
-            <td style="padding:8px;color:var(--muted);">${escapeHtml(r.descripcion||'')}</td>
-            <td style="padding:8px;"><button class="btn small" onclick="retBorrar(${r.id})" title="Eliminar">🗑</button></td>
-          </tr>`).join('')}
+          ${retiros.map(r => {
+            const esManual = r.dragonfish_codigo && r.dragonfish_codigo.startsWith('manual_');
+            const origen = esManual
+              ? '<span style="font-size:11px;color:#475569;">Manual</span>'
+              : `<span style="font-size:11px;color:#16a34a;" title="${escapeHtml(r.dragonfish_codigo||'')}">🐉 DF</span>`;
+            const cuotasTxt = r.cuotas_creadas > 0
+              ? `${r.cuotas_descontadas||0}/${r.cuotas_creadas}`
+              : (r.cuotas_total||1).toString();
+            const colorCuotas = (r.cuotas_descontadas||0) >= (r.cuotas_creadas||0) && r.cuotas_creadas > 0 ? '#16a34a' : '#0891b2';
+            const colorEstado = r.estado === 'descontado' ? '#16a34a' : (r.estado === 'asignado' ? '#0891b2' : '#dc2626');
+            const labelEstado = r.estado === 'descontado' ? '✓ Descontado' : (r.estado === 'asignado' ? '⏳ Asignado' : r.estado);
+            return `<tr style="border-top:1px solid var(--border);">
+              <td style="padding:8px;font-family:monospace;">${fmtFecha(r.fecha)}</td>
+              <td style="padding:8px;">${origen}</td>
+              <td style="padding:8px;">${escapeHtml(r.empleado_nombre_completo||'—')}</td>
+              ${isAdmin ? `<td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(r.local)}</td>` : ''}
+              <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(r.importe)}</td>
+              <td style="padding:8px;text-align:center;font-family:monospace;color:${colorCuotas};font-weight:600;cursor:${isAdmin?'pointer':'default'};" ${isAdmin?`onclick="retEditarCuotas(${r.id}, ${r.cuotas_total||1})"`:''} title="${isAdmin?'Click para editar cuotas':''}">${cuotasTxt}</td>
+              <td style="padding:8px;color:var(--muted);font-size:12px;">${escapeHtml((r.observacion||'').substring(0,60))}</td>
+              <td style="padding:8px;text-align:center;"><span style="background:${colorEstado}22;color:${colorEstado};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">${labelEstado}</span></td>
+              ${isAdmin ? `<td style="padding:8px;white-space:nowrap;">
+                <button class="btn small" onclick="retEditarImporte(${r.id}, ${r.importe})" title="Editar importe">✏️</button>
+                ${r.estado !== 'descontado' ? `<button class="btn small" onclick="retCancelar(${r.id})" title="Cancelar">🗑</button>` : ''}
+              </td>` : ''}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>`}
     </div>
   `;
+
+  document.getElementById('main').innerHTML = html;
 }
+
+window.retmercCambiarMes = function(p) {
+  window.retmercState.periodo = p;
+  switchTab('retiros');
+};
 
 async function retCargar() {
   const empId = parseInt(document.getElementById('ret-emp').value);
   const fecha = document.getElementById('ret-fecha').value;
   const monto = Number(document.getElementById('ret-monto').value);
   const desc  = document.getElementById('ret-desc').value.trim() || null;
+  const cuotas = Math.max(1, parseInt(document.getElementById('ret-cuotas').value) || 1);
   if (!empId || !fecha || !monto || monto <= 0) {
     toast('Faltan datos (empleada, fecha, monto)', 'error'); return;
   }
-  // Resolver el local del empleado
   const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
   if (!emp) { toast('Empleada no encontrada', 'error'); return; }
-  const { error } = await sb.from('rrhh_retiro_mercaderia').insert({
-    empleado_id: empId, local: emp.local, fecha, monto, descripcion: desc,
-    cargado_por: session.user?.email || session.empleadoData?.nombre_completo || null,
+  const codigo = 'manual_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+  const { error } = await sb.from('rrhh_retiros_mercaderia').insert({
+    dragonfish_codigo: codigo,
+    local: emp.local,
+    fecha,
+    empleado_id: empId,
+    importe: monto,
+    observacion: desc,
+    estado: 'asignado',
+    cuotas_total: cuotas,
+    notas_admin: 'Cargado manual por ' + (session.email || 'admin'),
   });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-
-  // 🔔 Notif al admin (si lo cargó la encargada)
-  if (session.rol !== 'admin') {
-    const { data: empNom } = await sb.from('rrhh_empleados').select('nombre_completo').eq('id', empId).maybeSingle();
-    const _quien = session.empleadoData?.nombre_completo || session.email?.split('@')[0] || 'encargada';
-    const _localTxt = LOCALES[emp.local]?.nombre || emp.local;
-    const _fechaTxt = fecha ? fecha.split('-').reverse().join('/') : '';
-    const _montoTxt = '$' + Number(monto).toLocaleString('es-AR');
-    notifAdmins(
-      '🛍 Retiro de mercadería cargado',
-      `${_quien} cargó ${_montoTxt} a ${empNom?.nombre_completo || 'una empleada'} (${_localTxt}) del ${_fechaTxt}${desc ? ' — ' + desc : ''}`,
-      { url: './#retiros', tag: 'retiro-' + empId + '-' + fecha }
-    );
-  }
-
-  toast('Retiro cargado ✓', 'success');
+  toast('Retiro cargado ✓ (' + cuotas + ' cuota' + (cuotas>1?'s':'') + ')', 'success');
   switchTab('retiros');
 }
 
-async function retBorrar(id) {
-  if (!confirm('¿Eliminar este retiro?')) return;
-  const { error } = await sb.from('rrhh_retiro_mercaderia').delete().eq('id', id);
+async function retCancelar(id) {
+  if (!confirm('¿Cancelar este retiro? No va a descontarse del sueldo.')) return;
+  const { error } = await sb.from('rrhh_retiros_mercaderia').update({ estado: 'cancelado' }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  toast('Eliminado', 'success');
+  toast('Cancelado', 'success');
   switchTab('retiros');
 }
+
+async function retAsignarEmpleado(id, empId) {
+  if (!empId) return;
+  const { error } = await sb.from('rrhh_retiros_mercaderia').update({
+    empleado_id: parseInt(empId), estado: 'asignado'
+  }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Asignado ✓', 'success');
+  switchTab('retiros');
+}
+
+async function retEditarCuotas(id, actual) {
+  const nuevo = prompt('Cantidad de cuotas para este retiro:\\n\\nSi pones 2, se divide en 2 meses (este mes y el próximo).\\nSi pones 3, en 3 meses, etc.\\n\\nValor actual: ' + actual, actual);
+  if (!nuevo) return;
+  const n = parseInt(nuevo);
+  if (!n || n < 1 || n > 12) { toast('Cantidad inválida (1-12)', 'error'); return; }
+  const { error } = await sb.from('rrhh_retiros_mercaderia').update({ cuotas_total: n }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Cuotas actualizadas ✓', 'success');
+  switchTab('retiros');
+}
+
+async function retEditarImporte(id, actual) {
+  const nuevo = prompt('Nuevo importe:', actual);
+  if (!nuevo) return;
+  const n = Number(nuevo);
+  if (!n || n <= 0) { toast('Importe inválido', 'error'); return; }
+  const { error } = await sb.from('rrhh_retiros_mercaderia').update({ importe: n }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Importe actualizado ✓', 'success');
+  switchTab('retiros');
+}
+
+// retBorrar (alias compatibilidad)
+window.retBorrar = retCancelar;
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  AUMENTOS PEDIDOS — flujo encargada ↔ admin
