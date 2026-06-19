@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v160-retiros-cuotas-sync-dragonfish';
+const CACHE_VERSION = 'rrhh-v161-retiros-articulos';
 const ASSETS = [
   './',
   './index.html',

@@ -16336,7 +16336,17 @@ async function renderRetirosMercaderia() {
               ${isAdmin ? `<td style="padding:8px;font-size:12px;color:var(--muted);">${escapeHtml(r.local)}</td>` : ''}
               <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(r.importe)}</td>
               <td style="padding:8px;text-align:center;font-family:monospace;color:${colorCuotas};font-weight:600;cursor:${isAdmin?'pointer':'default'};" ${isAdmin?`onclick="retEditarCuotas(${r.id}, ${r.cuotas_total||1})"`:''} title="${isAdmin?'Click para editar cuotas':''}">${cuotasTxt}</td>
-              <td style="padding:8px;color:var(--muted);font-size:12px;">${escapeHtml((r.observacion||'').substring(0,60))}</td>
+              <td style="padding:8px;color:var(--muted);font-size:12px;">
+                ${(r.articulos && r.articulos.length) ? `
+                  <details style="cursor:pointer;">
+                    <summary style="color:#0891b2;font-weight:500;">📦 ${r.articulos.length} artículo${r.articulos.length>1?'s':''}</summary>
+                    <div style="margin-top:4px;padding:6px 8px;background:#f0fdfa;border-radius:4px;font-size:11px;">
+                      ${r.articulos.map(a => `<div>• ${a.cant}× ${escapeHtml(a.desc||a.art||'')}${a.color||a.talle?` <span style="color:#64748b;">(${escapeHtml([a.color,a.talle].filter(Boolean).join(' '))})</span>`:''}</div>`).join('')}
+                    </div>
+                  </details>
+                  ${r.observacion ? `<div style="margin-top:3px;color:#64748b;font-style:italic;">${escapeHtml((r.observacion||'').substring(0,80))}</div>` : ''}
+                ` : escapeHtml((r.observacion||'').substring(0,80))}
+              </td>
               <td style="padding:8px;text-align:center;"><span style="background:${colorEstado}22;color:${colorEstado};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">${labelEstado}</span></td>
               ${isAdmin ? `<td style="padding:8px;white-space:nowrap;">
                 <button class="btn small" onclick="retEditarImporte(${r.id}, ${r.importe})" title="Editar importe">✏️</button>
