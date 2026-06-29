@@ -4024,7 +4024,7 @@ async function enviarSolicitudPago() {
     solicitado_por: session.email,
     observaciones: 'Solicitud de pago' + (motivo ? ` — ${motivo}` : ''),
   }).select().single();
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (error) { toast(_mensajeErrorVacaciones(error), 'error'); return; }
   await auditLog('solicitar_pago_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${dias} días`);
   toast('Solicitud de pago enviada ✓ Te avisamos cuando la aprueben', 'success');
   document.getElementById('solpag-modal').remove();
@@ -5410,6 +5410,19 @@ function wireVacacionesForm() {
 
 let _editandoVacacionId = null;
 
+// Traduce errores técnicos de PostgREST a mensajes amigables para vacaciones.
+// El constraint vac_no_overlap_activo (DB) rechaza solicitudes superpuestas con
+// otra activa del mismo empleado — los duplicados accidentales por doble click
+// del 2026-06-08 ya no pueden repetirse.
+function _mensajeErrorVacaciones(error) {
+  if (!error) return 'Error desconocido';
+  const msg = error.message || '';
+  if (error.code === '23P01' || msg.includes('vac_no_overlap_activo')) {
+    return 'Ya tenés solicitada esa fecha en los permisos. Revisalo en "Mis vacaciones" o anulá la anterior antes de pedir el cambio.';
+  }
+  return msg || 'Error desconocido';
+}
+
 async function solicitarVacaciones() {
   let desde = document.getElementById('vac-desde').value;
   let hasta = document.getElementById('vac-hasta').value;
@@ -5466,7 +5479,7 @@ async function solicitarVacaciones() {
       fecha_desde: desde, fecha_hasta: hasta, dias,
       observaciones: obs || null,
     }).eq('id', _editandoVacacionId);
-    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    if (error) { toast(_mensajeErrorVacaciones(error), 'error'); return; }
     await auditLog('modificar_vacaciones', 'rrhh_vacaciones_movimientos', _editandoVacacionId, null, null, `${desde} → ${hasta} (${dias}d)`);
     toast('Solicitud modificada ✓', 'success');
     _editandoVacacionId = null;
@@ -5481,7 +5494,7 @@ async function solicitarVacaciones() {
     solicitado_por: session.email,
     observaciones: obs || null,
   }).select().single();
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (error) { toast(_mensajeErrorVacaciones(error), 'error'); return; }
   await auditLog('solicitar_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d)`);
 
   // 🔔 Notif al admin (igual para vendedoras de oficina porque JP es encargado de oficina)
@@ -21473,16 +21486,16 @@ const salaryWorkflow = (() => {
       const fijo = fijoFull * (diasTrabajados / 30);
       const viaticos = viaticosFull * (diasTrabajados / 30);
       const totalNegro = fijo + viaticos;
-      // Mercadería: cargar retiros del mes (igual que empleadas normales)
+      // Mercadería: cuotas del mes desde la tabla nueva (respeta cuotas + estado).
+      // BUG fix 19-jun-2026: usaba rrhh_retiro_mercaderia (singular vieja).
       let mercaderia_mono = 0;
       try {
-        const _ultDiaMono = String(diasDelMes(periodo)).padStart(2,'0');
-        const _hastaMono = `${periodo}-${_ultDiaMono}`;
-        const { data: retsMono } = await sb.from('rrhh_retiro_mercaderia')
-          .select('monto, fecha').eq('empleado_id', empleadoId)
-          .gte('fecha', periodoFull).lte('fecha', _hastaMono);
-        mercaderia_mono = (retsMono || []).reduce((s, r) => s + Number(r.monto || 0), 0);
-        console.log('[merc mono] emp', empleadoId, 'retiros', retsMono?.length || 0, 'total', mercaderia_mono);
+        const [_y, _m] = periodo.split('-').map(Number);
+        const { data: _sumMono } = await sb.rpc('rrhh_sum_retiros_mes', {
+          p_empleado_id: empleadoId, p_anio: _y, p_mes: _m
+        });
+        mercaderia_mono = Number(_sumMono || 0);
+        console.log('[merc mono] emp', empleadoId, 'total cuotas mes', mercaderia_mono);
       } catch (e) { console.warn('mercaderia monotributista', e); }
       const efectivo = Math.max(0, totalNegro - banco - mercaderia_mono);
       const { data: existing } = await sb.from('rrhh_liquidacion')
@@ -21569,16 +21582,15 @@ const salaryWorkflow = (() => {
     }
 
     const dias_trabajados = inputs.dias_trabajados ?? diasTrabajadosInferidos;
-    // Mercadería: si no se pasa input explícito, sumar los retiros cargados por la encargada
+    // Mercadería: cuotas del mes desde la tabla nueva (respeta cuotas + estado).
+    // BUG fix 19-jun-2026: usaba rrhh_retiro_mercaderia (singular vieja) que ya no se llena.
     let mercaderia_auto = 0;
     if (inputs.mercaderia == null) {
       const [y, m] = periodo.split('-').map(Number);
-      const desde = `${periodo}-01`;
-      const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
-      const { data: rets } = await sb.from('rrhh_retiro_mercaderia')
-        .select('monto').eq('empleado_id', empleadoId)
-        .gte('fecha', desde).lte('fecha', hasta);
-      mercaderia_auto = (rets || []).reduce((a, r) => a + Number(r.monto || 0), 0);
+      const { data: _sum } = await sb.rpc('rrhh_sum_retiros_mes', {
+        p_empleado_id: empleadoId, p_anio: y, p_mes: m
+      });
+      mercaderia_auto = Number(_sum || 0);
     }
     const mercaderia = inputs.mercaderia ?? mercaderia_auto;
 
