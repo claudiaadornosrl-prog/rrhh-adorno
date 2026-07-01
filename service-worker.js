@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v163-mensaje-overlap-vac';
+const CACHE_VERSION = 'rrhh-v164-ausencia-salvada-no-descuenta';
 const ASSETS = [
   './',
   './index.html',

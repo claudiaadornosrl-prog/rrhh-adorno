@@ -2966,7 +2966,10 @@ async function renderTabAsistencias() {
     }
     const r = porPeriodo[p];
     if (['puntual','tarde'].includes(d.estado)) r.dias_trabajados++;
-    if (d.estado === 'ausente')    r.dias_ausente++;
+    // Ausencia salvada = cuenta como trabajado (encargada confirmó que la
+    // empleada vino aunque el reloj no fichó). No cuenta como ausencia real.
+    if (d.estado === 'ausente' && d.error_salvado) r.dias_trabajados++;
+    if (d.estado === 'ausente' && !d.error_salvado) r.dias_ausente++;
     if (d.estado === 'vacaciones') r.dias_vacaciones++;
     if (d.estado === 'licencia')   r.dias_licencia++;
     if (d.estado === 'feriado')    r.dias_feriado++;
@@ -12219,7 +12222,9 @@ async function abrirConfirmacionRecibo(liqId) {
       .eq('empleado_id', liq.empleado_id)
       .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
 
-    const ausentes = (detalles || []).filter(d => d.estado === 'ausente');
+    // Excluir salvadas: si la encargada las salvó (problema de fichada), no
+    // deben aparecer como "sin justificar" ni descontar del sueldo.
+    const ausentes = (detalles || []).filter(d => d.estado === 'ausente' && !d.error_salvado);
     const permisosByFecha = {};
     (permisos || []).forEach(p => { permisosByFecha[p.fecha] = p; });
 
@@ -21369,8 +21374,12 @@ const salaryWorkflow = (() => {
     const [y, m] = periodo.split('-').map(Number);
     const desde = `${periodo}-01`;
     const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+    // IMPORTANTE: traemos error_salvado para NO descontar sueldo cuando la
+    // encargada "salvó" la ausencia (ej. reloj Anviz que no fichó pero la
+    // empleada sí vino a trabajar). El día queda como 'ausente' visualmente
+    // pero con error_salvado=true → no debe restar del sueldo.
     const { data: dias } = await sb.from('rrhh_asistencias_detalle')
-      .select('fecha, estado').eq('empleado_id', empleadoId)
+      .select('fecha, estado, error_salvado').eq('empleado_id', empleadoId)
       .gte('fecha', desde).lte('fecha', hasta)
       .in('estado', ['vacaciones','licencia','ausente']);
     if (!dias || dias.length === 0) return 0;
@@ -21413,6 +21422,10 @@ const salaryWorkflow = (() => {
     let count = 0;
     for (const d of dias) {
       if (fechasCompensadas.has(d.fecha)) continue;  // Compensado con banco/vacaciones → no descontar fijo
+      // Ausencia SALVADA por la encargada (ej. reloj Anviz no fichó pero la
+      // empleada sí trabajó) → NO descontar sueldo. Se sigue viendo como
+      // ausente visualmente pero no impacta la liquidación.
+      if (d.estado === 'ausente' && d.error_salvado) continue;
       if (d.estado === 'ausente') count++;
       else if (d.estado === 'licencia' && licMap[d.fecha] === false) count++;
       // vacaciones y licencia con goce: no suman
