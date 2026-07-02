@@ -14122,9 +14122,9 @@ async function renderLiquidaciones() {
         .in('local', Array.from(localesSet));
       const cfgLocalMap = {};
       (cfgLocalesRows || []).forEach(c => { cfgLocalMap[c.local] = c; });
-      // 3) Config por empleada (fracción, modo prorrateo)
+      // 3) Config por empleada (fracción, modo prorrateo, flag día×venta)
       const { data: cfgEmpRows } = await sb.from('rrhh_sueldo_empleada_config')
-        .select('empleado_id, fraccion_comision, dias_prorrateo_modo')
+        .select('empleado_id, fraccion_comision, dias_prorrateo_modo, comision_dia_por_venta')
         .in('empleado_id', empIdsLiq);
       const cfgEmpMap = {};
       (cfgEmpRows || []).forEach(c => { cfgEmpMap[c.empleado_id] = c; });
@@ -14164,7 +14164,52 @@ async function renderLiquidaciones() {
           }
         }
       }
-      // 6) Calcular desglose por empleada
+      // 6) Para empleadas con flag comision_dia_por_venta (Escasany), cargar días fichados + ventas diarias
+      const diasLocalEmpIds = (liqs||[])
+        .filter(l => {
+          const c = cfgEmpMap[l.empleado_id];
+          return c && c.comision_dia_por_venta === true;
+        })
+        .map(l => l.empleado_id);
+      const diasFichadosPorEmp = {}; // empleado_id → Set<fecha>
+      const ventasDiariasPorLocal = {}; // local → { fecha → monto }
+      if (diasLocalEmpIds.length > 0) {
+        const [py, pm] = periodo.split('-').map(Number);
+        const ultimoDia = new Date(py, pm, 0).getDate();
+        const desdeF = `${periodo}-01`;
+        const hastaF = `${periodo}-${String(ultimoDia).padStart(2,'0')}`;
+        // Asistencias
+        const { data: detAsis } = await sb.from('rrhh_asistencias_detalle')
+          .select('empleado_id, fecha, estado')
+          .in('empleado_id', diasLocalEmpIds)
+          .gte('fecha', desdeF).lte('fecha', hastaF);
+        (detAsis || []).forEach(d => {
+          const est = (d.estado || '').toLowerCase();
+          if (['presente','puntual','tarde'].includes(est)) {
+            if (!diasFichadosPorEmp[d.empleado_id]) diasFichadosPorEmp[d.empleado_id] = new Set();
+            diasFichadosPorEmp[d.empleado_id].add(d.fecha);
+          }
+        });
+        // Ventas diarias por cada local que tiene una empleada dias_local
+        const localesConFranquera = new Set(
+          (liqs||[])
+            .filter(l => diasLocalEmpIds.includes(l.empleado_id))
+            .map(l => l.local)
+        );
+        for (const loc of localesConFranquera) {
+          const { data: vRows } = await sb.from('ventas_diarias')
+            .select('fecha, efectivo, tarjeta, qr, vales, online, fc_oficina, transferencia, cc')
+            .eq('local', loc)
+            .gte('fecha', desdeF).lte('fecha', hastaF);
+          ventasDiariasPorLocal[loc] = {};
+          (vRows || []).forEach(v => {
+            const t = Number(v.efectivo||0) + Number(v.tarjeta||0) + Number(v.qr||0) + Number(v.vales||0)
+                    + Number(v.online||0) + Number(v.fc_oficina||0) + Number(v.transferencia||0) + Number(v.cc||0);
+            ventasDiariasPorLocal[loc][v.fecha] = t;
+          });
+        }
+      }
+      // 7) Calcular desglose por empleada
       (liqs||[]).forEach(l => {
         const cfgL = cfgLocalMap[l.local];
         const cfgE = cfgEmpMap[l.empleado_id];
@@ -14172,20 +14217,35 @@ async function renderLiquidaciones() {
         const ventasLocal = ventasPorLocal[l.local] || 0;
         const tasa = Number(cfgL.tasa_comision || 0);
         const fraccion = Number(cfgE.fraccion_comision || 0);
-        const modo = cfgE.dias_prorrateo_modo || 'mes_30';
-        const diasRef = modo === 'dias_local' ? (promDiasPorLocal[l.local] || 26) : 30;
+        const usaDiaXVenta = cfgE.comision_dia_por_venta === true;
+        const modo = usaDiaXVenta ? 'dia_x_venta' : (cfgE.dias_prorrateo_modo || 'mes_30');
         const diasTrab = Number(l.dias_trabajados || 0);
-        const ratio = diasRef > 0 ? diasTrab / diasRef : 0;
-        let comisionBase = ventasLocal * tasa;
-        let activas = null;
-        if (cfgL.modo_reparto === 'dividido_activos') {
-          activas = activasPorLocal[l.local] || null;
-          if (activas && activas > 0) comisionBase = comisionBase / activas;
+        if (usaDiaXVenta) {
+          // Suma día × venta
+          const fichadas = diasFichadosPorEmp[l.empleado_id] || new Set();
+          const ventasLoc = ventasDiariasPorLocal[l.local] || {};
+          const detArr = Array.from(fichadas).sort().map(f => ({ fecha: f, monto: ventasLoc[f] || 0 }));
+          const sumaVentas = detArr.reduce((s, d) => s + d.monto, 0);
+          const comisionBase = sumaVentas * tasa;
+          const comisionCalc = comisionBase * fraccion;
+          comisionDesglosePorEmp[l.empleado_id] = {
+            modo, tasa, fraccion, dias: detArr, sumaVentas, comisionBase, comisionCalc,
+          };
+        } else {
+          // Modo mes_30 clásico
+          const diasRef = 30;
+          const ratio = diasRef > 0 ? diasTrab / diasRef : 0;
+          let comisionBase = ventasLocal * tasa;
+          let activas = null;
+          if (cfgL.modo_reparto === 'dividido_activos') {
+            activas = activasPorLocal[l.local] || null;
+            if (activas && activas > 0) comisionBase = comisionBase / activas;
+          }
+          const comisionCalc = comisionBase * fraccion * ratio;
+          comisionDesglosePorEmp[l.empleado_id] = {
+            modo, ventasLocal, tasa, activas, fraccion, diasRef, diasTrab, ratio, comisionBase, comisionCalc,
+          };
         }
-        const comisionCalc = comisionBase * fraccion * ratio;
-        comisionDesglosePorEmp[l.empleado_id] = {
-          ventasLocal, tasa, activas, fraccion, modo, diasRef, diasTrab, ratio, comisionBase, comisionCalc,
-        };
       });
     } catch (e) {
       console.warn('[comisionDesglose] error:', e);
@@ -14536,17 +14596,31 @@ async function renderLiquidaciones() {
                 let desglose = '';
                 if (det) {
                   const pct = (det.tasa * 100).toFixed(3).replace(/\.?0+$/,'') + '%';
-                  desglose = `Ventas del local: $${c.fmt(det.ventasLocal)}\n`
-                           + `Tasa del local: ${pct}\n`;
-                  if (det.activas) desglose += `÷ ${det.activas} vendedoras activas\n`;
-                  desglose += `Fracción individual: ${det.fraccion}\n`;
-                  const modoTxt = det.modo === 'dias_local' ? ' (franquera — promedio del local)' : '';
-                  desglose += `Días trabajados: ${det.diasTrab} / ${det.diasRef}${modoTxt}\n`
-                           + `Ratio: ${det.ratio.toFixed(4)}\n\n`
-                           + `Cálculo: $${c.fmt(det.ventasLocal)} × ${pct}`
-                           + (det.activas ? ` ÷ ${det.activas}` : '')
-                           + ` × ${det.fraccion} × ${det.ratio.toFixed(4)}\n`
-                           + `        = $${c.fmt(det.comisionCalc)}`;
+                  if (det.modo === 'dia_x_venta') {
+                    // Escasany (acuerdo especial): día por día
+                    desglose = `── Días trabajados (fichados) ──\n`;
+                    (det.dias || []).forEach(d => {
+                      const [y,m,dd] = d.fecha.split('-');
+                      desglose += `  ${dd}/${m}: $${c.fmt(d.monto)}\n`;
+                    });
+                    desglose += `\nVentas totales (${(det.dias||[]).length} días): $${c.fmt(det.sumaVentas)}\n`
+                             + `Porcentaje: ${pct}\n`
+                             + `Fracción individual: ${det.fraccion}\n\n`
+                             + `Cálculo: $${c.fmt(det.sumaVentas)} × ${pct} × ${det.fraccion}\n`
+                             + `        = $${c.fmt(det.comisionCalc)}`;
+                  } else {
+                    // Vendedora normal (mes_30)
+                    desglose = `Ventas del local (mes): $${c.fmt(det.ventasLocal)}\n`
+                             + `Tasa del local: ${pct}\n`;
+                    if (det.activas) desglose += `÷ ${det.activas} vendedoras activas\n`;
+                    desglose += `Fracción individual: ${det.fraccion}\n`
+                             + `Días trabajados: ${det.diasTrab} / ${det.diasRef}\n`
+                             + `Ratio: ${det.ratio.toFixed(4)}\n\n`
+                             + `Cálculo: $${c.fmt(det.ventasLocal)} × ${pct}`
+                             + (det.activas ? ` ÷ ${det.activas}` : '')
+                             + ` × ${det.fraccion} × ${det.ratio.toFixed(4)}\n`
+                             + `        = $${c.fmt(det.comisionCalc)}`;
+                  }
                 }
                 if (ov) {
                   const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`;
@@ -21896,17 +21970,59 @@ const salaryWorkflow = (() => {
       ? (configEmp.dias_prorrateo_modo === 'dias_local' ? premioBase * ratio : premioBase)
       : 0;
 
-    // Comisión: ventas_local × tasa × fraccion × ratio.
-    // Para Escasany (modo 'dias_local'), ratio = sus_dias / promedio_local → solo
-    // comisiona sobre la proporción de días que efectivamente trabajó.
+    // Comisión: depende de la config de la empleada.
+    //  - Flag comision_dia_por_venta=true (Escasany): SUMA de ventas de los DÍAS
+    //    que fichó × tasa × fraccion → solo comisiona sobre las ventas reales
+    //    de los días que efectivamente estuvo presente.
+    //  - Resto (default): ventas_TOTAL_mes × tasa × fraccion × ratio
+    //    (÷ activas si el local usa modo dividido_activos)
     const ventasLocal = await cargarVentasLocalMes(emp.local, periodo);
     const tasaLocal = Number(cfgLocal.tasa_comision);
-    let comision_base = ventasLocal * tasaLocal;
-    if (cfgLocal.modo_reparto === 'dividido_activos') {
-      const activas = await contarActivasLocal(emp.local, periodo + '-01');
-      if (activas > 0) comision_base = comision_base / activas;
+    let comision = 0;
+    let comision_base = 0;
+    let comisionDetalleDias = null; // guardado en overrides para tooltip
+    if (configEmp.comision_dia_por_venta === true) {
+      // Días efectivamente trabajados (presente / puntual / tarde — no franco/ausente/vac/lic)
+      const py = periodo.split('-')[0], pm = periodo.split('-')[1];
+      const desdeFecha = `${py}-${pm}-01`;
+      const hastaFecha = `${py}-${pm}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
+      const { data: detAsis } = await sb.from('rrhh_asistencias_detalle')
+        .select('fecha, estado')
+        .eq('empleado_id', empleadoId)
+        .gte('fecha', desdeFecha).lte('fecha', hastaFecha);
+      const trabajados = new Set(
+        (detAsis || [])
+          .filter(d => ['presente','puntual','tarde'].includes((d.estado||'').toLowerCase()))
+          .map(d => d.fecha)
+      );
+      // Ventas diarias del local en esos días
+      let sumaVentas = 0;
+      const detArr = [];
+      if (trabajados.size > 0) {
+        const { data: vRows } = await sb.from('ventas_diarias')
+          .select('fecha, efectivo, tarjeta, qr, vales, online, fc_oficina, transferencia, cc')
+          .eq('local', emp.local)
+          .in('fecha', Array.from(trabajados));
+        (vRows || []).forEach(v => {
+          const total = Number(v.efectivo||0) + Number(v.tarjeta||0) + Number(v.qr||0) + Number(v.vales||0)
+                      + Number(v.online||0) + Number(v.fc_oficina||0) + Number(v.transferencia||0) + Number(v.cc||0);
+          detArr.push({ fecha: v.fecha, monto: total });
+          sumaVentas += total;
+        });
+      }
+      detArr.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+      comision_base = sumaVentas * tasaLocal;
+      comision = comision_base * Number(configEmp.fraccion_comision);
+      comisionDetalleDias = { modo: 'dias_local', dias: detArr, sumaVentas, tasa: tasaLocal, fraccion: Number(configEmp.fraccion_comision) };
+    } else {
+      // Modo mes_30 (vendedoras normales)
+      comision_base = ventasLocal * tasaLocal;
+      if (cfgLocal.modo_reparto === 'dividido_activos') {
+        const activas = await contarActivasLocal(emp.local, periodo + '-01');
+        if (activas > 0) comision_base = comision_base / activas;
+      }
+      comision = comision_base * Number(configEmp.fraccion_comision) * ratio;
     }
-    let comision = comision_base * Number(configEmp.fraccion_comision) * ratio;
 
     // Fijo:
     //  - empleadas en mes_30 (vendedoras normales): se prorratea por dias_trabajados/30.
