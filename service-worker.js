@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v173-sac-blanco-en-recibo-banco';
+const CACHE_VERSION = 'rrhh-v174-click-prestamo-modal';
 const ASSETS = [
   './',
   './index.html',
