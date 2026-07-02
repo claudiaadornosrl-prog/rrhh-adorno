@@ -14562,7 +14562,7 @@ async function renderLiquidaciones() {
                 const mono = l.empleado?.monotributista
                   ? ' <span style="background:#f3e8ff;color:#7c3aed;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;font-weight:600;" title="Monotributista — factura por banco, NO va al LSD">🟣 MT</span>'
                   : '';
-                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
+                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;position:sticky;left:0;background:white;z-index:2;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
               } },
             { id:'local',     label:'Local',      sortKey:'local', condition:c=>c.local==='todos', thOpts:{align:'text-align:left'},
               tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${c.escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` },
@@ -14814,7 +14814,8 @@ async function renderLiquidaciones() {
             : '<span style="color:#cbd5e1;margin-left:3px;">↕</span>';
           const thHtml = cols.map(col => {
             const opts = col.thOpts || {};
-            const style = `padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}${col.sortKey ? 'cursor:pointer;user-select:none;' : ''}`;
+            const sticky = col.id === 'empleada' ? 'position:sticky;left:0;background:#f9fafb;z-index:4;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);' : '';
+            const style = `padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}${col.sortKey ? 'cursor:pointer;user-select:none;' : ''}${sticky}`;
             const onclick = col.sortKey ? `onclick="liqOrdenarPor('${col.sortKey}')"` : '';
             const title = opts.title ? `title="${opts.title}"` : '';
             return `<th style="${style}" ${onclick} ${title}>${col.label}${col.sortKey ? arrow(col.sortKey) : ''}</th>`;
@@ -14882,7 +14883,8 @@ async function renderLiquidaciones() {
           const tfootHtml = cols.map(col => {
             const val = totalsByCol[col.id] !== undefined ? totalsByCol[col.id] : '';
             const align = col.id === 'empleada' ? 'left' : 'right';
-            return `<td style="padding:10px 8px;text-align:${align};font-weight:700;font-family:monospace;background:#f1f5f9;color:#1e293b;border-top:2px solid #94a3b8;">${val}</td>`;
+            const sticky = col.id === 'empleada' ? 'position:sticky;left:0;z-index:3;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);' : '';
+            return `<td style="padding:10px 8px;text-align:${align};font-weight:700;font-family:monospace;background:#f1f5f9;color:#1e293b;border-top:2px solid #94a3b8;${sticky}">${val}</td>`;
           }).join('');
 
           return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
