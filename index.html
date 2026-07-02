@@ -14147,27 +14147,36 @@ async function renderLiquidaciones() {
     });
   }
 
-  // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto del
-  //     semestre / 12 × meses trabajados del semestre.
+  // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto TOTAL
+  //     (blanco + negro) del semestre / 12 × meses trabajados del semestre.
+  //     Estándar CCT 130/75: art. 121 LCT — mejor remuneración del semestre.
   const mesNumero = parseInt(periodo.split('-')[1], 10);
   const esMesSAC = mesNumero === 6 || mesNumero === 12;
   const sacPorEmp = {};
+  const sacDetallePorEmp = {}; // para tooltip: {mejorBruto, mejorNegro, mejorRecibo, mesesT, mejorPeriodo}
   if (esMesSAC && empIdsLiq.length > 0) {
     const ay = periodo.split('-')[0];
     const semStart = mesNumero === 6 ? `${ay}-01-01` : `${ay}-07-01`;
     const semEnd   = mesNumero === 6 ? `${ay}-06-30` : `${ay}-12-31`;
     const { data: liqsSem } = await sb.from('rrhh_liquidacion')
-      .select('empleado_id, total_negro, periodo')
+      .select('empleado_id, total_negro, recibo_bruto, periodo')
       .in('empleado_id', empIdsLiq)
       .gte('periodo', semStart).lte('periodo', semEnd);
-    const mejor = {}, mesesT = {};
+    const mejor = {}, mesesT = {}, detalle = {};
     (liqsSem || []).forEach(l => {
-      const v = Number(l.total_negro || 0);
-      if (!mejor[l.empleado_id] || v > mejor[l.empleado_id]) mejor[l.empleado_id] = v;
+      const negro  = Number(l.total_negro  || 0);
+      const blanco = Number(l.recibo_bruto || 0);
+      const bruto  = negro + blanco; // ← base SAC = bruto total (CCT)
+      if (!mejor[l.empleado_id] || bruto > mejor[l.empleado_id]) {
+        mejor[l.empleado_id] = bruto;
+        detalle[l.empleado_id] = { mejorBruto: bruto, mejorNegro: negro, mejorRecibo: blanco, mejorPeriodo: l.periodo };
+      }
       mesesT[l.empleado_id] = (mesesT[l.empleado_id] || 0) + 1;
     });
     Object.entries(mejor).forEach(([eid, v]) => {
-      sacPorEmp[eid] = (v / 12) * Math.min(6, mesesT[eid] || 0);
+      const meses = Math.min(6, mesesT[eid] || 0);
+      sacPorEmp[eid] = (v / 12) * meses;
+      sacDetallePorEmp[eid] = { ...detalle[eid], mesesT: mesesT[eid] || 0, mesesUsados: meses };
     });
   }
 
@@ -14482,7 +14491,24 @@ async function renderLiquidaciones() {
                 return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}${c.isAdmin?'. Click para editar.':''}">${(+l.feriado_monto)>0?c.fmt(l.feriado_monto):'—'}</td>`;
               } },
             { id:'sac',       label:'SAC',        sortKey:'sac',        condition:c=>c.esMesSAC, thOpts:{title:'SAC = mejor bruto del semestre / 12 × meses trabajados'},
-              tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};" title="${sac>0?'SAC auto = mejor bruto semestre / 12 × meses trabajados':'Sin SAC (sin liquidaciones previas en el semestre)'}">${sac>0?c.fmt(sac):'—'}</td>`; } },
+              tdRender:(l,c)=>{
+                const sac = c.sacPorEmpLiq[l.empleado_id] || 0;
+                const det = c.sacDetallePorEmpLiq && c.sacDetallePorEmpLiq[l.empleado_id];
+                let tip;
+                if (sac > 0 && det) {
+                  const mesTxt = (det.mejorPeriodo || '').substring(0, 7);
+                  tip = `SAC = mejor bruto del semestre / 12 × meses trabajados\n\n`
+                      + `Mejor bruto (${mesTxt}): $${c.fmt(det.mejorBruto)}\n`
+                      + `  ↳ recibo blanco: $${c.fmt(det.mejorRecibo)}\n`
+                      + `  ↳ negro (fijo+com+premio+viat+extras): $${c.fmt(det.mejorNegro)}\n\n`
+                      + `Meses en DB del semestre: ${det.mesesT}\n`
+                      + `Meses usados (min 6): ${det.mesesUsados}\n\n`
+                      + `Cálculo: $${c.fmt(det.mejorBruto)} / 12 × ${det.mesesUsados} = $${c.fmt(sac)}`;
+                } else {
+                  tip = 'Sin SAC (sin liquidaciones previas en el semestre)';
+                }
+                return `<td style="padding:8px;font-family:monospace;color:${sac>0?'#7c3aed':'var(--muted)'};cursor:${sac>0?'help':'default'};" title="${c.escapeHtml(tip)}">${sac>0?c.fmt(sac):'—'}</td>`;
+              } },
             { id:'extras',    label:'Extras',     sortKey:'extras',
               tdRender:(l,c)=>{
                 const ov = l.overrides_manuales && l.overrides_manuales['extras'];
@@ -14569,7 +14595,7 @@ async function renderLiquidaciones() {
               } },
           ];
 
-          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp };
+          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp };
 
           // Filtrar por condition (local==='todos', esMesSAC)
           const colsAvailable = ALL_COLS.filter(c => !c.condition || c.condition(ctxL));
