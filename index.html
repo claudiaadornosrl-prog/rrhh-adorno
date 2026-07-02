@@ -14101,6 +14101,97 @@ async function renderLiquidaciones() {
     }
   }
 
+  // ─── Desglose de comisión para tooltip ───
+  // Precalcula por cada empleada: ventas del local, tasa, activas, fracción, ratio → cálculo
+  // Fórmula: ventas_local × tasa × (÷ activas si dividido_activos) × fraccion × ratio
+  // Ratio = dias_trab / dias_ref (30 default, promedio del local si dias_local Escasany)
+  const comisionDesglosePorEmp = {};
+  if (empIdsLiq.length > 0) {
+    try {
+      const localesSet = new Set((liqs||[]).map(l => l.local).filter(Boolean));
+      // 1) Ventas del mes por local
+      const { data: ventasRows } = await sb.from('rrhh_ventas_local_mes')
+        .select('local, monto_ventas')
+        .eq('periodo', periodo + '-01')
+        .in('local', Array.from(localesSet));
+      const ventasPorLocal = {};
+      (ventasRows || []).forEach(v => { ventasPorLocal[v.local] = Number(v.monto_ventas || 0); });
+      // 2) Config por local (tasa, modo reparto)
+      const { data: cfgLocalesRows } = await sb.from('rrhh_sueldo_local_config')
+        .select('local, tasa_comision, modo_reparto')
+        .in('local', Array.from(localesSet));
+      const cfgLocalMap = {};
+      (cfgLocalesRows || []).forEach(c => { cfgLocalMap[c.local] = c; });
+      // 3) Config por empleada (fracción, modo prorrateo)
+      const { data: cfgEmpRows } = await sb.from('rrhh_sueldo_empleada_config')
+        .select('empleado_id, fraccion_comision, dias_prorrateo_modo')
+        .in('empleado_id', empIdsLiq);
+      const cfgEmpMap = {};
+      (cfgEmpRows || []).forEach(c => { cfgEmpMap[c.empleado_id] = c; });
+      // 4) Contar activas por local (solo si algún local tiene modo dividido_activos)
+      const activasPorLocal = {};
+      for (const loc of localesSet) {
+        const cfg = cfgLocalMap[loc];
+        if (cfg && cfg.modo_reparto === 'dividido_activos') {
+          const { data: acts } = await sb.from('rrhh_sueldo_empleada_config')
+            .select('empleado_id, rrhh_empleados!inner(local, estado)')
+            .eq('rrhh_empleados.local', loc)
+            .eq('rrhh_empleados.estado', 'activo')
+            .gt('fraccion_comision', 0);
+          activasPorLocal[loc] = (acts || []).length;
+        }
+      }
+      // 5) Días promedio por local (para modo dias_local — Escasany)
+      const promDiasPorLocal = {};
+      const necesitaProm = (liqs||[]).some(l => {
+        const c = cfgEmpMap[l.empleado_id];
+        return c && c.dias_prorrateo_modo === 'dias_local';
+      });
+      if (necesitaProm) {
+        for (const loc of localesSet) {
+          const otras = (liqs||[])
+            .filter(l => l.local === loc)
+            .filter(l => {
+              const c = cfgEmpMap[l.empleado_id];
+              return !c || c.dias_prorrateo_modo !== 'dias_local';
+            })
+            .map(l => Number(l.dias_trabajados || 0))
+            .filter(d => d > 0);
+          if (otras.length > 0) {
+            promDiasPorLocal[loc] = Math.max(1, Math.ceil(otras.reduce((a,b)=>a+b,0) / otras.length));
+          } else {
+            promDiasPorLocal[loc] = 26;
+          }
+        }
+      }
+      // 6) Calcular desglose por empleada
+      (liqs||[]).forEach(l => {
+        const cfgL = cfgLocalMap[l.local];
+        const cfgE = cfgEmpMap[l.empleado_id];
+        if (!cfgL || !cfgE) return;
+        const ventasLocal = ventasPorLocal[l.local] || 0;
+        const tasa = Number(cfgL.tasa_comision || 0);
+        const fraccion = Number(cfgE.fraccion_comision || 0);
+        const modo = cfgE.dias_prorrateo_modo || 'mes_30';
+        const diasRef = modo === 'dias_local' ? (promDiasPorLocal[l.local] || 26) : 30;
+        const diasTrab = Number(l.dias_trabajados || 0);
+        const ratio = diasRef > 0 ? diasTrab / diasRef : 0;
+        let comisionBase = ventasLocal * tasa;
+        let activas = null;
+        if (cfgL.modo_reparto === 'dividido_activos') {
+          activas = activasPorLocal[l.local] || null;
+          if (activas && activas > 0) comisionBase = comisionBase / activas;
+        }
+        const comisionCalc = comisionBase * fraccion * ratio;
+        comisionDesglosePorEmp[l.empleado_id] = {
+          ventasLocal, tasa, activas, fraccion, modo, diasRef, diasTrab, ratio, comisionBase, comisionCalc,
+        };
+      });
+    } catch (e) {
+      console.warn('[comisionDesglose] error:', e);
+    }
+  }
+
   // ── SORT (click en header) — se hace AHORA porque algunos sorts usan préstamos/adelantos
   if (liqState.sortBy) {
     const dir = liqState.sortDir === 'desc' ? -1 : 1;
@@ -14440,17 +14531,42 @@ async function renderLiquidaciones() {
             { id:'comision',  label:'Comisión',   sortKey:'comision',
               tdRender:(l,c)=>{
                 const ov = l.overrides_manuales && l.overrides_manuales['comision'];
+                const det = c.comisionDesglosePorEmpLiq && c.comisionDesglosePorEmpLiq[l.empleado_id];
+                // Armar el desglose textual (usado como base del tooltip)
+                let desglose = '';
+                if (det) {
+                  const pct = (det.tasa * 100).toFixed(3).replace(/\.?0+$/,'') + '%';
+                  desglose = `Ventas del local: $${c.fmt(det.ventasLocal)}\n`
+                           + `Tasa del local: ${pct}\n`;
+                  if (det.activas) desglose += `÷ ${det.activas} vendedoras activas\n`;
+                  desglose += `Fracción individual: ${det.fraccion}\n`;
+                  const modoTxt = det.modo === 'dias_local' ? ' (franquera — promedio del local)' : '';
+                  desglose += `Días trabajados: ${det.diasTrab} / ${det.diasRef}${modoTxt}\n`
+                           + `Ratio: ${det.ratio.toFixed(4)}\n\n`
+                           + `Cálculo: $${c.fmt(det.ventasLocal)} × ${pct}`
+                           + (det.activas ? ` ÷ ${det.activas}` : '')
+                           + ` × ${det.fraccion} × ${det.ratio.toFixed(4)}\n`
+                           + `        = $${c.fmt(det.comisionCalc)}`;
+                }
                 if (ov) {
-                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
-                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'comision', 'Comisión', ${+l.comision})"`:''} title="${t}">✏️ ${c.fmt(l.comision)}</td>`;
+                  const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`;
+                  const tipCompleto = desglose ? (t + '\n\n─── Desglose auto ───\n' + desglose) : t;
+                  return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'comision', 'Comisión', ${+l.comision})"`:''} title="${c.escapeHtml(tipCompleto)}">✏️ ${c.fmt(l.comision)}</td>`;
                 }
                 const prorr = (l.dias_trabajados||30) < 30 && (+l.comision) > 0;
-                const titulo = prorr
-                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
-                  : (c.isAdmin ? 'Click para editar manualmente' : '');
-                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
+                let titulo;
+                if (desglose) {
+                  titulo = `Comisión = Ventas × Tasa × Fracción × Ratio\n\n` + desglose;
+                  if (prorr) titulo = `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.\n\n` + titulo;
+                  else if (c.isAdmin) titulo += `\n\n(Click para editar manualmente)`;
+                } else {
+                  titulo = prorr
+                    ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
+                    : (c.isAdmin ? 'Click para editar manualmente' : '');
+                }
+                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'') + (desglose?'cursor:help;':'');
                 const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'comision', 'Comisión', ${+l.comision})"` : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.comision)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${c.escapeHtml(titulo)}">${c.fmt(l.comision)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
               } },
             { id:'premios',   label:'Premios',    sortKey:'premios',
               tdRender:(l,c)=>{
@@ -14593,7 +14709,7 @@ async function renderLiquidaciones() {
               } },
           ];
 
-          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp };
+          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp };
 
           // Filtrar por condition (local==='todos', esMesSAC)
           const colsAvailable = ALL_COLS.filter(c => !c.condition || c.condition(ctxL));

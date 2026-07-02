@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v167-totales-fila-footer';
+const CACHE_VERSION = 'rrhh-v168-tooltip-comision';
 const ASSETS = [
   './',
   './index.html',
