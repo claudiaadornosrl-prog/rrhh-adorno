@@ -14255,6 +14255,9 @@ async function renderLiquidaciones() {
   // ── SORT (click en header) — se hace AHORA porque algunos sorts usan préstamos/adelantos
   if (liqState.sortBy) {
     const dir = liqState.sortDir === 'desc' ? -1 : 1;
+    // Cálculo local de esMesSAC (la variable global se define más abajo)
+    const _mesN = parseInt(periodo.split('-')[1], 10);
+    const esMesSAC = (_mesN === 6 || _mesN === 12);
     const getVal = (l) => {
       switch (liqState.sortBy) {
         case 'empleada':   return (l.empleado?.apellido || '').toLowerCase();
@@ -14262,11 +14265,12 @@ async function renderLiquidaciones() {
         case 'dias':       return Number(l.dias_trabajados || 0);
         case 'puntos':     return Number(l.puntos_mes || 0);
         case 'total':      return Number(l.total_negro || 0);
-        case 'recibo':     return Number(l.recibo_neto || 0);
-        case 'banco':      return Number(l.recibo_neto || 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0);
+        case 'recibo':     return Number(l.recibo_neto || 0) + (esMesSAC ? Number(l.sac_recibo_neto || 0) : 0);
+        case 'banco':      return Number(l.recibo_neto || 0) + (esMesSAC ? Number(l.sac_recibo_neto || 0) : 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0);
         case 'efectivo':   {
             const sac = sacPorEmp[l.empleado_id] || 0;
-            const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+            const sacRec = esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+            const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0) - sacRec);
             const intrLive = interesesPorEmpLiq[l.empleado_id] || 0;
             return Math.max(0, subtotal - Number(l.mercaderia || 0) - intrLive - Number(l.ajuste || 0));
           }
@@ -14710,19 +14714,36 @@ async function renderLiquidaciones() {
               } },
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
-            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo CCT (lo que dice el recibo legal). Click descarga el PDF firmable.'},
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="Click → revisar faltas y confirmar antes de generar PDF. Click derecho = desglose." oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(l.recibo_neto)} 👁</td>` },
+            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo blanco (mensual + SAC en junio/diciembre). Click descarga el PDF firmable.'},
+              tdRender:(l,c)=>{
+                const sacRec = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+                const total = Number(l.recibo_neto || 0) + sacRec;
+                const tip = sacRec > 0
+                  ? `Recibo blanco total = mensual + SAC:\n  Mensual: $${c.fmt(l.recibo_neto)}\n  SAC:     $${c.fmt(sacRec)}\n  ─────────\n  Total:   $${c.fmt(total)}\n\n(Click derecho = desglose)`
+                  : 'Click → revisar faltas y confirmar antes de generar PDF. Click derecho = desglose.';
+                return `<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(total)} 👁</td>`;
+              } },
             { id:'prestamos', label:'Préstamos',  sortKey:'prestamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco'},
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${pres>0?'#d97706':'var(--muted)'};" title="${pres>0?'Capital del/los préstamo(s) descontado del banco':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):'—'}</td>`; } },
             { id:'adelantos', label:'Adelantos',  sortKey:'adelantos',  thOpts:{title:'Adelantos del mes (préstamos 1 cuota tasa 0%)'},
               tdRender:(l,c)=>{ const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+c.fmt(adel):'—'}</td>`; } },
-            { id:'banco',     label:'Banco',      sortKey:'banco', thOpts:{bg:'#dcfce7',title:'Lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos)'},
-              tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)">${c.fmt((+l.recibo_neto || 0) - pres - adel)}</td>`; } },
-            { id:'subtotal_efectivo', label:'Subtotal', sortKey:'subtotal_efectivo', thOpts:{bg:'#ecfccb',title:'Subtotal del efectivo (Total − Recibo CCT). De acá se descuentan Mercadería, Intereses y Ajustes para llegar al Efectivo final.'},
+            { id:'banco',     label:'Banco',      sortKey:'banco', thOpts:{bg:'#dcfce7',title:'Lo que efectivamente se transfiere por banco (Recibo mensual + SAC blanco − Préstamos − Adelantos)'},
+              tdRender:(l,c)=>{
+                const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0;
+                const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0;
+                const sacRec = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+                const banco = (+l.recibo_neto || 0) + sacRec - pres - adel;
+                const tip = sacRec > 0
+                  ? `Banco = Recibo mensual + SAC blanco − Préstamos − Adelantos\n  Mensual: $${c.fmt(l.recibo_neto)}\n  + SAC:   $${c.fmt(sacRec)}\n  − Prést: $${c.fmt(pres)}\n  − Adel:  $${c.fmt(adel)}\n  ──────\n  Banco:   $${c.fmt(banco)}`
+                  : 'Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)';
+                return `<td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="${c.escapeHtml(tip)}">${c.fmt(banco)}</td>`;
+              } },
+            { id:'subtotal_efectivo', label:'Subtotal', sortKey:'subtotal_efectivo', thOpts:{bg:'#ecfccb',title:'Subtotal del efectivo (Total − Recibo). En junio/diciembre resta también el SAC blanco. De acá se descuentan Mercadería, Intereses y Ajustes.'},
               tdRender:(l,c)=>{
                 const sac = c.sacPorEmpLiq[l.empleado_id] || 0;
-                const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
-                return `<td style="padding:8px;font-family:monospace;background:#ecfccb;font-weight:600;" title="Subtotal del efectivo = Total a pagar − Recibo CCT. Es la base sobre la que se aplican mercadería/intereses/ajustes.">${subtotal>0?c.fmt(subtotal):'—'}</td>`;
+                const sacRec = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+                const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0) - sacRec);
+                return `<td style="padding:8px;font-family:monospace;background:#ecfccb;font-weight:600;" title="Subtotal del efectivo = (Total + SAC) − (Recibo mensual + SAC blanco). Es la base sobre la que se aplican mercadería/intereses/ajustes.">${subtotal>0?c.fmt(subtotal):'—'}</td>`;
               } },
             { id:'mercaderia', label:'Mercadería', sortKey:'mercaderia',
               tdRender:(l,c)=>{
@@ -14830,8 +14851,8 @@ async function renderLiquidaciones() {
           const totDias = sumCol(l => Number(l.dias_trabajados || 0));
           const totPts  = sumCol(l => Number(l.puntos_mes || 0));
           const totTotal = sumCol(l => Number(l.total_negro || 0) + (sacPorEmp[l.empleado_id] || 0));
-          const totRecibo = sumCol(l => Number(l.recibo_neto || 0));
-          const totBanco = sumCol(l => Number(l.recibo_neto || 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0));
+          const totRecibo = sumCol(l => Number(l.recibo_neto || 0) + (esMesSAC ? Number(l.sac_recibo_neto || 0) : 0));
+          const totBanco = sumCol(l => Number(l.recibo_neto || 0) + (esMesSAC ? Number(l.sac_recibo_neto || 0) : 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0));
           const totMerc = sumCol(l => Number(l.mercaderia || 0));
           const totAdel = (liqs || []).reduce((s, l) => s + (adelantosPorEmpLiq[l.empleado_id] || 0), 0);
           const totPres = (liqs || []).reduce((s, l) => s + (prestamosPorEmpLiq[l.empleado_id] || 0), 0);
@@ -14839,7 +14860,8 @@ async function renderLiquidaciones() {
           const totAjuste = sumCol(l => Number(l.ajuste || 0));
           const totEfect = sumCol(l => {
             const sac = sacPorEmp[l.empleado_id] || 0;
-            const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+            const sacRec = esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+            const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0) - sacRec);
             const merc = Number(l.mercaderia || 0);
             const intr = interesesPorEmpLiq[l.empleado_id] || 0;
             const aj = Number(l.ajuste || 0);
@@ -14847,7 +14869,8 @@ async function renderLiquidaciones() {
           });
           const totSubtotal = (liqs || []).reduce((s, l) => {
             const sac = sacPorEmp[l.empleado_id] || 0;
-            return s + Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+            const sacRec = esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+            return s + Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0) - sacRec);
           }, 0);
           // Totales de las columnas de composición del sueldo
           const totFijo    = sumCol(l => Number(l.fijo || 0));

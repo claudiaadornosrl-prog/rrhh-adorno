@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v172-sticky-columna-empleada';
+const CACHE_VERSION = 'rrhh-v173-sac-blanco-en-recibo-banco';
 const ASSETS = [
   './',
   './index.html',
