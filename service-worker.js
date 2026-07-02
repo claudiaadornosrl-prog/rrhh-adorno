@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v170-comision-dia-x-venta-flag';
+const CACHE_VERSION = 'rrhh-v171-certificado-medico-licencia-paga';
 const ASSETS = [
   './',
   './index.html',

@@ -21629,7 +21629,9 @@ const salaryWorkflow = (() => {
         .map(p => p.fecha)
     );
 
-    // Para los dias con licencia, consultar rrhh_licencias para saber si es paga o no
+    // Para los dias con licencia, consultar rrhh_licencias y rrhh_certificados_medicos
+    // para saber si es paga o no. Un certificado médico cuenta como licencia PAGA
+    // (por ley: hasta 3 días con certificado — Adorno paga todos por buena voluntad).
     const fechasLic = dias.filter(d => d.estado === 'licencia').map(d => d.fecha);
     const licMap = {}; // fecha -> paga (boolean)
     if (fechasLic.length > 0) {
@@ -21637,14 +21639,24 @@ const salaryWorkflow = (() => {
         .select('fecha_desde, fecha_hasta, paga, tipo')
         .eq('empleado_id', empleadoId)
         .lte('fecha_desde', hasta).gte('fecha_hasta', desde);
+      // También traemos certificados médicos que cubran alguna de esas fechas
+      const { data: certsMed } = await sb.from('rrhh_certificados_medicos')
+        .select('fecha_desde, fecha_hasta')
+        .eq('empleado_id', empleadoId)
+        .lte('fecha_desde', hasta).gte('fecha_hasta', desde);
       for (const f of fechasLic) {
-        const match = (lics || []).find(l => l.fecha_desde <= f && l.fecha_hasta >= f);
-        if (match) {
-          licMap[f] = !!match.paga;
-        } else {
-          console.warn(`Licencia en asistencias_detalle sin registro en rrhh_licencias: emp=${empleadoId} fecha=${f}. Se descuenta por defecto.`);
-          licMap[f] = false; // sin registro → asumir sin goce
+        const matchLic = (lics || []).find(l => l.fecha_desde <= f && l.fecha_hasta >= f);
+        if (matchLic) {
+          licMap[f] = !!matchLic.paga;
+          continue;
         }
+        const matchCert = (certsMed || []).find(c => c.fecha_desde <= f && c.fecha_hasta >= f);
+        if (matchCert) {
+          licMap[f] = true; // Certificado médico → licencia paga
+          continue;
+        }
+        console.warn(`Licencia en asistencias_detalle sin registro en rrhh_licencias ni certificado médico: emp=${empleadoId} fecha=${f}. Se descuenta por defecto.`);
+        licMap[f] = false;
       }
     }
 
