@@ -14147,29 +14147,28 @@ async function renderLiquidaciones() {
     });
   }
 
-  // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto TOTAL
-  //     (blanco + negro) del semestre / 12 × meses trabajados del semestre.
-  //     Estándar CCT 130/75: art. 121 LCT — mejor remuneración del semestre.
+  // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto del
+  //     semestre (Fijo+Comisión+Premio+Viáticos+Extras = total_negro) / 12
+  //     × meses trabajados del semestre. En Adorno el "total_negro" del sistema
+  //     es el bruto real que cobra la empleada (blanco+negro conceptualmente).
   const mesNumero = parseInt(periodo.split('-')[1], 10);
   const esMesSAC = mesNumero === 6 || mesNumero === 12;
   const sacPorEmp = {};
-  const sacDetallePorEmp = {}; // para tooltip: {mejorBruto, mejorNegro, mejorRecibo, mesesT, mejorPeriodo}
+  const sacDetallePorEmp = {}; // para tooltip: {mejorBruto, mesesT, mejorPeriodo}
   if (esMesSAC && empIdsLiq.length > 0) {
     const ay = periodo.split('-')[0];
     const semStart = mesNumero === 6 ? `${ay}-01-01` : `${ay}-07-01`;
     const semEnd   = mesNumero === 6 ? `${ay}-06-30` : `${ay}-12-31`;
     const { data: liqsSem } = await sb.from('rrhh_liquidacion')
-      .select('empleado_id, total_negro, recibo_bruto, periodo')
+      .select('empleado_id, total_negro, periodo')
       .in('empleado_id', empIdsLiq)
       .gte('periodo', semStart).lte('periodo', semEnd);
     const mejor = {}, mesesT = {}, detalle = {};
     (liqsSem || []).forEach(l => {
-      const negro  = Number(l.total_negro  || 0);
-      const blanco = Number(l.recibo_bruto || 0);
-      const bruto  = negro + blanco; // ← base SAC = bruto total (CCT)
+      const bruto = Number(l.total_negro || 0);
       if (!mejor[l.empleado_id] || bruto > mejor[l.empleado_id]) {
         mejor[l.empleado_id] = bruto;
-        detalle[l.empleado_id] = { mejorBruto: bruto, mejorNegro: negro, mejorRecibo: blanco, mejorPeriodo: l.periodo };
+        detalle[l.empleado_id] = { mejorBruto: bruto, mejorPeriodo: l.periodo };
       }
       mesesT[l.empleado_id] = (mesesT[l.empleado_id] || 0) + 1;
     });
@@ -14499,8 +14498,7 @@ async function renderLiquidaciones() {
                   const mesTxt = (det.mejorPeriodo || '').substring(0, 7);
                   tip = `SAC = mejor bruto del semestre / 12 × meses trabajados\n\n`
                       + `Mejor bruto (${mesTxt}): $${c.fmt(det.mejorBruto)}\n`
-                      + `  ↳ recibo blanco: $${c.fmt(det.mejorRecibo)}\n`
-                      + `  ↳ negro (fijo+com+premio+viat+extras): $${c.fmt(det.mejorNegro)}\n\n`
+                      + `  (fijo + comisión + premio + viáticos + extras)\n\n`
                       + `Meses en DB del semestre: ${det.mesesT}\n`
                       + `Meses usados (min 6): ${det.mesesUsados}\n\n`
                       + `Cálculo: $${c.fmt(det.mejorBruto)} / 12 × ${det.mesesUsados} = $${c.fmt(sac)}`;
@@ -14660,11 +14658,26 @@ async function renderLiquidaciones() {
             const sac = sacPorEmp[l.empleado_id] || 0;
             return s + Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
           }, 0);
+          // Totales de las columnas de composición del sueldo
+          const totFijo    = sumCol(l => Number(l.fijo || 0));
+          const totCom     = sumCol(l => Number(l.comision || 0));
+          const totPremio  = sumCol(l => (l.premio_cobra ? Number(l.premio_monto || 0) : 0));
+          const totViat    = sumCol(l => Number(l.viaticos || 0));
+          const totFeriado = sumCol(l => Number(l.feriado_monto || 0));
+          const totSac     = (liqs || []).reduce((s, l) => s + (sacPorEmp[l.empleado_id] || 0), 0);
+          const totExtras  = sumCol(l => Number(l.extras || 0));
           // Mapa por id-de-columna → contenido del td en el footer
           const totalsByCol = {
             empleada: `<strong>TOTAL (${(liqs||[]).length})</strong>`,
             dias: totDias,
             puntos: totPts,
+            fijo:     fmt(totFijo),
+            comision: fmt(totCom),
+            premios:  fmt(totPremio),
+            viaticos: fmt(totViat),
+            feriado:  totFeriado > 0 ? fmt(totFeriado) : '—',
+            sac:      totSac > 0 ? fmt(totSac) : '—',
+            extras:   fmt(totExtras),
             total: fmt(totTotal),
             recibo: fmt(totRecibo),
             banco: fmt(totBanco),

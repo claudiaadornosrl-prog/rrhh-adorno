@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v165-sac-bruto-total-tooltip';
+const CACHE_VERSION = 'rrhh-v167-totales-fila-footer';
 const ASSETS = [
   './',
   './index.html',
