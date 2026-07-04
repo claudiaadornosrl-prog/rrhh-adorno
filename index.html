@@ -16442,6 +16442,38 @@ async function renderRetirosMercaderia() {
   if (localFiltro) qPend = qPend.eq('local', localFiltro);
   const { data: pendientes } = await qPend;
 
+  // Posibles duplicados detectados por el sync (mismo empleado + fecha ±3d + importe igual)
+  // Traemos los pares completos (el nuevo apunta al viejo con posible_duplicado_de)
+  let qDupes = sb.from('rrhh_retiros_mercaderia')
+    .select('id, fecha, importe, vendedor_dragonfish, local, empleado_id, dragonfish_codigo, observacion, posible_duplicado_de, estado')
+    .not('posible_duplicado_de', 'is', null)
+    .neq('estado', 'descartado')
+    .order('fecha', { ascending: false });
+  if (localFiltro) qDupes = qDupes.eq('local', localFiltro);
+  const { data: dupesRaw } = await qDupes;
+  // Para cada dupe, cargar el "otro" (el original) para mostrar la pareja
+  let dupesPares = [];
+  if (dupesRaw && dupesRaw.length > 0) {
+    const idsOriginales = [...new Set(dupesRaw.map(d => d.posible_duplicado_de).filter(Boolean))];
+    if (idsOriginales.length > 0) {
+      const { data: originales } = await sb.from('rrhh_retiros_mercaderia')
+        .select('id, fecha, importe, vendedor_dragonfish, local, empleado_id, dragonfish_codigo, observacion, estado')
+        .in('id', idsOriginales);
+      const origMap = Object.fromEntries((originales||[]).map(o => [o.id, o]));
+      // Cargar nombres de empleados
+      const empIds = [...new Set([...dupesRaw.map(d => d.empleado_id), ...(originales||[]).map(o => o.empleado_id)].filter(Boolean))];
+      const { data: empsInfo } = empIds.length > 0
+        ? await sb.from('rrhh_empleados').select('id, nombre_completo').in('id', empIds)
+        : { data: [] };
+      const empMap = Object.fromEntries((empsInfo||[]).map(e => [e.id, e.nombre_completo]));
+      dupesPares = dupesRaw.map(d => ({
+        nuevo: d,
+        original: origMap[d.posible_duplicado_de] || null,
+        nombreEmp: empMap[d.empleado_id] || '—',
+      }));
+    }
+  }
+
   const totalMes = (retiros||[]).reduce((a, r) => a + Number(r.importe||0), 0);
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -16474,7 +16506,45 @@ async function renderRetirosMercaderia() {
       <div class="metric-card"><div class="label">Retiros del mes</div><div class="value">${(retiros||[]).length}</div></div>
       <div class="metric-card accent2"><div class="label">Total $ del mes</div><div class="value">${fmt(totalMes)}</div></div>
       ${(pendientes||[]).length > 0 ? `<div class="metric-card" style="background:#fef2f2;border-left:4px solid #dc2626;"><div class="label" style="color:#991b1b;">⚠ Pendientes asignar</div><div class="value" style="color:#dc2626;">${pendientes.length}</div></div>` : ''}
+      ${dupesPares.length > 0 ? `<div class="metric-card" style="background:#fef9c3;border-left:4px solid #eab308;"><div class="label" style="color:#854d0e;">🔁 Posibles duplicados</div><div class="value" style="color:#a16207;">${dupesPares.length}</div></div>` : ''}
     </div>
+
+    ${isAdmin && dupesPares.length > 0 ? `
+      <div class="card" style="margin-bottom:14px;background:#fef9c3;border-left:4px solid #eab308;">
+        <div class="section-title" style="color:#854d0e;">🔁 Posibles retiros duplicados (${dupesPares.length})</div>
+        <div style="font-size:12px;color:#854d0e;margin-bottom:10px;">
+          El sync detectó retiros con mismo empleado, fecha (±3 días) e importe igual. Puede ser que el mismo retiro se haya cargado dos veces (ej. en ALCO1 y ALCO2, o como movimiento de stock y también como remito). Revisá cada par y descartá el que no corresponde.
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+          <thead><tr style="background:#fef3c7;text-align:left;">
+            <th style="padding:6px;">Empleada</th><th style="padding:6px;">Fecha</th><th style="padding:6px;">Local</th>
+            <th style="padding:6px;text-align:right;">Importe</th><th style="padding:6px;">Retiro A (original)</th><th style="padding:6px;">Retiro B (nuevo)</th><th style="padding:6px;">Acción</th>
+          </tr></thead>
+          <tbody>
+            ${dupesPares.map(p => {
+              const orig = p.original;
+              const nue = p.nuevo;
+              const codOrig = (orig?.dragonfish_codigo || '').substring(0, 12);
+              const codNue = (nue.dragonfish_codigo || '').substring(0, 12);
+              const obsOrig = escapeHtml((orig?.observacion || '').substring(0, 40));
+              const obsNue = escapeHtml((nue.observacion || '').substring(0, 40));
+              return `<tr style="border-top:1px solid #fde68a;">
+                <td style="padding:6px;font-weight:500;">${escapeHtml(p.nombreEmp)}</td>
+                <td style="padding:6px;font-family:monospace;font-size:11px;">${orig ? fmtFecha(orig.fecha) : '—'}${orig && orig.fecha !== nue.fecha ? ' → '+fmtFecha(nue.fecha) : ''}</td>
+                <td style="padding:6px;font-size:12px;">${escapeHtml(nue.local)}</td>
+                <td style="padding:6px;text-align:right;font-family:monospace;font-weight:600;">${fmt(nue.importe)}</td>
+                <td style="padding:6px;font-size:11px;">#${orig?.id||'?'}<br><span style="color:var(--muted);font-family:monospace;">${codOrig}</span><br><span style="color:var(--muted);">${obsOrig}</span></td>
+                <td style="padding:6px;font-size:11px;">#${nue.id}<br><span style="color:var(--muted);font-family:monospace;">${codNue}</span><br><span style="color:var(--muted);">${obsNue}</span></td>
+                <td style="padding:6px;">
+                  ${orig ? `<button class="btn small" style="background:#fee2e2;color:#991b1b;display:block;margin-bottom:4px;width:100%;" onclick="retDescartar(${orig.id})">🗑 Descartar A #${orig.id}</button>` : ''}
+                  <button class="btn small" style="background:#fee2e2;color:#991b1b;display:block;width:100%;" onclick="retDescartar(${nue.id})">🗑 Descartar B #${nue.id}</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
 
     ${isAdmin && (pendientes||[]).length > 0 ? `
       <div class="card" style="margin-bottom:14px;background:#fef2f2;border-left:4px solid #dc2626;">
@@ -16672,6 +16742,14 @@ async function retCancelar(id) {
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({ estado: 'cancelado' }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Cancelado', 'success');
+  switchTab('retiros');
+}
+
+async function retDescartar(id) {
+  if (!confirm(`¿Descartar el retiro #${id} por ser duplicado? No va a descontarse del sueldo.`)) return;
+  const { error } = await sb.from('rrhh_retiros_mercaderia').update({ estado: 'descartado' }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast(`Descartado #${id} ✓`, 'success');
   switchTab('retiros');
 }
 

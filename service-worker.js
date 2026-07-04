@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v174-click-prestamo-modal';
+const CACHE_VERSION = 'rrhh-v175-rmp-duplicados-warning';
 const ASSETS = [
   './',
   './index.html',
