@@ -9687,9 +9687,39 @@ async function aprobarPermiso(id) {
   const descontar = confirm(`¿Descontar minutos del banco?\n\nOK = Sí, descontar.\nCancelar = No descontar (justificado sin penalización).`);
   let minutos = 0;
   if (descontar) {
-    const m = prompt('¿Cuántos minutos descontar del banco?', perm.minutos_descontar || '0');
+    // Sugerir un valor sensato según el tipo de permiso
+    let sugerido = perm.minutos_descontar || 0;
+    if (!sugerido || sugerido === 0) {
+      if (perm.tipo === 'dia_completo') {
+        sugerido = 540; // 9h estándar
+      } else if (perm.hora_desde && perm.hora_hasta) {
+        // Calcular minutos entre hora_desde y hora_hasta
+        try {
+          const [hd, md] = perm.hora_desde.split(':').map(Number);
+          const [hh, mh] = perm.hora_hasta.split(':').map(Number);
+          sugerido = Math.max(0, (hh * 60 + mh) - (hd * 60 + md));
+        } catch (e) { sugerido = 60; }
+      } else {
+        sugerido = 60;
+      }
+    }
+    const m = prompt(
+      `¿Cuántos minutos descontar del banco?\n\n` +
+      `Sugerencia: ${sugerido} min (${(sugerido/60).toFixed(1)}h)` +
+      (perm.tipo === 'dia_completo' ? ' — día completo típico' : '') +
+      `\n\nTip: 540 = 9h · 720 = 12h · 360 = 6h`,
+      String(sugerido)
+    );
     if (m === null) return;
     minutos = parseInt(m, 10) || 0;
+    // Validar: si dijo "sí descontar" pero puso 0, avisar
+    if (minutos <= 0) {
+      if (!confirm(
+        `⚠️ Pusiste 0 minutos pero marcaste "sí descontar del banco".\n\n` +
+        `Eso significa que NO se le va a descontar nada (equivalente a "no descontar").\n\n` +
+        `¿Estás segura? OK = guardar así igual · Cancelar = volver a poner un valor`
+      )) return;
+    }
   }
 
   const { error } = await sb.from('rrhh_permisos_puntuales').update({

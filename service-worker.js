@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v175-rmp-duplicados-warning';
+const CACHE_VERSION = 'rrhh-v176-aprobar-permiso-min-validacion';
 const ASSETS = [
   './',
   './index.html',
