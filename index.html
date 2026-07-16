@@ -14870,7 +14870,6 @@ async function renderLiquidaciones() {
 
         ${(liqState.subTab === 'sueldo') ? `
           <!-- ════ BOTONES DE SUELDO ════ -->
-          ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="liqActualizarSueldo('${local}','${periodo}')" title="TEMPORAL: recalcula importes negros (fijo + comisión + premios + viáticos + extras + feriado). Se sacará cuando esté el trigger automático desde Asistencias.">⚡ Actualizar sueldo</button>` : ''}
           ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Al cerrar, se generan automáticamente los borradores proforma del mes siguiente con los fijos actualizados.">🔒 Cerrar mes</button>` : ''}
         ` : `
           <!-- ════ BOTONES DE BANCO ════ -->

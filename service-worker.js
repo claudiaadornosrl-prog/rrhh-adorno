@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v198-recibo-color-proforma-vs-definitivo';
+const CACHE_VERSION = 'rrhh-v199-sueldo-solo-cerrar-mes';
 const ASSETS = [
   './',
   './index.html',
