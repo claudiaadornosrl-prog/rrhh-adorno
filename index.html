@@ -22371,6 +22371,19 @@ const salaryWorkflow = (() => {
     ]);
     if (!emp) throw new Error('Empleado no encontrado');
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  Cierre del mes de Asistencias del local — flag transversal
+    //  Si NO está cerrado, no se prorratean días ni se calculan
+    //  premio/viáticos/feriado (todo eso se resuelve al cierre).
+    // ══════════════════════════════════════════════════════════════════════
+    let asistenciasCerradas = false;
+    try {
+      const [_pyLE, _pmLE] = periodo.split('-').map(Number);
+      const { data: _cierreLE } = await sb.from('rrhh_meses_cerrados')
+        .select('id').eq('local', emp.local).eq('año', _pyLE).eq('mes', _pmLE).maybeSingle();
+      asistenciasCerradas = !!_cierreLE;
+    } catch (e) { console.warn('[liquidarEmpleada:cierreAsis]', e); }
+
     // ─── CASO ESPECIAL: monotributista (Andrea Adorno) ─────────────────
     // Factura un monto fijo mensual. Se le transfiere por banco. NO tiene
     // recibo CCT, NO va al LSD ARCA, NO va al F.931. El efectivo extra (si
@@ -22389,11 +22402,13 @@ const salaryWorkflow = (() => {
       const fijoFull = Number(configMono.fijo || 0);
       const viaticosFull = Number(configMono.viaticos || 0);
       const banco = Number(emp.monto_factura_mensual || 0);
-      // Prorrateo por sin goce/ausentes (igual que empleadas en relacion de dependencia)
-      const diasNoPagos = await cargarDiasNoPagos(empleadoId, periodo);
+      // Prorrateo por sin goce/ausentes (solo si Asistencias está cerrado,
+      // sino defaultea a 30 días → fijo completo sin prorratear).
+      const diasNoPagos = asistenciasCerradas ? await cargarDiasNoPagos(empleadoId, periodo) : 0;
       const diasTrabajados = Math.max(0, 30 - diasNoPagos);
       const fijo = fijoFull * (diasTrabajados / 30);
-      const viaticos = viaticosFull * (diasTrabajados / 30);
+      // Viáticos: solo al cierre de asistencias (igual que cct_negro)
+      const viaticos = asistenciasCerradas ? viaticosFull * (diasTrabajados / 30) : 0;
       const totalNegro = fijo + viaticos;
       // Mercadería: cuotas del mes desde la tabla nueva (respeta cuotas + estado).
       // BUG fix 19-jun-2026: usaba rrhh_retiro_mercaderia (singular vieja).
@@ -22490,7 +22505,9 @@ const salaryWorkflow = (() => {
       }).length;
     }
 
-    const dias_trabajados = inputs.dias_trabajados ?? diasTrabajadosInferidos;
+    // Si Asistencias no está cerrado, no prorrateamos: usamos 30 días.
+    // El fijo se pisa al abrir el mes y se recalcula al cierre.
+    const dias_trabajados = inputs.dias_trabajados ?? (asistenciasCerradas ? diasTrabajadosInferidos : 30);
     // Mercadería: cuotas del mes desde la tabla nueva (respeta cuotas + estado).
     // BUG fix 19-jun-2026: usaba rrhh_retiro_mercaderia (singular vieja) que ya no se llena.
     let mercaderia_auto = 0;
@@ -22737,20 +22754,7 @@ const salaryWorkflow = (() => {
     const feriadoMul = Number(configEmp.feriado_multiplicador || 1.0);
     let feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  GUARD: si el mes de ASISTENCIAS no está cerrado, premio/viáticos/
-    //  feriado quedan en 0. Estos conceptos se calculan al cerrar Asistencias
-    //  (donde se consolidan puntos, días trabajados, feriados trabajados).
-    //  Fijo y comisión sí se calculan siempre (comisión = preview con ventas
-    //  parciales del mes).
-    // ══════════════════════════════════════════════════════════════════════
-    let asistenciasCerradas = false;
-    try {
-      const [_pyAC, _pmAC] = periodo.split('-').map(Number);
-      const { data: _cierreAC } = await sb.from('rrhh_meses_cerrados')
-        .select('id').eq('local', emp.local).eq('año', _pyAC).eq('mes', _pmAC).maybeSingle();
-      asistenciasCerradas = !!_cierreAC;
-    } catch (e) { console.warn('[liquidarEmpleada:cierreAsis]', e); }
+    // Guard (asistenciasCerradas ya se calculó al inicio de liquidarEmpleada)
     if (!asistenciasCerradas) {
       premio = 0;
       cobraPremio = false;
