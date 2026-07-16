@@ -14942,16 +14942,14 @@ async function renderLiquidaciones() {
       <div class="subtitle">Cálculo del recibo CCT + lo que cobra cada empleada según la fórmula de Adorno (fijo + comisión + premio + viáticos + extras).</div>
     </div>
 
-    <div class="cal-toolbar">
-      <select onchange="liqState.periodo=this.value; switchTab('liquidaciones');">
-        ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
-      </select>
-      ${isAdmin ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');">
-        <option value="todos"     ${local==='todos'    ?'selected':''}>Todos los locales</option>
-        <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
-        <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
-        <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
-      </select>` : `<span class="emp-tag" style="background:#eef2ff;color:#4338ca;">${LOCALES[local]?.nombre || local}</span>`}
+    <!-- ══════ LÍNEA 1: Sub-tabs + Ventas + Guardar + Acciones + Kebab ══════ -->
+    <div class="cal-toolbar" style="align-items:center;">
+      <!-- Sub-tabs -->
+      <div style="display:flex;gap:2px;">
+        <button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>
+        <button onclick="liqSwitchSubTab('banco')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
+      </div>
+      <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:8px;"></span>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${local === 'todos' ? `
           <div style="display:flex;gap:6px;font-size:12px;">
@@ -15010,21 +15008,22 @@ async function renderLiquidaciones() {
       </div>
     </div>
 
-    <!-- ══════ SUB-TABS: 💰 Sueldo | 🏦 Banco ══════ -->
-    <div style="display:flex;gap:4px;border-bottom:2px solid var(--border);margin-top:8px;margin-bottom:12px;padding:0 4px;">
-      <button onclick="liqSwitchSubTab('sueldo')" style="padding:10px 20px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>
-      <button onclick="liqSwitchSubTab('banco')" style="padding:10px 20px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
-      <span style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted);">${liqState.subTab==='sueldo' ? '💰 Sueldo real (blanco + negro) — vista principal' : '🏦 Solo recibo CCT — cálculos y PDFs para el estudio'}</span>
-      <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:12px;"></span>
-    </div>
-
-
-    <!-- Barra de FILTROS (Fase 1: búsqueda + estado + categoría + solo alertas) -->
+    <!-- ══════ LÍNEA 2: Mes + Local + Filtros + Contador ══════ -->
     <div class="cal-toolbar" style="margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:8px;font-size:13px;">
+      <select onchange="liqState.periodo=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
+        ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
+      </select>
+      ${isAdmin ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
+        <option value="todos"     ${local==='todos'    ?'selected':''}>Todos los locales</option>
+        <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
+        <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
+      </select>` : `<span class="emp-tag" style="background:#eef2ff;color:#4338ca;">${LOCALES[local]?.nombre || local}</span>`}
+      <span style="width:1px;height:22px;background:var(--border);margin:0 4px;"></span>
       <input type="text" id="liq-busqueda" placeholder="🔍 Buscar por nombre…"
              value="${escapeHtml(liqState.busqueda || '')}"
              oninput="liqState.busqueda = this.value; liqFiltrarBusquedaLocal();"
-             style="flex:0 0 240px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+             style="flex:0 0 220px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
 
       <label style="display:flex;align-items:center;gap:6px;color:var(--muted);">Estado:
         <select onchange="liqState.estado=this.value; switchTab('liquidaciones');" style="padding:5px 8px;">
