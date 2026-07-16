@@ -1131,6 +1131,10 @@ async function renderPage(tabId) {
     if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
     if (tabId === 'mi-legajo')      setTimeout(renderPushCard, 0);
     if (tabId === 'liquidaciones' && liqState.busqueda) setTimeout(liqFiltrarBusquedaLocal, 0);
+    // Auto-refresh silencioso de comisiones al entrar a Sueldo (Fase 2A)
+    if (tabId === 'liquidaciones' && liqState.subTab === 'sueldo' && (session.rol === 'admin')) {
+      setTimeout(() => { liqAutoRefreshSueldo(liqState.local, liqState.periodo); }, 150);
+    }
     if (tabId === 'prestamos' && prestamoState.q) setTimeout(() => {
       const inp = document.querySelector('input[type="search"][placeholder*="empleada"]');
       if (inp) filtrarTablaPorTexto(inp, '#tabla-prestamos-tbody tr[data-search]');
@@ -14836,6 +14840,7 @@ async function renderLiquidaciones() {
       <button onclick="liqSwitchSubTab('sueldo')" style="padding:10px 20px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>
       <button onclick="liqSwitchSubTab('banco')" style="padding:10px 20px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
       <span style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted);">${liqState.subTab==='sueldo' ? '💰 Sueldo real (blanco + negro) — vista principal' : '🏦 Solo recibo CCT — cálculos y PDFs para el estudio'}</span>
+      <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:12px;"></span>
     </div>
 
     <!-- Barra de FILTROS (Fase 1: búsqueda + estado + categoría + solo alertas) -->
@@ -16293,6 +16298,61 @@ async function liqRegistrarCreditosEmpresa(local, periodo) {
   const { error } = await sb.from('rrhh_credito_empresa').insert(creditos);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast(`✓ ${creditos.length} crédito(s) registrado(s) — se aplican el próximo mes`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  🔄 Auto-refresh silencioso al entrar a la sub-tab Sueldo
+//  Recalcula comisión (+ fijo + vac.pago) usando `soloImportes:true` en modo
+//  silent. Solo lo hace si hay liquidaciones existentes (no crea nada nuevo).
+//  Guarded para no dispararse en meses ya cerrados o si ya se corrió reciente.
+// ═══════════════════════════════════════════════════════════════════════
+let _liqAutoRefreshLast = { key: null, at: 0 };
+async function liqAutoRefreshSueldo(local, periodo) {
+  try {
+    // Debounce: no repetir dentro de los últimos 20 seg
+    const key = `${local}::${periodo}`;
+    if (_liqAutoRefreshLast.key === key && (Date.now() - _liqAutoRefreshLast.at) < 20000) return;
+    _liqAutoRefreshLast = { key, at: Date.now() };
+
+    const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+
+    // Chequear que haya al menos una liq no cerrada por local (para no perder tiempo)
+    const { count: existentes } = await sb.from('rrhh_liquidacion')
+      .select('id', { count: 'exact', head: true })
+      .in('local', locales)
+      .eq('periodo', periodo + '-01')
+      .neq('estado', 'firmada');
+    if (!existentes || existentes === 0) return;
+
+    // Indicador chico en el DOM
+    const info = document.querySelector('#liq-auto-refresh-indicator');
+    if (info) info.innerHTML = '<span style="font-size:11px;color:var(--muted);">🔄 Actualizando comisiones…</span>';
+
+    let totalOk = 0;
+    for (const loc of locales) {
+      try {
+        const r = await salaryWorkflow.liquidarMes(loc, periodo, {
+          soloImportes: true,
+          silent: true,
+          filtroNombre: '',
+        });
+        totalOk += (r?.ok?.length || 0);
+      } catch (e) {
+        console.warn(`[autoRefreshSueldo] ${loc}:`, e);
+      }
+    }
+
+    if (info) info.innerHTML = `<span style="font-size:11px;color:#0d9488;">✓ ${totalOk} comisiones actualizadas hace ${new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>`;
+
+    // Re-render silencioso: refetch de las liquidaciones sin borrar el DOM completo
+    // Simplemente re-disparamos switchTab para redibujar la grilla con los valores actualizados
+    if (totalOk > 0 && liqState.subTab === 'sueldo') {
+      // Delay corto para dejar que el user vea el indicador de éxito
+      setTimeout(() => { if (currentTab === 'liquidaciones' && liqState.subTab === 'sueldo') switchTab('liquidaciones'); }, 600);
+    }
+  } catch (e) {
+    console.warn('[liqAutoRefreshSueldo] error:', e);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
