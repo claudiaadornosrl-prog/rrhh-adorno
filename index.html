@@ -14897,14 +14897,14 @@ async function renderLiquidaciones() {
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
 
         ${(liqState.subTab === 'sueldo') ? `
-          <!-- ════ BOTONES DE SUELDO ════ -->
-          ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Al cerrar, se generan automáticamente los borradores proforma del mes siguiente con los fijos actualizados.">🔒 Cerrar mes</button>` : ''}
+          <!-- ════ BOTONES DE SUELDO (colores jerarquizados v204) ════ -->
+          ${isAdmin ? `<button class="btn" style="background:white;color:#b91c1c;border:1px solid #fecaca;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='white'" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Al cerrar, se generan automáticamente los borradores proforma del mes siguiente con los fijos actualizados.">🔒 Cerrar mes</button>` : ''}
         ` : `
-          <!-- ════ BOTONES DE BANCO ════ -->
-          ${isAdmin ? `<button class="btn" style="background:#f59e0b;color:white;border-color:#f59e0b;" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales.">📋 Proforma</button>` : ''}
+          <!-- ════ BOTONES DE BANCO (colores jerarquizados v204) ════ -->
+          ${isAdmin ? `<button class="btn" style="background:white;color:#92400e;border:1px solid #fcd34d;" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='white'" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales.">📋 Proforma</button>` : ''}
           ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="background:#9333ea;color:white;border-color:#9333ea;" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
-          ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="background:white;color:#6b21a8;border:1px solid #ddd6fe;" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='white'" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
+          ${(isAdmin || isGerente) ? `<button class="btn" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
           ${isAdmin ? `
             <div class="liq-export-dd" style="position:relative;display:inline-block;">
               <button class="btn" onclick="liqToggleExportMenu(this, event)" title="Descargar archivos para el estudio contable">📤 Exportar ▾</button>
@@ -14978,7 +14978,7 @@ async function renderLiquidaciones() {
         if (_step === 'borrador') {
           _nextAction = `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" style="margin-left:auto;">✅ Generar Definitivo →</button>`;
         } else if (_step === 'definitivo') {
-          _nextAction = `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;margin-left:auto;" onclick="liqCerrarMes('${local}','${periodo}')">🔒 Cerrar mes →</button>`;
+          _nextAction = `<button class="btn" style="background:white;color:#b91c1c;border:1px solid #fecaca;margin-left:auto;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='white'" onclick="liqCerrarMes('${local}','${periodo}')">🔒 Cerrar mes →</button>`;
         }
       }
 

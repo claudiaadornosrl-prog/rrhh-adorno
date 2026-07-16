@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v203-headers-tabla-sticky';
+const CACHE_VERSION = 'rrhh-v204-colorimetria-jerarquia';
 const ASSETS = [
   './',
   './index.html',
