@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v191-no-rerender-post-refresh-y-mas-ceros';
+const CACHE_VERSION = 'rrhh-v192-ocultar-cat-y-pts';
 const ASSETS = [
   './',
   './index.html',

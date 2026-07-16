@@ -15253,10 +15253,13 @@ async function renderLiquidaciones() {
 
           // Filtrar por condition (local==='todos', esMesSAC)
           // + Sub-tab Banco: mostrar solo Empleada / Recibo / Préstamos / Adelantos / Banco
+          // + Columnas ocultas de forma permanente (JP no las quiere en la vista actual)
           const BANCO_COLS = new Set(['empleada','recibo','prestamos','adelantos','banco']);
+          const OCULTAS_PERMANENTES = new Set(['cat','puntos']);
           const colsAvailable = ALL_COLS
             .filter(c => !c.condition || c.condition(ctxL))
-            .filter(c => liqState.subTab !== 'banco' || BANCO_COLS.has(c.id));
+            .filter(c => liqState.subTab !== 'banco' || BANCO_COLS.has(c.id))
+            .filter(c => !OCULTAS_PERMANENTES.has(c.id));
           // Guardar lista de columnas disponibles para que el modal de config las muestre
           window._liqAvailableCols = colsAvailable.map(c => ({ id: c.id, label: c.label }));
 
