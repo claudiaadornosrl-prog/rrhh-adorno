@@ -9750,10 +9750,64 @@ async function aprobarPermiso(id) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('aprobar_permiso', 'rrhh_permisos_puntuales', id, 'estado', 'pendiente', 'aprobado');
   toast('Permiso aprobado ✓', 'success');
+
+  // ═════════════════════════════════════════════════════════════════════
+  //  UNIFICAR CON VACACIONES: si el permiso es dia_completo con
+  //  descontar_vacaciones=true, también crear el registro en
+  //  rrhh_vacaciones_movimientos → así se puede generar el PDF firmable
+  //  que exige la ley. El trigger rrhh_permisos_aplicar_vacaciones ya
+  //  descontó los días del saldo FIFO — este registro es solo para el PDF.
+  // ═════════════════════════════════════════════════════════════════════
+  let movVacId = null;
+  if (perm.tipo === 'dia_completo'
+      && perm.descontar_vacaciones === true
+      && (perm.dias_descontar || 0) > 0) {
+    try {
+      // Buscar el año FIFO del que se descontó (el más viejo con saldo)
+      const { data: saldos } = await sb.from('rrhh_vacaciones')
+        .select('id, año')
+        .eq('empleado_id', perm.empleado_id)
+        .order('año', { ascending: true });
+      const vacacionesId = saldos && saldos[0] ? saldos[0].id : null;
+
+      const { data: movIns, error: movErr } = await sb.from('rrhh_vacaciones_movimientos').insert({
+        vacaciones_id: vacacionesId,
+        empleado_id: perm.empleado_id,
+        fecha_desde: perm.fecha,
+        fecha_hasta: perm.fecha,
+        dias: perm.dias_descontar,
+        estado: 'aprobada',
+        tipo_solicitud: 'toma',
+        solicitado_por: perm.solicitado_por || session.email,
+        fecha_solicitud: perm.solicitado_at || new Date().toISOString(),
+        aprobado_por: session.email,
+        fecha_aprobacion: new Date().toISOString(),
+        observaciones: `Generado desde permiso puntual #${perm.id} — ${perm.motivo || ''}`,
+      }).select().single();
+      if (movErr) {
+        console.warn('[aprobarPermiso→vacaciones] insert falló:', movErr);
+        toast('⚠ Aprobado, pero no pude generar el registro de vacaciones para el PDF. Revisá manual.', 'error');
+      } else {
+        movVacId = movIns.id;
+        // Ofrecer generar el PDF ahora
+        if (confirm(`Permiso aprobado ✓\n\nCorresponde a 1 día de vacaciones. ¿Querés descargar la Notificación de Vacaciones (PDF firmable) ahora?`)) {
+          try { await generarNotificacionVacaciones(movVacId); } catch (e) { console.warn('[gen PDF]', e); }
+        }
+      }
+    } catch (e) {
+      console.warn('[aprobarPermiso→vacaciones] excepción:', e);
+    }
+  }
+
   // 🔔 Push a la vendedora
   if (perm.empleado_id) {
     const fechaTxt = perm.fecha ? new Date(perm.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday:'long', day:'2-digit', month:'long' }) : '';
-    const detalle = descontar ? ` (se descuentan ${minutos} min del banco)` : ' (sin descuento de banco)';
+    let detalle;
+    if (perm.descontar_vacaciones && perm.dias_descontar > 0) {
+      detalle = ` (${perm.dias_descontar} día${perm.dias_descontar > 1 ? 's' : ''} de vacaciones)`;
+    } else {
+      detalle = descontar ? ` (se descuentan ${minutos} min del banco)` : ' (sin descuento de banco)';
+    }
     enviarPush(
       perm.empleado_id,
       'Permiso aprobado ✓',
