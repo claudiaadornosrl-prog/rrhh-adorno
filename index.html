@@ -7691,14 +7691,32 @@ async function cerrarMes(periodo, local) {
   const movimientos = [];
   const acumPorEmp = {};  // pool combinado tardanzas + salidas tempranas (con tolerancia)
 
+  // ── ANTI-DUPLICACIÓN: cargar los movs ya generados por el trigger
+  //    trg_permisos_aplicar_banco_minutos para permisos puntuales de este mes.
+  //    Si un día ya tiene mov con referencia_tipo='permiso_puntual', NO volver
+  //    a insertarlo desde acá — el trigger ya se encargó.
+  const empIdsDetalle = [...new Set(detalle.map(d => d.empleado_id))];
+  const permisosYaCargados = new Set(); // "empleado_id|fecha"
+  if (empIdsDetalle.length > 0) {
+    const { data: yaCargados } = await sb.from('rrhh_banco_minutos')
+      .select('empleado_id, fecha')
+      .in('empleado_id', empIdsDetalle)
+      .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+      .eq('referencia_tipo', 'permiso_puntual');
+    (yaCargados || []).forEach(m => permisosYaCargados.add(`${m.empleado_id}|${m.fecha}`));
+  }
+
   for (const d of detalle) {
     if (d.error_salvado) continue;  // si el día está salvado, no impacta banco
 
     // 1) Movimientos diarios al banco (extras autorizadas, permisos compensados)
     //    Excluye estado='ausente' y 'tarde' — esos NO deben generar movimiento diario.
+    //    Excluye también días que YA tienen un permiso puntual cargado por el
+    //    trigger de la DB (sino duplicaríamos el descuento).
     if ((d.minutos_banco || 0) !== 0
         && d.estado !== 'ausente'
-        && d.estado !== 'tarde') {
+        && d.estado !== 'tarde'
+        && !permisosYaCargados.has(`${d.empleado_id}|${d.fecha}`)) {
       let tipo = 'ajuste';
       if ((d.minutos_banco || 0) > 0) tipo = 'hora_extra';
       else tipo = 'permiso_compensado';

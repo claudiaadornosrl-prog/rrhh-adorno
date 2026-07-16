@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v176-aprobar-permiso-min-validacion';
+const CACHE_VERSION = 'rrhh-v177-cierre-mes-no-duplicar-permiso-puntual';
 const ASSETS = [
   './',
   './index.html',
