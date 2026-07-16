@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v186-comision-auto-refresh-al-entrar-sueldo';
+const CACHE_VERSION = 'rrhh-v187-ventas-priorizar-ventas-diarias-dragonfish';
 const ASSETS = [
   './',
   './index.html',

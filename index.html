@@ -14395,17 +14395,36 @@ async function renderLiquidaciones() {
   const local = isGerente ? session.empleadoData.local : liqState.local;
   const periodo = liqState.periodo;
 
-  // Cargar ventas del mes (un local o los 3)
+  // Cargar ventas del mes — mismo criterio que cargarVentasLocalMes:
+  // fuente primaria = ventas_diarias (Dragonfish); fallback = rrhh_ventas_local_mes.
   let ventasMes = 0;
   let ventas3 = {};
-  if (local === 'todos') {
-    const { data: vRows } = await sb.from('rrhh_ventas_local_mes')
-      .select('local, monto_ventas').eq('periodo', periodo + '-01');
-    (vRows || []).forEach(r => { ventas3[r.local] = Number(r.monto_ventas || 0); });
-  } else {
-    const { data: ventasRow } = await sb.from('rrhh_ventas_local_mes')
-      .select('monto_ventas').eq('local', local).eq('periodo', periodo + '-01').limit(1);
-    ventasMes = ventasRow?.[0]?.monto_ventas || 0;
+  {
+    const [_pyH, _pmH] = periodo.split('-').map(Number);
+    const _desdeH = periodo + '-01';
+    const _hastaHExcl = (_pmH === 12) ? `${_pyH+1}-01-01` : `${_pyH}-${String(_pmH+1).padStart(2,'0')}-01`;
+    const _localesH = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+    for (const loc of _localesH) {
+      let total = 0;
+      try {
+        const { data: dr } = await sb.from('ventas_diarias')
+          .select('efectivo, tarjeta, qr, vales, online, fc_oficina, transferencia, cc')
+          .eq('local', loc).gte('fecha', _desdeH).lt('fecha', _hastaHExcl);
+        if (dr && dr.length > 0) {
+          total = dr.reduce((s, v) => s
+            + Number(v.efectivo||0) + Number(v.tarjeta||0) + Number(v.qr||0) + Number(v.vales||0)
+            + Number(v.online||0)   + Number(v.fc_oficina||0) + Number(v.transferencia||0) + Number(v.cc||0), 0);
+        }
+      } catch (e) { console.warn('[header:ventas_diarias]', loc, e); }
+      if (total === 0) {
+        // Fallback histórico
+        const { data: row } = await sb.from('rrhh_ventas_local_mes')
+          .select('monto_ventas').eq('local', loc).eq('periodo', periodo + '-01').limit(1);
+        total = Number(row?.[0]?.monto_ventas || 0);
+      }
+      if (local === 'todos') ventas3[loc] = total;
+      else ventasMes = total;
+    }
   }
 
   // Cargar liquidaciones del mes (un local o todos)
@@ -22200,8 +22219,28 @@ const salaryWorkflow = (() => {
     return emp;
   }
 
-  // Ventas del local del mes (de rrhh_ventas_local_mes)
+  // Ventas del local del mes — fuente PRIMARIA: ventas_diarias (Dragonfish
+  // real-time). Fallback: rrhh_ventas_local_mes (para meses históricos previos
+  // al módulo Ventas o carga manual).
   async function cargarVentasLocalMes(local, periodo) {
+    // 1) Sumar de ventas_diarias
+    const [py, pm] = periodo.split('-').map(Number);
+    const desdeF = `${periodo}-01`;
+    const hastaFExcl = (pm === 12)
+      ? `${py+1}-01-01`
+      : `${py}-${String(pm+1).padStart(2,'0')}-01`;
+    try {
+      const { data: diarias } = await sb.from('ventas_diarias')
+        .select('efectivo, tarjeta, qr, vales, online, fc_oficina, transferencia, cc')
+        .eq('local', local)
+        .gte('fecha', desdeF).lt('fecha', hastaFExcl);
+      if (diarias && diarias.length > 0) {
+        return diarias.reduce((s, v) => s
+          + Number(v.efectivo||0) + Number(v.tarjeta||0) + Number(v.qr||0) + Number(v.vales||0)
+          + Number(v.online||0)   + Number(v.fc_oficina||0) + Number(v.transferencia||0) + Number(v.cc||0), 0);
+      }
+    } catch (e) { console.warn('[cargarVentasLocalMes:diarias]', e); }
+    // 2) Fallback: rrhh_ventas_local_mes (legacy / meses históricos)
     const { data } = await sb.from('rrhh_ventas_local_mes')
       .select('monto_ventas').eq('local', local).eq('periodo', periodo + '-01').limit(1);
     return data?.[0]?.monto_ventas || 0;
