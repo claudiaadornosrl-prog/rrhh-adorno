@@ -793,6 +793,31 @@ function liqSwitchSubTab(tab) {
   switchTab('liquidaciones');
 }
 
+// Dropdown "📤 Exportar ▾" en la barra de Banco
+function liqToggleExportMenu(btn, ev) {
+  if (ev) { ev.stopPropagation(); }
+  const menu = document.getElementById('liq-export-menu');
+  if (!menu) return;
+  const willShow = menu.style.display === 'none';
+  menu.style.display = willShow ? 'block' : 'none';
+  if (willShow) {
+    // Cerrar al hacer click fuera
+    setTimeout(() => {
+      const onDocClick = (e) => {
+        if (!menu.contains(e.target) && e.target !== btn) {
+          menu.style.display = 'none';
+          document.removeEventListener('click', onDocClick);
+        }
+      };
+      document.addEventListener('click', onDocClick);
+    }, 0);
+  }
+}
+function liqCloseExportMenu() {
+  const menu = document.getElementById('liq-export-menu');
+  if (menu) menu.style.display = 'none';
+}
+
 let currentTab = 'dashboard';
 
 // ════════════════════════════════════════════════════════════
@@ -14880,9 +14905,22 @@ async function renderLiquidaciones() {
           ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
           ${isAdmin ? `<button class="btn" style="background:#9333ea;color:white;border-color:#9333ea;" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
           ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
-          ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período (Libro de Sueldos Digital, ahora bajo ARCA).">📄 LSD ARCA</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
+          ${isAdmin ? `
+            <div class="liq-export-dd" style="position:relative;display:inline-block;">
+              <button class="btn" onclick="liqToggleExportMenu(this, event)" title="Descargar archivos para el estudio contable">📤 Exportar ▾</button>
+              <div id="liq-export-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);min-width:220px;z-index:20;overflow:hidden;">
+                <button class="liq-export-item" onclick="liqCloseExportMenu();exportarGaliciaXLSX('${local}','${periodo}')" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'" title="Descargar .xlsx con formato Galicia Office para subir al portal">
+                  <span style="font-size:15px;">📤</span> <span><strong>Galicia</strong><br><span style="font-size:11px;color:var(--muted);">.xlsx para Office Banking</span></span>
+                </button>
+                <button class="liq-export-item" onclick="liqCloseExportMenu();generarLSDTxtAuto('${periodo}','${local}')" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'" title="Libro de Sueldos Digital para ARCA (ex AFIP)">
+                  <span style="font-size:15px;">📄</span> <span><strong>LSD ARCA</strong><br><span style="font-size:11px;color:var(--muted);">.txt Libro Sueldos Digital</span></span>
+                </button>
+                <button class="liq-export-item" onclick="liqCloseExportMenu();exportarPlanillaBlancaLiq('${local}','${periodo}')" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'" title="Excel solo con la parte blanca">
+                  <span style="font-size:15px;">📋</span> <span><strong>Planilla blanca</strong><br><span style="font-size:11px;color:var(--muted);">.xlsx solo parte blanca</span></span>
+                </button>
+              </div>
+            </div>
+          ` : ''}
         `}
       </div>
     </div>
