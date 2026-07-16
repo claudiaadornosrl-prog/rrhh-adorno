@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v206-kebab-menu-utilidades';
+const CACHE_VERSION = 'rrhh-v207-sacar-stepper-y-kpis';
 const ASSETS = [
   './',
   './index.html',
