@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v196-cascada-mes-siguiente-al-cerrar';
+const CACHE_VERSION = 'rrhh-v197-retiros-mercaderia-real-time';
 const ASSETS = [
   './',
   './index.html',

@@ -17357,6 +17357,56 @@ window.retmercCambiarMes = function(p) {
   switchTab('retiros');
 };
 
+// ═══════════════════════════════════════════════════════════════════════
+//  Fase 2E: retiros de mercadería impactan la liquidación en tiempo real
+//  Al crear/cancelar/editar un retiro, actualiza la columna mercaderia
+//  de la liq del mes correspondiente (y de los siguientes si hay cuotas)
+//  + recalcula total_negro y efectivo. NO toca liq firmadas (mes cerrado).
+// ═══════════════════════════════════════════════════════════════════════
+async function retRefrescarLiqMes(empleado_id, anio, mes) {
+  if (!empleado_id) return;
+  const periodo = `${anio}-${String(mes).padStart(2,'0')}-01`;
+  const { data: liq } = await sb.from('rrhh_liquidacion')
+    .select('id, estado, fijo, comision, extras, vacaciones_pago, premio_monto, viaticos, feriado_monto, ajuste, recibo_neto, prestamo_interes')
+    .eq('empleado_id', empleado_id).eq('periodo', periodo).maybeSingle();
+  if (!liq) return;                    // no hay liq de ese mes
+  if (liq.estado === 'firmada') return; // mes cerrado — no tocar
+  const { data: sumRes } = await sb.rpc('rrhh_sum_retiros_mes', {
+    p_empleado_id: empleado_id, p_anio: anio, p_mes: mes
+  });
+  const nuevaMerc = Number(sumRes || 0);
+  const totalNegro = Number(liq.fijo||0) + Number(liq.comision||0)
+    + Number(liq.premio_monto||0) + Number(liq.viaticos||0)
+    + Number(liq.feriado_monto||0) + Number(liq.extras||0)
+    + Number(liq.vacaciones_pago||0);
+  const efectivo = Math.max(0, totalNegro
+    - Number(liq.recibo_neto||0) - nuevaMerc
+    - Number(liq.ajuste||0) - Number(liq.prestamo_interes||0));
+  await sb.from('rrhh_liquidacion').update({
+    mercaderia: nuevaMerc,
+    total_negro: totalNegro,
+    efectivo,
+    calculado_at: new Date().toISOString(),
+  }).eq('id', liq.id);
+}
+
+async function retRefrescarLiqDeRetiro(retiroId) {
+  try {
+    const { data: r } = await sb.from('rrhh_retiros_mercaderia')
+      .select('empleado_id, fecha, cuotas_total')
+      .eq('id', retiroId).maybeSingle();
+    if (!r || !r.empleado_id || !r.fecha) return;
+    const cuotas = Math.max(1, r.cuotas_total || 1);
+    const [y, m] = r.fecha.split('-').map(Number);
+    for (let i = 0; i < cuotas; i++) {
+      const mm = m + i;
+      const anio = y + Math.floor((mm - 1) / 12);
+      const mes = ((mm - 1) % 12) + 1;
+      await retRefrescarLiqMes(r.empleado_id, anio, mes);
+    }
+  } catch (e) { console.warn('[retRefrescarLiqDeRetiro]', e); }
+}
+
 async function retCargar() {
   const empId = parseInt(document.getElementById('ret-emp').value);
   const fecha = document.getElementById('ret-fecha').value;
@@ -17369,7 +17419,7 @@ async function retCargar() {
   const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
   if (!emp) { toast('Empleada no encontrada', 'error'); return; }
   const codigo = 'manual_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-  const { error } = await sb.from('rrhh_retiros_mercaderia').insert({
+  const { data: retIns, error } = await sb.from('rrhh_retiros_mercaderia').insert({
     dragonfish_codigo: codigo,
     local: emp.local,
     fecha,
@@ -17379,8 +17429,10 @@ async function retCargar() {
     estado: 'asignado',
     cuotas_total: cuotas,
     notas_admin: 'Cargado manual por ' + (session.email || 'admin'),
-  });
+  }).select('id').single();
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  // Refrescar liq del mes (y siguientes si hay cuotas)
+  if (retIns?.id) await retRefrescarLiqDeRetiro(retIns.id);
   toast('Retiro cargado ✓ (' + cuotas + ' cuota' + (cuotas>1?'s':'') + ')', 'success');
   switchTab('retiros');
 }
@@ -17389,6 +17441,7 @@ async function retCancelar(id) {
   if (!confirm('¿Cancelar este retiro? No va a descontarse del sueldo.')) return;
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({ estado: 'cancelado' }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await retRefrescarLiqDeRetiro(id);
   toast('Cancelado', 'success');
   switchTab('retiros');
 }
@@ -17397,16 +17450,33 @@ async function retDescartar(id) {
   if (!confirm(`¿Descartar el retiro #${id} por ser duplicado? No va a descontarse del sueldo.`)) return;
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({ estado: 'descartado' }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await retRefrescarLiqDeRetiro(id);
   toast(`Descartado #${id} ✓`, 'success');
   switchTab('retiros');
 }
 
 async function retAsignarEmpleado(id, empId) {
   if (!empId) return;
+  // Cargar el empleado anterior (para refrescar su liq también)
+  const { data: prev } = await sb.from('rrhh_retiros_mercaderia')
+    .select('empleado_id, fecha, cuotas_total').eq('id', id).maybeSingle();
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({
     empleado_id: parseInt(empId), estado: 'asignado'
   }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  // Refrescar liq del empleado NUEVO
+  await retRefrescarLiqDeRetiro(id);
+  // Refrescar liq del empleado ANTERIOR (que ya no debe tener este retiro)
+  if (prev?.empleado_id && prev.empleado_id !== parseInt(empId) && prev.fecha) {
+    const cuotasPrev = Math.max(1, prev.cuotas_total || 1);
+    const [yP, mP] = prev.fecha.split('-').map(Number);
+    for (let i = 0; i < cuotasPrev; i++) {
+      const mm = mP + i;
+      const anio = yP + Math.floor((mm - 1) / 12);
+      const mes = ((mm - 1) % 12) + 1;
+      await retRefrescarLiqMes(prev.empleado_id, anio, mes);
+    }
+  }
   toast('Asignado ✓', 'success');
   switchTab('retiros');
 }
@@ -17416,8 +17486,22 @@ async function retEditarCuotas(id, actual) {
   if (!nuevo) return;
   const n = parseInt(nuevo);
   if (!n || n < 1 || n > 12) { toast('Cantidad inválida (1-12)', 'error'); return; }
+  // Cargar cuotas previas para saber cuáles meses hay que refrescar (por si se REDUJERON)
+  const { data: prev } = await sb.from('rrhh_retiros_mercaderia')
+    .select('empleado_id, fecha, cuotas_total').eq('id', id).maybeSingle();
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({ cuotas_total: n }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  // Refrescar TODOS los meses de la cuotas máxima (viejas + nuevas)
+  const cuotasMax = Math.max(prev?.cuotas_total || 1, n);
+  if (prev?.empleado_id && prev.fecha) {
+    const [yP, mP] = prev.fecha.split('-').map(Number);
+    for (let i = 0; i < cuotasMax; i++) {
+      const mm = mP + i;
+      const anio = yP + Math.floor((mm - 1) / 12);
+      const mes = ((mm - 1) % 12) + 1;
+      await retRefrescarLiqMes(prev.empleado_id, anio, mes);
+    }
+  }
   toast('Cuotas actualizadas ✓', 'success');
   switchTab('retiros');
 }
@@ -17429,6 +17513,7 @@ async function retEditarImporte(id, actual) {
   if (!n || n <= 0) { toast('Importe inválido', 'error'); return; }
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({ importe: n }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await retRefrescarLiqDeRetiro(id);
   toast('Importe actualizado ✓', 'success');
   switchTab('retiros');
 }
