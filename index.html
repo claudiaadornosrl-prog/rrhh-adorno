@@ -15486,8 +15486,14 @@ async function renderLiquidaciones() {
             : '<span style="color:#cbd5e1;margin-left:3px;">↕</span>';
           const thHtml = cols.map(col => {
             const opts = col.thOpts || {};
-            const sticky = col.id === 'empleada' ? 'position:sticky;left:0;background:#f9fafb;z-index:4;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);' : '';
-            const style = `padding:8px;${opts.align || ''};${opts.bg ? `background:${opts.bg};` : ''}${col.sortKey ? 'cursor:pointer;user-select:none;' : ''}${sticky}`;
+            // Sticky vertical (siempre): headers pegados arriba al scrollear la grilla
+            // Sticky horizontal (solo Empleada): columna nombre pegada a la izquierda
+            const bgTh = opts.bg || '#f9fafb';
+            const stickyVert = `position:sticky;top:0;`;
+            const isEmpleada = (col.id === 'empleada');
+            const zIndex = isEmpleada ? 5 : 3;   // esquina cruza dos stickies → mayor z
+            const stickyEmp = isEmpleada ? 'left:0;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08),0 2px 4px -2px rgba(0,0,0,0.08);' : 'box-shadow:0 2px 4px -2px rgba(0,0,0,0.08);';
+            const style = `padding:8px;${opts.align || ''};background:${bgTh};${col.sortKey ? 'cursor:pointer;user-select:none;' : ''}${stickyVert}${stickyEmp}z-index:${zIndex};`;
             const onclick = col.sortKey ? `onclick="liqOrdenarPor('${col.sortKey}')"` : '';
             const title = opts.title ? `title="${opts.title}"` : '';
             return `<th style="${style}" ${onclick} ${title}>${col.label}${col.sortKey ? arrow(col.sortKey) : ''}</th>`;

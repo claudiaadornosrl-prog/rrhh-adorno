@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v202-menu-exportar-banco';
+const CACHE_VERSION = 'rrhh-v203-headers-tabla-sticky';
 const ASSETS = [
   './',
   './index.html',
