@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v208-header-2-lineas';
+const CACHE_VERSION = 'rrhh-v209-reordenar-tabs-asistencias';
 const ASSETS = [
   './',
   './index.html',

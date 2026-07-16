@@ -7018,13 +7018,13 @@ async function renderAsistenciasAdmin() {
     </div>
 
     <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
-      <button class="modal-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendario de turnos</button>
-      <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas (Anviz)</button>
+      <button class="modal-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendarios</button>
       <button class="modal-tab ${asisState.tab==='resumen'?'active':''}"    data-asistab="resumen"    style="border-bottom:2px solid transparent;padding:12px 14px;">📊 Resumen mensual</button>
-      <button class="modal-tab ${asisState.tab==='permisos'?'active':''}"   data-asistab="permisos"   style="border-bottom:2px solid transparent;padding:12px 14px;">🙋 Permisos <span id="badge-permisos-pend" style="display:none;background:var(--danger);color:white;border-radius:99px;padding:1px 7px;font-size:10px;margin-left:4px;"></span></button>
-      <button class="modal-tab ${asisState.tab==='reportes'?'active':''}" data-asistab="reportes" style="border-bottom:2px solid transparent;padding:12px 14px;">🚩 Reportes</button>
-      <button class="modal-tab ${asisState.tab==='extras'?'active':''}"     data-asistab="extras"     style="border-bottom:2px solid transparent;padding:12px 14px;">⏰ Horas extras</button>
       <button class="modal-tab ${asisState.tab==='banco'?'active':''}"      data-asistab="banco"      style="border-bottom:2px solid transparent;padding:12px 14px;">🏦 Banco</button>
+      <button class="modal-tab ${asisState.tab==='permisos'?'active':''}"   data-asistab="permisos"   style="border-bottom:2px solid transparent;padding:12px 14px;">🙋 Permisos <span id="badge-permisos-pend" style="display:none;background:var(--danger);color:white;border-radius:99px;padding:1px 7px;font-size:10px;margin-left:4px;"></span></button>
+      <button class="modal-tab ${asisState.tab==='extras'?'active':''}"     data-asistab="extras"     style="border-bottom:2px solid transparent;padding:12px 14px;">⏰ Extras</button>
+      <button class="modal-tab ${asisState.tab==='reportes'?'active':''}"   data-asistab="reportes"   style="border-bottom:2px solid transparent;padding:12px 14px;">🚩 Reportes</button>
+      <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas</button>
     </div>
 
     <div id="asis-content" style="margin-top:20px;"><div class="spinner"></div></div>
