@@ -15252,7 +15252,11 @@ async function renderLiquidaciones() {
           const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp };
 
           // Filtrar por condition (local==='todos', esMesSAC)
-          const colsAvailable = ALL_COLS.filter(c => !c.condition || c.condition(ctxL));
+          // + Sub-tab Banco: mostrar solo Empleada / Recibo / Préstamos / Adelantos / Banco
+          const BANCO_COLS = new Set(['empleada','recibo','prestamos','adelantos','banco']);
+          const colsAvailable = ALL_COLS
+            .filter(c => !c.condition || c.condition(ctxL))
+            .filter(c => liqState.subTab !== 'banco' || BANCO_COLS.has(c.id));
           // Guardar lista de columnas disponibles para que el modal de config las muestre
           window._liqAvailableCols = colsAvailable.map(c => ({ id: c.id, label: c.label }));
 
