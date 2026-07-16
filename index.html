@@ -784,7 +784,14 @@ const NAV = {
 };
 
 let session = null;  // { user, rol, empleado, empleadoData }
-let liqState = { periodo: null, local: null, busqueda: '', estado: 'todos', categoria: 'todas', soloAlertas: false, sortBy: null, sortDir: 'asc' };
+let liqState = { periodo: null, local: null, busqueda: '', estado: 'todos', categoria: 'todas', soloAlertas: false, sortBy: null, sortDir: 'asc', subTab: 'sueldo' /* 'sueldo' | 'banco' */ };
+
+// Cambiar sub-tab (💰 Sueldo | 🏦 Banco) sin recargar toda la data
+function liqSwitchSubTab(tab) {
+  if (tab !== 'sueldo' && tab !== 'banco') return;
+  liqState.subTab = tab;
+  switchTab('liquidaciones');
+}
 
 let currentTab = 'dashboard';
 
@@ -14804,20 +14811,31 @@ async function renderLiquidaciones() {
           <input type="number" id="liq-ventas" value="${ventasMes}" style="width:160px;text-align:right;font-family:monospace;" ${isAdmin?'':'disabled'}>
           ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
         `}
+        <!-- REFRESH global (ambas sub-tabs) -->
         ${isAdmin ? `<button class="btn" onclick="switchTab('liquidaciones')" title="Refrescar desde Supabase">🔄</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#10b981;color:white;border-color:#10b981;" onclick="liqSyncVentasFromSheets('${local}','${periodo}')" title="Tira las ventas de Google Sheets a Supabase ya mismo (solo si G1=OK). Idempotente, podes correrlo cuantas veces quieras.">🔄 Sync ventas Sheets</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
-        ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="liqCargarFirmadosBulk()" title="Subir PDF escaneado con varios recibos firmados — el sistema los detecta por QR y los procesa automáticamente">📥 Cargar firmados</button>` : ''}
-        ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período (Libro de Sueldos Digital, ahora bajo ARCA — ex AFIP). Si hay empleados de más de una jurisdicción (CABA + BsAs), descarga 2 archivos automáticamente.">📄 LSD ARCA</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="liqGenerarImportes('${local}','${periodo}')" title="Recalcula SOLO importes negros (fijo+comisión+premios+viáticos+extras+feriado+mercadería) de empleadas cct_negro. NO toca el recibo CCT. Súper rápido, requiere que la liquidación ya exista.">⚡ Importes</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#9333ea;color:white;border-color:#9333ea;" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#6366f1;color:white;border-color:#6366f1;" onclick="liqGenerarMes('${local}','${periodo}')" title="Recalcula TODAS las liquidaciones del mes desde cero (importes + recibo CCT). Reemplaza borradores. Más lento pero más completo.">🔄 Recalcular</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#f59e0b;color:white;border-color:#f59e0b;" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales (faltas, suspensiones).">📋 Proforma</button>` : ''}
-        ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
-        ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Valida ventas + asistencias + aumentos. Despues podras modificar pero con aviso.">🔒 Cerrar mes</button>` : ''}
+
+        ${(liqState.subTab === 'sueldo') ? `
+          <!-- ════ BOTONES DE SUELDO ════ -->
+          ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="liqActualizarSueldo('${local}','${periodo}')" title="TEMPORAL: recalcula importes negros (fijo + comisión + premios + viáticos + extras + feriado). Se sacará cuando esté el trigger automático desde Asistencias.">⚡ Actualizar sueldo</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Al cerrar, se generan automáticamente los borradores proforma del mes siguiente con los fijos actualizados.">🔒 Cerrar mes</button>` : ''}
+        ` : `
+          <!-- ════ BOTONES DE BANCO ════ -->
+          ${isAdmin ? `<button class="btn" style="background:#f59e0b;color:white;border-color:#f59e0b;" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales.">📋 Proforma</button>` : ''}
+          ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="background:#9333ea;color:white;border-color:#9333ea;" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
+          ${(isAdmin || isGerente) ? `<button class="btn" style="background:#7c3aed;color:white;border-color:#7c3aed;" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
+          ${isAdmin ? `<button class="btn" onclick="exportarGaliciaXLSX('${local}','${periodo}')" title="Descargar archivo .xlsx con formato Galicia Office para subir al portal">📤 Galicia</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="background:#0f172a;color:white;border-color:#0f172a;" onclick="generarLSDTxtAuto('${periodo}','${local}')" title="Genera el/los archivo(s) LSD del período (Libro de Sueldos Digital, ahora bajo ARCA).">📄 LSD ARCA</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;" onclick="exportarPlanillaBlancaLiq('${local}','${periodo}')" title="Excel solo con la parte blanca: Empleada, Recibo, Préstamos, Adelantos y A acreditar">📋 Planilla blanca</button>` : ''}
+        `}
       </div>
+    </div>
+
+    <!-- ══════ SUB-TABS: 💰 Sueldo | 🏦 Banco ══════ -->
+    <div style="display:flex;gap:4px;border-bottom:2px solid var(--border);margin-top:8px;margin-bottom:12px;padding:0 4px;">
+      <button onclick="liqSwitchSubTab('sueldo')" style="padding:10px 20px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>
+      <button onclick="liqSwitchSubTab('banco')" style="padding:10px 20px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
+      <span style="margin-left:auto;align-self:center;font-size:11px;color:var(--muted);">${liqState.subTab==='sueldo' ? '💰 Sueldo real (blanco + negro) — vista principal' : '🏦 Solo recibo CCT — cálculos y PDFs para el estudio'}</span>
     </div>
 
     <!-- Barra de FILTROS (Fase 1: búsqueda + estado + categoría + solo alertas) -->
@@ -16275,6 +16293,30 @@ async function liqRegistrarCreditosEmpresa(local, periodo) {
   const { error } = await sb.from('rrhh_credito_empresa').insert(creditos);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast(`✓ ${creditos.length} crédito(s) registrado(s) — se aplican el próximo mes`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ⚡ Actualizar sueldo — botón unificado de la sub-tab Sueldo
+//  Si no hay liquidaciones del mes → hace un full Recalcular (crea desde cero).
+//  Si ya existen → hace solo Importes (rápido, no toca el recibo CCT).
+//  TEMPORAL: se sacará cuando estén los auto-triggers desde Asistencias.
+// ═══════════════════════════════════════════════════════════════════════
+async function liqActualizarSueldo(local, periodo) {
+  const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+  // Chequear si ya hay liquidaciones para decidir el modo
+  const { count: existentes } = await sb.from('rrhh_liquidacion')
+    .select('id', { count: 'exact', head: true })
+    .in('local', locales)
+    .eq('periodo', periodo + '-01');
+  const yaHay = (existentes || 0) > 0;
+  if (yaHay) {
+    // Modo rápido: solo importes negros
+    return await liqGenerarImportes(local, periodo);
+  } else {
+    // Modo completo: crear desde cero (incluye recibo CCT)
+    if (!confirm(`No hay liquidaciones del mes todavía. Voy a crearlas desde cero para ${locales.join(', ')} ${periodo}.\n\nEsto también genera los recibos CCT (blanco). ¿Continúo?`)) return;
+    return await liqGenerarMes(local, periodo);
+  }
 }
 
 async function liqGenerarImportes(local, periodo) {

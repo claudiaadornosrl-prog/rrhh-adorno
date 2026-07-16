@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v183-pago-vacaciones-refresh-liq-inmediato';
+const CACHE_VERSION = 'rrhh-v184-liquidacion-subtabs-sueldo-banco';
 const ASSETS = [
   './',
   './index.html',
