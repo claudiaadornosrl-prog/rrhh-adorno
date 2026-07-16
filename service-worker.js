@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v180-permisos-buscador-ordenamiento';
+const CACHE_VERSION = 'rrhh-v181-permisos-headers-clickeables';
 const ASSETS = [
   './',
   './index.html',

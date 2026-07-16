@@ -9432,6 +9432,24 @@ function onPermSortChange(v) {
   listarPermisos();
 }
 
+// Click en un header de la tabla → ordena por esa columna, o invierte dirección si ya era la activa
+function onPermSortHeader(key) {
+  if (permisosState.sortKey === key) {
+    permisosState.sortDir = permisosState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    permisosState.sortKey = key;
+    // Default sensato: fechas empiezan en desc (más nuevo), textos en asc (A→Z)
+    permisosState.sortDir = (key === 'fecha' || key === 'solicitado' || key === 'minutos') ? 'desc' : 'asc';
+  }
+  listarPermisos();
+}
+function _permSortIndicator(key) {
+  if (permisosState.sortKey !== key) return '<span style="opacity:0.25;font-size:10px;margin-left:4px;">⇅</span>';
+  return permisosState.sortDir === 'asc'
+    ? '<span style="color:var(--accent2);font-size:11px;margin-left:4px;">▲</span>'
+    : '<span style="color:var(--accent2);font-size:11px;margin-left:4px;">▼</span>';
+}
+
 async function renderPermisosAdmin(cont) {
   const sortVal = `${permisosState.sortKey}:${permisosState.sortDir}`;
   cont.innerHTML = `
@@ -9452,23 +9470,8 @@ async function renderPermisosAdmin(cont) {
                style="width:100%;padding:8px 30px 8px 32px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
         ${permisosState.q ? `<button onclick="document.getElementById('perm-busqueda').value='';onPermBusquedaChange('')" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 6px;" title="Limpiar">✕</button>` : ''}
       </div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
-        Ordenar por:
-        <select id="perm-sort" onchange="onPermSortChange(this.value)"
-                style="padding:7px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;">
-          <option value="fecha:desc"       ${sortVal==='fecha:desc'      ?'selected':''}>📅 Fecha permiso — más nueva primero</option>
-          <option value="fecha:asc"        ${sortVal==='fecha:asc'       ?'selected':''}>📅 Fecha permiso — más vieja primero</option>
-          <option value="solicitado:desc"  ${sortVal==='solicitado:desc' ?'selected':''}>🕒 Solicitado — más reciente primero</option>
-          <option value="solicitado:asc"   ${sortVal==='solicitado:asc'  ?'selected':''}>🕒 Solicitado — más antiguo primero</option>
-          <option value="empleado:asc"     ${sortVal==='empleado:asc'    ?'selected':''}>👤 Empleada A → Z</option>
-          <option value="empleado:desc"    ${sortVal==='empleado:desc'   ?'selected':''}>👤 Empleada Z → A</option>
-          <option value="local:asc"        ${sortVal==='local:asc'       ?'selected':''}>🏬 Local A → Z</option>
-          <option value="estado:asc"       ${sortVal==='estado:asc'      ?'selected':''}>🏷 Estado A → Z</option>
-          <option value="minutos:desc"     ${sortVal==='minutos:desc'    ?'selected':''}>⏱ Minutos descuento — mayor primero</option>
-          <option value="minutos:asc"      ${sortVal==='minutos:asc'     ?'selected':''}>⏱ Minutos descuento — menor primero</option>
-        </select>
-      </label>
-      <span id="perm-count" style="font-size:12px;color:var(--muted);"></span>
+      <span style="font-size:11px;color:var(--muted);">💡 Click en un título de columna para ordenar</span>
+      <span id="perm-count" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
     </div>
     <div id="permisos-list"><div class="spinner"></div></div>
   `;
@@ -9530,6 +9533,7 @@ async function listarPermisos() {
     solicitado: p => p.solicitado_at || p.created_at,
     empleado:   p => (p.empleado?.nombre_completo || '').toLowerCase(),
     local:      p => _normLocal(p.empleado?.local),
+    tipo:       p => _normTipo(p.tipo),
     estado:     p => p.estado,
     minutos:    p => (p.descontar_banco ? (p.minutos_descontar || 0) : -1),
   }[permisosState.sortKey] || (p => p.fecha);
@@ -9562,13 +9566,13 @@ async function listarPermisos() {
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Fecha</th>
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Empleado</th>
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Local</th>
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Tipo</th>
+            <th onclick="onPermSortHeader('fecha')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por fecha">Fecha${_permSortIndicator('fecha')}</th>
+            <th onclick="onPermSortHeader('empleado')" style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por empleada">Empleado${_permSortIndicator('empleado')}</th>
+            <th onclick="onPermSortHeader('local')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por local">Local${_permSortIndicator('local')}</th>
+            <th onclick="onPermSortHeader('tipo')"     style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por tipo">Tipo${_permSortIndicator('tipo')}</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Horario</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Motivo</th>
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Estado</th>
+            <th onclick="onPermSortHeader('estado')"   style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por estado">Estado${_permSortIndicator('estado')}</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;text-align:right;">Acciones</th>
           </tr>
         </thead>
