@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v205-tab-sueldos-empleado-ampliado';
+const CACHE_VERSION = 'rrhh-v206-kebab-menu-utilidades';
 const ASSETS = [
   './',
   './index.html',
