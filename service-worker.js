@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v182-pago-vacaciones-calculo-liquidacion';
+const CACHE_VERSION = 'rrhh-v183-pago-vacaciones-refresh-liq-inmediato';
 const ASSETS = [
   './',
   './index.html',

@@ -4034,7 +4034,30 @@ async function decidirVacacion(movId, accion) {
       await sb.from('rrhh_vacaciones_movimientos').insert(extras);
     }
     await auditLog('aprobar_pago_vacaciones', 'rrhh_vacaciones_movimientos', movId, 'estado', 'solicitada', 'pagada');
-    toast(`✓ Pago aprobado: ${mov.dias} días (${tramos.length} tramo${tramos.length>1?'s':''})`, 'success');
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Refrescar la liquidación del mes en el acto (si ya existe).
+    //  Si no existe, cuando se calcule va a leer el mov y aplicar el importe.
+    // ═══════════════════════════════════════════════════════════════════
+    let msjLiq = '';
+    if (importePagado > 0 && periodoLiq) {
+      try {
+        const { data: refr, error: refrErr } = await sb.rpc('rrhh_liquidacion_refrescar_vac_pago', {
+          p_empleado_id: mov.empleado_id, p_periodo: periodoLiq,
+        });
+        if (refrErr) throw refrErr;
+        if (refr?.actualizada) {
+          msjLiq = ` — Liquidación actualizada: total pasó de $${Number(refr.total_negro_prev||0).toLocaleString('es-AR')} a $${Number(refr.total_negro_new||0).toLocaleString('es-AR')}`;
+        } else {
+          msjLiq = ' — Liquidación del mes aún no creada; se aplicará al calcularla';
+        }
+      } catch (e) {
+        console.warn('[decidirVacacion:pago] refrescar liq falló:', e);
+        msjLiq = ' — ⚠ No pude refrescar la liq: ' + (e.message || 'error');
+      }
+    }
+
+    toast(`✓ Pago aprobado: ${mov.dias} días (${tramos.length} tramo${tramos.length>1?'s':''})${msjLiq}`, 'success');
     // 🔔 Push a la empleada
     enviarPush(
       mov.empleado_id,
