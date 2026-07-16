@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v178-permiso-diacompleto-genera-pdf-vacaciones';
+const CACHE_VERSION = 'rrhh-v179-permiso-oficina-sin-almuerzo';
 const ASSETS = [
   './',
   './index.html',

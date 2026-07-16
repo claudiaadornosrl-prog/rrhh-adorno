@@ -9721,10 +9721,18 @@ async function aprobarPermiso(id) {
         sugerido = 60;
       }
     }
+    // "Sin almuerzo Oficina": empleada compensa 30 min saltándose el almuerzo
+    // (solo aplica a permisos parciales, no día_completo)
+    if (perm.sin_almuerzo && perm.tipo !== 'dia_completo') {
+      const antes = sugerido;
+      sugerido = Math.max(0, sugerido - 30);
+      console.log(`[aprobarPermiso] sin_almuerzo=true → sugerencia ajustada ${antes} → ${sugerido} min`);
+    }
     const m = prompt(
       `¿Cuántos minutos descontar del banco?\n\n` +
       `Sugerencia: ${sugerido} min (${(sugerido/60).toFixed(1)}h)` +
       (perm.tipo === 'dia_completo' ? ' — día completo típico' : '') +
+      (perm.sin_almuerzo ? '\n🍽 Empleada marcó "sin almuerzo": ya restados 30 min' : '') +
       `\n\nTip: 540 = 9h · 720 = 12h · 360 = 6h`,
       String(sugerido)
     );
@@ -9928,6 +9936,16 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
           </div>
           <div id="perme-calc-box" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:8px;border-left:3px solid #d97706;font-size:13px;color:#92400e;font-weight:600;"></div>
 
+          <!-- ─── Sin almuerzo (solo Oficina) — compensa 30 min ─── -->
+          ${session.empleadoData?.local === 'oficina' ? `
+          <div id="perme-sin-almuerzo-row" style="display:${(datos.tipo && datos.tipo !== 'dia_completo') ? 'block' : 'none'};background:#ecfdf5;padding:10px 14px;border-radius:8px;border-left:3px solid #10b981;">
+            <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer;color:#065f46;">
+              <input type="checkbox" id="perme-sin-almuerzo" ${datos.sin_almuerzo ? 'checked' : ''} onchange="actualizarCalcPermiso()" style="margin-top:3px;">
+              <span>🍽 <strong>No voy a tomar los 30 min de almuerzo</strong> — compenso con eso, se descuentan 30 min menos. <em style="color:#047857;">Solo Oficina.</em></span>
+            </label>
+          </div>
+          ` : ''}
+
           <!-- ─── Compensación (banco / vacaciones) ─── -->
           <div id="perme-comp-box" style="background:#eff6ff;padding:12px;border-radius:8px;border:1px solid #bfdbfe;">
             <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px;">💰 ¿Querés cubrir el descuento del sueldo?</div>
@@ -9986,6 +10004,18 @@ function onTipoChangeEmp() {
   const tipo = document.getElementById('perme-tipo').value;
   const row = document.getElementById('perme-horario-row');
   row.style.display = (tipo === 'dia_completo' || !tipo) ? 'none' : 'grid';
+
+  // Toggle "sin almuerzo Oficina": aplicable a retirarse_antes / llegar_tarde / salir_volver
+  // (no aplica a dia_completo — si no fuiste, no hay almuerzo que "no tomar")
+  const sinAlmuerzoRow = document.getElementById('perme-sin-almuerzo-row');
+  if (sinAlmuerzoRow) {
+    const aplica = tipo && tipo !== 'dia_completo';
+    sinAlmuerzoRow.style.display = aplica ? 'block' : 'none';
+    if (!aplica) {
+      const chk = document.getElementById('perme-sin-almuerzo');
+      if (chk) chk.checked = false;
+    }
+  }
 
   // Ajustar labels según tipo
   const desdeLabel = document.getElementById('perme-desde-label');
@@ -10132,6 +10162,15 @@ async function actualizarCalcPermiso() {
     } else {
       explicacion = `Salís ${hd}, volvés ${hh}`;
     }
+  }
+
+  // "Sin almuerzo Oficina": resta 30 min al descuento
+  const sinAlmuerzoChk = document.getElementById('perme-sin-almuerzo');
+  const sinAlmuerzo = sinAlmuerzoChk && !sinAlmuerzoChk.closest('#perme-sin-almuerzo-row')?.style?.display?.includes('none') && sinAlmuerzoChk.checked;
+  if (sinAlmuerzo && minutos > 0) {
+    const orig = minutos;
+    minutos = Math.max(0, minutos - 30);
+    explicacion += ` · 🍽 Sin almuerzo Oficina: −30 min (${orig} → ${minutos})`;
   }
 
   if (minutos > 0) {
@@ -10303,6 +10342,17 @@ async function enviarPermisoEmpleado() {
     }
   }
 
+  // "Sin almuerzo Oficina": la empleada compensa 30 min saltándose el almuerzo.
+  // Solo aplica si el toggle está visible (Oficina) + tipo != dia_completo.
+  const _sinAlmChk = document.getElementById('perme-sin-almuerzo');
+  const _sinAlmRow = document.getElementById('perme-sin-almuerzo-row');
+  const sin_almuerzo = !!(_sinAlmChk && _sinAlmChk.checked
+                          && _sinAlmRow && _sinAlmRow.style.display !== 'none'
+                          && tipo !== 'dia_completo');
+  if (sin_almuerzo) {
+    minutosCalc = Math.max(0, minutosCalc - 30);
+  }
+
   // Leer compensación elegida (radio buttons)
   const compRadio = document.querySelector('input[name="perme-comp"]:checked');
   const compElegida = compRadio ? compRadio.value : 'ninguna';
@@ -10323,6 +10373,7 @@ async function enviarPermisoEmpleado() {
       fecha, tipo, hora_desde, hora_hasta, motivo,
       minutos_descontar: minutosCalc,
       descontar_banco, descontar_vacaciones, dias_descontar,
+      sin_almuerzo,
     };
     if (eraAprobado) {
       updateObj.estado = 'pendiente';
@@ -10347,6 +10398,7 @@ async function enviarPermisoEmpleado() {
     solicitado_por: session.email,
     minutos_descontar: minutosCalc,
     descontar_banco, descontar_vacaciones, dias_descontar,
+    sin_almuerzo,
   }).select().single();
 
   if (error) { toast('Error: ' + error.message, 'error'); return; }
