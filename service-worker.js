@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v200-banco-ampliado-cat-antig-bruto-desc';
+const CACHE_VERSION = 'rrhh-v201-stepper-ciclo-liquidacion';
 const ASSETS = [
   './',
   './index.html',

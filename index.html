@@ -14895,6 +14895,91 @@ async function renderLiquidaciones() {
       <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:12px;"></span>
     </div>
 
+    <!-- ══════ STEPPER DEL CICLO: Borrador/Proforma → Definitivo → Cerrado ══════ -->
+    ${(() => {
+      const _localesStepper = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+      const _cerradosLocs = _localesStepper.filter(l => cierresSueldos[l]);
+      const _liqsLoc = (liqsAll || []).filter(l => local === 'todos' || l.local === local);
+      const _hayDef = _liqsLoc.some(l => l.tipo === 'definitivo');
+      const _todosCerrados = _cerradosLocs.length === _localesStepper.length && _localesStepper.length > 0;
+      const _algunoCerrado = _cerradosLocs.length > 0;
+      // Estado global del período+local
+      const _step = _todosCerrados ? 'cerrado' : (_hayDef ? 'definitivo' : 'borrador');
+      const _fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+
+      // Metadata de cada paso
+      const _stepInfo = {
+        borrador: {
+          idx: 0, label: 'Borrador / Proforma', icon: '📝',
+          sub: _liqsLoc.length > 0
+            ? `${_liqsLoc.length} liquidacion${_liqsLoc.length===1?'':'es'} en preview`
+            : 'Sin liquidaciones aún',
+        },
+        definitivo: {
+          idx: 1, label: 'Definitivo', icon: '✅',
+          sub: (() => {
+            const _defs = _liqsLoc.filter(l => l.tipo === 'definitivo');
+            if (_defs.length === 0) return 'Recibos firmables no generados';
+            return `${_defs.length} recibo${_defs.length===1?'':'s'} definitivo${_defs.length===1?'':'s'}`;
+          })(),
+        },
+        cerrado: {
+          idx: 2, label: 'Cerrado', icon: '🔒',
+          sub: _algunoCerrado
+            ? (_todosCerrados
+                ? `Cerrado por ${(Object.values(cierresSueldos)[0]?.cerrado_por||'').split('@')[0]}`
+                : `${_cerradosLocs.length}/${_localesStepper.length} locales cerrados`)
+            : 'Aún abierto',
+        },
+      };
+      const _currIdx = _stepInfo[_step].idx;
+
+      // Botón de acción del siguiente paso (solo si aún no está completado)
+      let _nextAction = '';
+      if (isAdmin && local !== 'todos') {
+        if (_step === 'borrador') {
+          _nextAction = `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" style="margin-left:auto;">✅ Generar Definitivo →</button>`;
+        } else if (_step === 'definitivo') {
+          _nextAction = `<button class="btn" style="background:#dc2626;color:white;border-color:#dc2626;margin-left:auto;" onclick="liqCerrarMes('${local}','${periodo}')">🔒 Cerrar mes →</button>`;
+        }
+      }
+
+      // Renderer de cada paso
+      const _renderStep = (key) => {
+        const info = _stepInfo[key];
+        const isDone   = _currIdx > info.idx;
+        const isActive = _currIdx === info.idx;
+        const isFuture = _currIdx < info.idx;
+        const dotBg    = isDone ? '#10b981' : (isActive ? 'var(--accent2)' : '#e5e7eb');
+        const dotColor = (isDone || isActive) ? 'white' : '#9ca3af';
+        const labelWt  = isActive ? '700' : (isDone ? '600' : '500');
+        const labelClr = isFuture ? '#9ca3af' : 'var(--text)';
+        const subClr   = isFuture ? '#d1d5db' : 'var(--muted)';
+        return `
+          <div style="display:flex;flex-direction:column;align-items:center;min-width:120px;text-align:center;">
+            <div style="width:32px;height:32px;border-radius:50%;background:${dotBg};color:${dotColor};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;box-shadow:${isActive?'0 0 0 4px rgba(15,110,86,0.15)':'none'};">
+              ${isDone ? '✓' : info.icon}
+            </div>
+            <div style="margin-top:6px;font-size:12px;font-weight:${labelWt};color:${labelClr};">${info.label}</div>
+            <div style="font-size:10px;color:${subClr};margin-top:2px;">${info.sub}</div>
+          </div>`;
+      };
+      const _lineColor = (fromIdx) => _currIdx > fromIdx ? '#10b981' : '#e5e7eb';
+
+      return `
+        <div style="background:white;border:1px solid var(--border);border-radius:10px;padding:14px 20px;margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:0;flex:1;min-width:420px;">
+            ${_renderStep('borrador')}
+            <div style="flex:1;height:2px;background:${_lineColor(0)};margin:0 4px;margin-top:15px;min-width:30px;"></div>
+            ${_renderStep('definitivo')}
+            <div style="flex:1;height:2px;background:${_lineColor(1)};margin:0 4px;margin-top:15px;min-width:30px;"></div>
+            ${_renderStep('cerrado')}
+          </div>
+          ${_nextAction}
+        </div>
+      `;
+    })()}
+
     <!-- Barra de FILTROS (Fase 1: búsqueda + estado + categoría + solo alertas) -->
     <div class="cal-toolbar" style="margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:8px;font-size:13px;">
       <input type="text" id="liq-busqueda" placeholder="🔍 Buscar por nombre…"
