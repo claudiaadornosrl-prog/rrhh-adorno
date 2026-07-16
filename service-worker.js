@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v184-liquidacion-subtabs-sueldo-banco';
+const CACHE_VERSION = 'rrhh-v185-guard-premio-viaticos-feriado-solo-si-cerrado';
 const ASSETS = [
   './',
   './index.html',

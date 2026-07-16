@@ -22531,10 +22531,10 @@ const salaryWorkflow = (() => {
     }
     const ratio = dias_trabajados / dias_referencia;
 
-    const cobraPremio = uniforme_ok && (puntos_mes <= maxErroresEmp);
+    let cobraPremio = uniforme_ok && (puntos_mes <= maxErroresEmp);
     // Premio: si está en modo 'dias_local', se prorratea proporcional. En modo 'mes_30' va full.
     const premioBase = Number(configEmp.premio_fichadas_uniforme);
-    const premio = cobraPremio
+    let premio = cobraPremio
       ? (configEmp.dias_prorrateo_modo === 'dias_local' ? premioBase * ratio : premioBase)
       : 0;
 
@@ -22603,7 +22603,7 @@ const salaryWorkflow = (() => {
 
     // Viáticos: prorrateados sobre dias_referencia (mismo criterio que comisión).
     const viaticos_full = Number(configEmp.viaticos);
-    const viaticos = viaticos_full * ratio;
+    let viaticos = viaticos_full * ratio;
 
     // Plus por feriado trabajado: solo en locales en shoppings (Alcorta/Unicenter).
     // Se cuentan los feriados del mes donde el local NO cierra Y la empleada efectivamente
@@ -22636,7 +22636,29 @@ const salaryWorkflow = (() => {
     const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
     // Multiplicador especial: para Escasany x2 porque al ser franquera el feriado le pesa más
     const feriadoMul = Number(configEmp.feriado_multiplicador || 1.0);
-    const feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
+    let feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  GUARD: si el mes de ASISTENCIAS no está cerrado, premio/viáticos/
+    //  feriado quedan en 0. Estos conceptos se calculan al cerrar Asistencias
+    //  (donde se consolidan puntos, días trabajados, feriados trabajados).
+    //  Fijo y comisión sí se calculan siempre (comisión = preview con ventas
+    //  parciales del mes).
+    // ══════════════════════════════════════════════════════════════════════
+    let asistenciasCerradas = false;
+    try {
+      const [_pyAC, _pmAC] = periodo.split('-').map(Number);
+      const { data: _cierreAC } = await sb.from('rrhh_meses_cerrados')
+        .select('id').eq('local', emp.local).eq('año', _pyAC).eq('mes', _pmAC).maybeSingle();
+      asistenciasCerradas = !!_cierreAC;
+    } catch (e) { console.warn('[liquidarEmpleada:cierreAsis]', e); }
+    if (!asistenciasCerradas) {
+      premio = 0;
+      cobraPremio = false;
+      viaticos = 0;
+      feriado_dias = 0;
+      feriado_monto = 0;
+    }
 
     // ── Pago de vacaciones imputado a este mes ──
     // Suma los importe_pagado de movs con estado='pagada' cuyo periodo_liquidacion sea este mes
