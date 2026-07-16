@@ -15190,14 +15190,29 @@ async function renderLiquidaciones() {
               } },
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
-            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{bg:'#fef3c7',title:'Neto del recibo blanco (mensual + SAC en junio/diciembre). Click descarga el PDF firmable.'},
+            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{title:'Neto del recibo blanco (mensual + SAC en junio/diciembre). Ámbar = proforma/borrador (preview). Verde = definitivo. Click descarga el PDF firmable.'},
               tdRender:(l,c)=>{
                 const sacRec = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
                 const total = Number(l.recibo_neto || 0) + sacRec;
+                // ── Color según estado del recibo blanco ──
+                // Verde = definitivo (recibo final, PDF firmable)
+                // Ámbar = proforma o borrador (preview no definitivo)
+                // Gris = todavía sin recibo (recibo_neto=0)
+                const esDefinitivo = (l.tipo === 'definitivo');
+                const sinRecibo    = total === 0;
+                const bg      = sinRecibo ? '#f3f4f6' : (esDefinitivo ? '#dcfce7' : '#fef3c7');
+                const badgeTx = sinRecibo ? '' : (esDefinitivo
+                  ? '<span style="background:#10b981;color:white;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px;vertical-align:middle;" title="Recibo definitivo">✓</span>'
+                  : '<span style="background:#f59e0b;color:white;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px;vertical-align:middle;" title="Proforma — preview, generar Definitivo desde Banco">P</span>');
+                const tipBase = esDefinitivo
+                  ? 'Recibo DEFINITIVO — listo para firmar. '
+                  : (sinRecibo ? 'Sin recibo generado aún — ir a Banco → Proforma o Definitivo. '
+                              : 'Recibo PROFORMA — preview, todavía no es el definitivo. ');
                 const tip = sacRec > 0
-                  ? `Recibo blanco total = mensual + SAC:\n  Mensual: $${c.fmt(l.recibo_neto)}\n  SAC:     $${c.fmt(sacRec)}\n  ─────────\n  Total:   $${c.fmt(total)}\n\n(Click derecho = desglose)`
-                  : 'Click → revisar faltas y confirmar antes de generar PDF. Click derecho = desglose.';
-                return `<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(total)} 👁</td>`;
+                  ? `${tipBase}\nRecibo blanco total = mensual + SAC:\n  Mensual: $${c.fmt(l.recibo_neto)}\n  SAC:     $${c.fmt(sacRec)}\n  ─────────\n  Total:   $${c.fmt(total)}\n\n(Click derecho = desglose)`
+                  : `${tipBase}\nClick → revisar faltas y confirmar antes de generar PDF. Click derecho = desglose.`;
+                const contenido = sinRecibo ? '— pendiente' : `${c.fmt(total)} 👁${badgeTx}`;
+                return `<td style="padding:8px;font-family:monospace;background:${bg};font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${contenido}</td>`;
               } },
             { id:'prestamos', label:'Préstamos',  sortKey:'prestamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco. Click para ver detalle.'},
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${pres>0?'pointer':'default'};color:${pres>0?'#d97706':'var(--muted)'};" ${pres>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${pres>0?'Capital del/los préstamo(s) descontado del banco — click para ver detalle':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):c.fmt(0)}</td>`; } },
