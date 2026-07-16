@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v188-no-prorratear-si-asistencias-abiertas';
+const CACHE_VERSION = 'rrhh-v189-refresh-una-vez-y-formato-cero-consistente';
 const ASSETS = [
   './',
   './index.html',

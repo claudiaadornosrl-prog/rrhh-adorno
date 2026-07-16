@@ -15100,7 +15100,7 @@ async function renderLiquidaciones() {
                 }
                 const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'premio_monto', 'Premio', ${+l.premio_monto})"` : '';
                 const cursor = c.isAdmin ? 'cursor:pointer;' : '';
-                return `<td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};${cursor}" ${click} title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}${c.isAdmin?'. Click para editar.':''}">${l.premio_cobra?c.fmt(l.premio_monto):'—'}</td>`;
+                return `<td style="padding:8px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};${cursor}" ${click} title="${l.uniforme_ok?'Uniforme OK':'Uniforme NO OK'}${c.isAdmin?'. Click para editar.':''}">${l.premio_cobra?c.fmt(l.premio_monto):c.fmt(0)}</td>`;
               } },
             { id:'viaticos',  label:'Viáticos',   sortKey:'viaticos',
               tdRender:(l,c)=>{
@@ -15126,7 +15126,7 @@ async function renderLiquidaciones() {
                 }
                 const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'feriado_monto', 'Feriado', ${+l.feriado_monto})"` : '';
                 const cursor = c.isAdmin ? 'cursor:pointer;' : '';
-                return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}${c.isAdmin?'. Click para editar.':''}">${(+l.feriado_monto)>0?c.fmt(l.feriado_monto):'—'}</td>`;
+                return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} title="${l.feriado_dias||0} feriado(s) × $${(l.feriado_monto && l.feriado_dias ? (+l.feriado_monto / +l.feriado_dias).toLocaleString('es-AR') : 0)}${c.isAdmin?'. Click para editar.':''}">${c.fmt(+l.feriado_monto || 0)}</td>`;
               } },
             { id:'sac',       label:'SAC',        sortKey:'sac',        condition:c=>c.esMesSAC, thOpts:{title:'SAC = mejor bruto del semestre / 12 × meses trabajados'},
               tdRender:(l,c)=>{
@@ -16325,13 +16325,15 @@ async function liqRegistrarCreditosEmpresa(local, periodo) {
 //  silent. Solo lo hace si hay liquidaciones existentes (no crea nada nuevo).
 //  Guarded para no dispararse en meses ya cerrados o si ya se corrió reciente.
 // ═══════════════════════════════════════════════════════════════════════
-let _liqAutoRefreshLast = { key: null, at: 0 };
+// Se dispara solo una vez por combo (local+periodo) por sesión de browser.
+// Si cambiás de local o mes, refresca ese combo nuevo. Si volvés al mismo, NO refresca de nuevo.
+// (para forzar un refresh, cerrar y reabrir la PWA / recargar la página)
+const _liqAutoRefreshDone = new Set();
 async function liqAutoRefreshSueldo(local, periodo) {
   try {
-    // Debounce: no repetir dentro de los últimos 20 seg
     const key = `${local}::${periodo}`;
-    if (_liqAutoRefreshLast.key === key && (Date.now() - _liqAutoRefreshLast.at) < 20000) return;
-    _liqAutoRefreshLast = { key, at: Date.now() };
+    if (_liqAutoRefreshDone.has(key)) return;
+    _liqAutoRefreshDone.add(key);
 
     const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
 
