@@ -2886,6 +2886,37 @@ async function renderTabSueldos() {
     return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   };
 
+  // ─── Cargar cuotas de préstamo del empleado para el período ───
+  // Se usan para desglosar Adelantos vs Préstamos vs Intereses por mes.
+  const periodosStr = liqs.map(l => String(l.periodo).slice(0, 10));
+  const { data: prestamosEmp } = await sb.from('rrhh_prestamo')
+    .select('id, cuotas_totales, tasa_mensual, estado')
+    .eq('empleado_id', empleadoId);
+  const pMap = {};
+  (prestamosEmp || []).forEach(p => { pMap[p.id] = p; });
+  const idsP = (prestamosEmp || []).map(p => p.id);
+  const adelPorMes = {}, presPorMes = {}, intPorMes = {};
+  if (idsP.length > 0 && periodosStr.length > 0) {
+    const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+      .select('prestamo_id, monto_capital, monto_interes, mes_descuento, estado')
+      .in('prestamo_id', idsP)
+      .in('mes_descuento', periodosStr)
+      .neq('estado', 'cancelada');
+    (cuotas || []).forEach(c => {
+      const pr = pMap[c.prestamo_id]; if (!pr) return;
+      const mes = c.mes_descuento;
+      const cap = Number(c.monto_capital || 0);
+      const intr = Number(c.monto_interes || 0);
+      const esAdel = pr.cuotas_totales === 1 && Number(pr.tasa_mensual || 0) === 0;
+      if (esAdel) {
+        adelPorMes[mes] = (adelPorMes[mes] || 0) + cap;
+      } else {
+        presPorMes[mes] = (presPorMes[mes] || 0) + cap;
+        intPorMes[mes]  = (intPorMes[mes]  || 0) + intr;
+      }
+    });
+  }
+
   // KPIs: total cobrado en el período, promedio mensual, último mes
   const totalCobrado = liqs.reduce((a, l) => a + (+l.recibo_neto||0) + (+l.efectivo||0) + (+l.ajuste||0), 0);
   const promedio = totalCobrado / liqs.length;
@@ -2914,35 +2945,53 @@ async function renderTabSueldos() {
         <tr style="background:#f9fafb;text-align:right;">
           <th style="padding:6px;text-align:left;">Mes</th>
           <th style="padding:6px;">Días</th>
-          <th style="padding:6px;">Pts</th>
           <th style="padding:6px;">Fijo</th>
           <th style="padding:6px;">Comisión</th>
           <th style="padding:6px;">Premio</th>
           <th style="padding:6px;">Viáticos</th>
           <th style="padding:6px;">Feriado</th>
           <th style="padding:6px;">Extras</th>
-          <th style="padding:6px;background:#eef2ff;">Total esp.</th>
+          <th style="padding:6px;background:#eef2ff;">Total</th>
           <th style="padding:6px;background:#fef3c7;">Recibo</th>
+          <th style="padding:6px;">Préstamos</th>
+          <th style="padding:6px;">Adelantos</th>
+          <th style="padding:6px;background:#dcfce7;">Banco</th>
+          <th style="padding:6px;">Mercadería</th>
+          <th style="padding:6px;">Intereses</th>
+          <th style="padding:6px;">Ajustes</th>
           <th style="padding:6px;background:#fde2e8;">Efectivo</th>
           <th style="padding:6px;">Estado</th>
         </tr>
       </thead>
       <tbody>
-        ${liqs.map(l => `<tr style="border-top:1px solid var(--border);text-align:right;">
-          <td style="padding:6px;text-align:left;font-weight:600;text-transform:capitalize;">${labelMes(l.periodo)}</td>
-          <td style="padding:6px;">${l.dias_trabajados||0}</td>
-          <td style="padding:6px;">${l.puntos_mes||0}</td>
-          <td style="padding:6px;font-family:monospace;">${fmt(l.fijo)}</td>
-          <td style="padding:6px;font-family:monospace;">${fmt(l.comision)}</td>
-          <td style="padding:6px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};">${l.premio_cobra?fmt(l.premio_monto):'—'}</td>
-          <td style="padding:6px;font-family:monospace;">${fmt(l.viaticos)}</td>
-          <td style="padding:6px;font-family:monospace;">${(+l.feriado_monto)>0?fmt(l.feriado_monto):'—'}</td>
-          <td style="padding:6px;font-family:monospace;">${fmt(l.extras)}</td>
-          <td style="padding:6px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
-          <td style="padding:6px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo CCT">${fmt(l.recibo_neto)}</td>
-          <td style="padding:6px;font-family:monospace;background:#fde2e8;font-weight:600;">${(+l.efectivo)>0?fmt(l.efectivo):'—'}</td>
-          <td style="padding:6px;text-align:center;font-size:11px;">${escapeHtml(l.estado||'')}</td>
-        </tr>`).join('')}
+        ${liqs.map(l => {
+          const perISO = String(l.periodo).slice(0, 10);
+          const pres = adelPorMes[perISO] ? 0 : (presPorMes[perISO] || 0);
+          const presFull = presPorMes[perISO] || 0;
+          const adel = adelPorMes[perISO] || 0;
+          const intr = intPorMes[perISO] || 0;
+          const banco = (+l.recibo_neto||0) - presFull - adel;
+          return `<tr style="border-top:1px solid var(--border);text-align:right;">
+            <td style="padding:6px;text-align:left;font-weight:600;text-transform:capitalize;">${labelMes(l.periodo)}</td>
+            <td style="padding:6px;">${l.dias_trabajados||0}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(l.fijo)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(l.comision)}</td>
+            <td style="padding:6px;font-family:monospace;color:${l.premio_cobra?'#059669':'#dc2626'};">${l.premio_cobra?fmt(l.premio_monto):fmt(0)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(l.viaticos)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(+l.feriado_monto||0)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(l.extras)}</td>
+            <td style="padding:6px;font-family:monospace;background:#eef2ff;font-weight:600;">${fmt(l.total_negro)}</td>
+            <td style="padding:6px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="liqVerDetalle(${l.id})" title="Ver desglose del recibo CCT">${fmt(l.recibo_neto)}</td>
+            <td style="padding:6px;font-family:monospace;color:${presFull>0?'#d97706':'var(--muted)'};">${presFull>0?'−'+fmt(presFull):fmt(0)}</td>
+            <td style="padding:6px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};">${adel>0?'−'+fmt(adel):fmt(0)}</td>
+            <td style="padding:6px;font-family:monospace;background:#dcfce7;font-weight:600;">${fmt(banco)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(l.mercaderia||0)}</td>
+            <td style="padding:6px;font-family:monospace;color:${intr>0?'#d97706':'var(--muted)'};">${intr>0?'−'+fmt(intr):fmt(0)}</td>
+            <td style="padding:6px;font-family:monospace;">${fmt(l.ajuste||0)}</td>
+            <td style="padding:6px;font-family:monospace;background:#fde2e8;font-weight:600;">${fmt(+l.efectivo||0)}</td>
+            <td style="padding:6px;text-align:center;font-size:11px;">${escapeHtml(l.estado||'')}</td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
     </div>

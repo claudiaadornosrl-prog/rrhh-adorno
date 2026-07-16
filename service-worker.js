@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v204-colorimetria-jerarquia';
+const CACHE_VERSION = 'rrhh-v205-tab-sueldos-empleado-ampliado';
 const ASSETS = [
   './',
   './index.html',
