@@ -3814,6 +3814,108 @@ async function renderVacContent() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+//  Modal de aprobación de PAGO de vacaciones:
+//    muestra desglose del cálculo (3 meses / promedio / diario / +20%)
+//    permite editar el importe y elegir el mes de liquidación.
+//  Devuelve { importe, periodo } (yyyy-mm-dd) o null si cancela.
+// ═══════════════════════════════════════════════════════════════════════
+async function abrirModalPagoVacaciones(mov, totalDisp, calc) {
+  const fmt = n => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const hoy = new Date();
+  const periodoDefault = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-01`;
+  const mesLabel = (per) => {
+    const [y,m] = per.split('-');
+    const names = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    return `${names[parseInt(m,10)-1]} ${y}`;
+  };
+  // Generar opciones: mes actual, próximo, y anterior
+  const perActual = periodoDefault;
+  const y = hoy.getFullYear(), m = hoy.getMonth();
+  const perAnt = `${m===0 ? y-1 : y}-${String((m===0 ? 12 : m)).padStart(2,'0')}-01`;
+  const perSig = `${m===11 ? y+1 : y}-${String((m===11 ? 1 : m+2)).padStart(2,'0')}-01`;
+
+  return new Promise(resolve => {
+    const tablaMeses = (calc.meses || []).map(x =>
+      `<tr><td style="padding:4px 8px;font-family:monospace;font-size:11px;">${x.periodo}</td>
+           <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:11px;">${fmt(x.fijo)}</td>
+           <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:11px;">${fmt(x.comision)}</td>
+           <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:12px;font-weight:600;">${fmt(x.total)}</td></tr>`
+    ).join('');
+    const advMeses = calc.meses_encontrados < 3
+      ? `<div style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:6px;font-size:12px;margin-top:8px;">
+           ⚠ Solo se encontraron <strong>${calc.meses_encontrados}</strong> liquidaciones (menos de 3). El promedio puede no ser representativo.
+         </div>` : '';
+    const html = `
+      <div class="modal-bg" id="pago-vac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;">
+          <h3 style="margin:0 0 4px;">💵 Aprobar pago de vacaciones</h3>
+          <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">
+            ${mov.dias} día${mov.dias===1?'':'s'} · ${totalDisp} disponible${totalDisp===1?'':'s'} en saldo · FIFO
+          </p>
+
+          <div style="background:#f9fafb;padding:12px;border-radius:8px;margin-bottom:12px;">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Desglose del cálculo</div>
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                  <th style="padding:4px 8px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Mes</th>
+                  <th style="padding:4px 8px;text-align:right;font-size:11px;color:var(--muted);text-transform:uppercase;">Fijo</th>
+                  <th style="padding:4px 8px;text-align:right;font-size:11px;color:var(--muted);text-transform:uppercase;">Comisión</th>
+                  <th style="padding:4px 8px;text-align:right;font-size:11px;color:var(--muted);text-transform:uppercase;">Total</th>
+                </tr>
+              </thead>
+              <tbody>${tablaMeses}</tbody>
+            </table>
+            ${advMeses}
+            <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:13px;line-height:1.7;">
+              <div>Promedio mensual (fijo + comisión): <strong>${fmt(calc.promedio_mensual)}</strong></div>
+              <div>Sueldo diario (÷ 30): <strong>${fmt(calc.sueldo_diario)}</strong></div>
+              <div>${mov.dias} día${mov.dias===1?'':'s'} × diario × 1.20 (adicional legal): <strong style="color:var(--accent2);font-size:15px;">${fmt(calc.importe_sugerido)}</strong></div>
+            </div>
+          </div>
+
+          <div style="display:grid;gap:12px;margin-bottom:16px;">
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600;">Importe final a pagar *</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:16px;color:var(--muted);">$</span>
+                <input type="number" id="pago-vac-importe" step="0.01" min="0"
+                       value="${(calc.importe_sugerido || 0).toFixed(2)}"
+                       style="flex:1;padding:10px;border:2px solid var(--accent2);border-radius:8px;font-family:monospace;font-size:16px;font-weight:600;">
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">Podés editarlo antes de aprobar. Es el monto que se suma a la liquidación del mes elegido.</div>
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600;">Imputar a liquidación de *</label>
+              <select id="pago-vac-periodo" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:white;">
+                <option value="${perAnt}">${mesLabel(perAnt)}</option>
+                <option value="${perActual}" selected>${mesLabel(perActual)} (mes actual)</option>
+                <option value="${perSig}">${mesLabel(perSig)}</option>
+              </select>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">En la grilla de sueldos aparece en la columna <strong>Vac. Pago</strong> y suma al Total.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button class="btn" id="pago-vac-cancel">Cancelar</button>
+            <button class="btn primary" id="pago-vac-ok">✓ Aprobar y guardar</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+    const close = (result) => { document.getElementById('pago-vac-modal')?.remove(); resolve(result); };
+    document.getElementById('pago-vac-cancel').onclick = () => close(null);
+    document.getElementById('pago-vac-ok').onclick = () => {
+      const importe = parseFloat(document.getElementById('pago-vac-importe').value);
+      const periodo = document.getElementById('pago-vac-periodo').value;
+      if (!(importe >= 0)) { toast('Importe inválido', 'error'); return; }
+      close({ importe, periodo });
+    };
+  });
+}
+
 async function decidirVacacion(movId, accion) {
   // Cargar el movimiento para saber si es solicitud de toma o de pago
   const { data: mov } = await sb.from('rrhh_vacaciones_movimientos').select('*').eq('id', movId).maybeSingle();
@@ -3854,7 +3956,25 @@ async function decidirVacacion(movId, accion) {
       toast(`Ya no se pueden pagar ${mov.dias} días — solo hay ${totalDisp} disponibles ahora. Rechazá la solicitud y avisale a la vendedora.`, 'error');
       return;
     }
-    if (!confirm(`Aprobar PAGO de ${mov.dias} días para esta vendedora?\n\nDisponibles: ${totalDisp} días\n\nSe va a registrar como movimiento "pagada" y descontar del saldo (FIFO).`)) return;
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Calcular importe sugerido y pedir confirmación con modal editable
+    // ═══════════════════════════════════════════════════════════════════
+    let importePagado = 0, periodoLiq = null;
+    try {
+      const { data: calc, error: calcErr } = await sb.rpc('rrhh_calcular_pago_vacaciones', {
+        p_empleado_id: mov.empleado_id, p_dias: mov.dias,
+      });
+      if (calcErr) throw calcErr;
+      const res = await abrirModalPagoVacaciones(mov, totalDisp, calc);
+      if (!res) return; // user canceled
+      importePagado = res.importe;
+      periodoLiq    = res.periodo;
+    } catch (e) {
+      console.error('[decidirVacacion:pago] cálculo falló:', e);
+      // Fallback: prompt simple si el RPC falla
+      if (!confirm(`Aprobar PAGO de ${mov.dias} días? (⚠ no pude calcular el importe sugerido, se guardará sin monto)`)) return;
+    }
 
     // Repartir FIFO entre años elegibles
     const tramos = [];
@@ -3878,6 +3998,7 @@ async function decidirVacacion(movId, accion) {
     // Crear UN movimiento NUEVO por cada tramo con estado='pagada'
     // Y marcar el ORIGINAL como 'pagada' también (cerrando la solicitud)
     const fecha = new Date().toISOString().split('T')[0];
+    // Importe se guarda solo en el mov principal (no en los tramos extra) para no duplicar
     if (tramos.length === 1) {
       // Único tramo: update directo sobre la solicitud original
       await sb.from('rrhh_vacaciones_movimientos').update({
@@ -3885,6 +4006,8 @@ async function decidirVacacion(movId, accion) {
         vacaciones_id: tramos[0].vacId,
         aprobado_por: session.email,
         fecha_aprobacion: new Date().toISOString(),
+        importe_pagado: importePagado || null,
+        periodo_liquidacion: periodoLiq || null,
         observaciones: (mov.observaciones || '') + ` · Aprobado y pagado FIFO → ${tramos[0].año}`,
       }).eq('id', movId);
     } else {
@@ -3895,6 +4018,8 @@ async function decidirVacacion(movId, accion) {
         dias: tramos[0].dias,
         aprobado_por: session.email,
         fecha_aprobacion: new Date().toISOString(),
+        importe_pagado: importePagado || null,
+        periodo_liquidacion: periodoLiq || null,
         observaciones: (mov.observaciones || '') + ` · FIFO tramo 1/${tramos.length} → ${tramos[0].año}`,
       }).eq('id', movId);
       const extras = tramos.slice(1).map((t, i) => ({
@@ -16580,7 +16705,15 @@ async function liqEditarGuardar(liqId) {
   const uniOK   = document.getElementById('ledit-uniforme').value === 'true';
   const obs     = document.getElementById('ledit-obs').value.trim() || null;
 
-  const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto;
+  // Pago de vacaciones imputado a este mes (se preserva del cálculo previo)
+  const { data: pagVacRowsLE } = await sb.from('rrhh_vacaciones_movimientos')
+    .select('importe_pagado')
+    .eq('empleado_id', liq.empleado_id)
+    .eq('estado', 'pagada')
+    .eq('periodo_liquidacion', liq.periodo);
+  const vacacionesPagoLE = (pagVacRowsLE || []).reduce((s, r) => s + Number(r.importe_pagado || 0), 0);
+
+  const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto + vacacionesPagoLE;
 
   // Cargar config y paritaria para recalcular el recibo con los datos manuales
   const periodo = String(liq.periodo).substring(0,7);
@@ -16631,7 +16764,7 @@ async function liqEditarGuardar(liqId) {
     dias_trabajados: dias, mercaderia: merc, ajuste: ajuste, uniforme_ok: uniOK,
     puntos_mes: puntos, observaciones: obs,
     fijo, comision, premio_cobra: premio > 0, premio_monto: premio,
-    viaticos, extras, feriado_monto, total_negro: total_negro_esperado, efectivo, ajuste_blanco: 0,
+    viaticos, extras, feriado_monto, vacaciones_pago: vacacionesPagoLE, total_negro: total_negro_esperado, efectivo, ajuste_blanco: 0,
     recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
     recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
     recibo_recompos_nr: t.recompos_nr, recibo_otros_rem: t.otros_rem,
@@ -22440,7 +22573,19 @@ const salaryWorkflow = (() => {
     const feriadoMul = Number(configEmp.feriado_multiplicador || 1.0);
     const feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
 
-    const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto;
+    // ── Pago de vacaciones imputado a este mes ──
+    // Suma los importe_pagado de movs con estado='pagada' cuyo periodo_liquidacion sea este mes
+    let vacacionesPago = 0;
+    try {
+      const { data: pagVacRows } = await sb.from('rrhh_vacaciones_movimientos')
+        .select('importe_pagado')
+        .eq('empleado_id', empleadoId)
+        .eq('estado', 'pagada')
+        .eq('periodo_liquidacion', periodo + '-01');
+      vacacionesPago = (pagVacRows || []).reduce((s, r) => s + Number(r.importe_pagado || 0), 0);
+    } catch (e) { console.warn('[liquidarEmpleada:vacPago]', e); }
+
+    const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto + vacacionesPago;
 
     // ── EARLY RETURN: modo "⚡ Importes" — solo actualizar campos negros sin tocar recibo ──
     // Requiere que la liquidación YA exista (para reaprovechar recibo_neto). Si no existe,
@@ -22471,13 +22616,14 @@ const salaryWorkflow = (() => {
       const premFinal     = (overridesSolo.premio_monto?.new != null) ? Number(overridesSolo.premio_monto.new) : premio;
       const viatFinal     = (overridesSolo.viaticos?.new  != null) ? Number(overridesSolo.viaticos.new)     : viaticos;
       const fersFinal     = (overridesSolo.feriado_monto?.new != null) ? Number(overridesSolo.feriado_monto.new) : feriado_monto;
-      const totalNegroFin = fijoFinal + comFinal + premFinal + viatFinal + extras + fersFinal;
+      const totalNegroFin = fijoFinal + comFinal + premFinal + viatFinal + extras + fersFinal + vacacionesPago;
       const efectivoSolo = Math.max(0, totalNegroFin - reciboNetoExist - mercaderia - ajusteExist - prestIntSolo);
 
       await sb.from('rrhh_liquidacion').update({
         dias_trabajados, mercaderia,
         fijo: fijoFinal, comision: comFinal, premio_cobra: cobraPremio, premio_monto: premFinal,
         viaticos: viatFinal, extras, feriado_dias, feriado_monto: fersFinal,
+        vacaciones_pago: vacacionesPago,
         total_negro: totalNegroFin,
         efectivo: efectivoSolo,
         prestamo_capital: prestCapSolo, prestamo_interes: prestIntSolo,
@@ -22542,7 +22688,7 @@ const salaryWorkflow = (() => {
       const premioFinal    = (overridesPrev.premio_monto?.new != null) ? Number(overridesPrev.premio_monto.new) : premio;
       const viaticosFinal  = (overridesPrev.viaticos?.new  != null) ? Number(overridesPrev.viaticos.new)  : viaticos;
       const feriadoFinal   = (overridesPrev.feriado_monto?.new != null) ? Number(overridesPrev.feriado_monto.new) : feriado_monto;
-      const totalNegroReal = fijoFinal + comisionFinal + premioFinal + viaticosFinal + extras + feriadoFinal;
+      const totalNegroReal = fijoFinal + comisionFinal + premioFinal + viaticosFinal + extras + feriadoFinal + vacacionesPago;
       const neto_objetivo_db = totalNegroReal;
       const comisionVentaBruta = salaryEngine.calcularComisionVentaParaNeto({
         neto_objetivo: neto_objetivo_db,
