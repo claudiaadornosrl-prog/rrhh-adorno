@@ -7938,6 +7938,37 @@ async function cerrarMes(periodo, local) {
 
   await auditLog('cerrar_mes', 'rrhh_meses_cerrados', null, null, null, `${local} ${periodo} - ${movimientos.length} mov (${minutosTotal} min)`);
 
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Fase 2C: al cerrar Asistencias, cargar premio/viáticos/feriado del mes.
+  //  NO toca fijo, comisión, extras, mercadería ni ajustes (esos siguen
+  //  como los tenía la liq). Sólo agrega los 3 conceptos y recalcula
+  //  total_negro y efectivo. Corre en background sin bloquear el UI.
+  // ═══════════════════════════════════════════════════════════════════════
+  (async () => {
+    try {
+      // Solo carga premio/viáticos/feriado + recalcula total_negro y efectivo.
+      // NO toca fijo, comisión, extras, mercadería ni el recibo blanco.
+      // Aplica a TODAS las empleadas del local (incluidas Contreras/Escasany);
+      // el solver inverso de Doble Blanco lo corre JP manualmente después.
+      const _r = await salaryWorkflow.liquidarMes(local, periodo, {
+        soloAsistencias: true, silent: true, filtroNombre: '',
+      });
+      const _ok = _r?.ok?.length || 0;
+      console.log(`[cerrarMes→sueldo] ${local} ${periodo}: ${_ok} liq actualizadas (soloAsistencias)`);
+      // Reset del debounce: si el user ya estaba viendo Sueldo, el próximo
+      // switchTab detecta los cambios y refresca la comisión.
+      if (typeof _liqAutoRefreshDone !== 'undefined') {
+        _liqAutoRefreshDone.delete(`${local}::${periodo}`);
+        _liqAutoRefreshDone.delete(`todos::${periodo}`);
+      }
+      if (_ok > 0 && session.rol === 'admin') {
+        toast(`✓ Premios, viáticos y feriados cargados en ${_ok} liquidaciones de ${LOCALES[local]?.nombre || local}`, 'success');
+      }
+    } catch (e) {
+      console.warn('[cerrarMes→sueldo] error:', e);
+    }
+  })();
+
   // 🔔 Avisar al admin (si quien cierra no es admin)
   if (session.rol !== 'admin') {
     const _quien = session.empleadoData?.nombre_completo || session.email?.split('@')[0] || 'encargada';
@@ -22475,6 +22506,10 @@ const salaryWorkflow = (() => {
     if (inputs.soloDobleBlanco && !esDobleBlanco) {
       return { skipped: true, motivo: 'cct_negro — usar botón Importes' };
     }
+    // soloAsistencias: SÍ aplica a doble_blanco (Contreras/Escasany).
+    // Para ellas también actualiza premio/viáticos/feriado + total_negro,
+    // pero NO toca el recibo — el solver inverso se corre después con
+    // 💎 Doble Blanco cuando el sueldo real ya está definitivo.
 
     const cfgLocal = (_cache.cfgLocal && _cache.local === emp.local)
       ? _cache.cfgLocal
@@ -22766,6 +22801,50 @@ const salaryWorkflow = (() => {
       viaticos = 0;
       feriado_dias = 0;
       feriado_monto = 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  EARLY RETURN: modo "🔒 Cierre Asistencias" (Fase 2C)
+    //  Solo actualiza premio / viáticos / feriado + recalcula total_negro
+    //  y efectivo usando los valores actuales de DB de los demás campos
+    //  (fijo, comisión, extras, mercadería, ajustes, etc. NO se tocan).
+    // ═══════════════════════════════════════════════════════════════════════
+    if (inputs.soloAsistencias) {
+      const { data: existSA } = await sb.from('rrhh_liquidacion')
+        .select('id, fijo, comision, extras, vacaciones_pago, mercaderia, ajuste, recibo_neto, prestamo_interes, overrides_manuales')
+        .eq('empleado_id', empleadoId).eq('periodo', periodo + '-01').limit(1);
+      if (!existSA?.[0]) {
+        return { skipped: true, motivo: 'Sin liq previa — no hay qué actualizar en modo soloAsistencias' };
+      }
+      const liqSA = existSA[0];
+      const overSA = liqSA.overrides_manuales || {};
+      const premioF   = (overSA.premio_monto?.new  != null) ? Number(overSA.premio_monto.new)  : premio;
+      const viaticosF = (overSA.viaticos?.new      != null) ? Number(overSA.viaticos.new)      : viaticos;
+      const feriadoF  = (overSA.feriado_monto?.new != null) ? Number(overSA.feriado_monto.new) : feriado_monto;
+      // Recalcular total_negro con VALORES ACTUALES DE DB para lo demás
+      const totalNegroSA = Number(liqSA.fijo||0) + Number(liqSA.comision||0)
+        + premioF + viaticosF + feriadoF
+        + Number(liqSA.extras||0) + Number(liqSA.vacaciones_pago||0);
+      const efectivoSA = Math.max(0, totalNegroSA
+        - Number(liqSA.recibo_neto||0)
+        - Number(liqSA.mercaderia||0)
+        - Number(liqSA.ajuste||0)
+        - Number(liqSA.prestamo_interes||0));
+      await sb.from('rrhh_liquidacion').update({
+        premio_cobra: cobraPremio, premio_monto: premioF,
+        viaticos: viaticosF,
+        feriado_dias, feriado_monto: feriadoF,
+        total_negro: totalNegroSA,
+        efectivo: efectivoSA,
+        puntos_mes,
+        calculado_at: new Date().toISOString(),
+      }).eq('id', liqSA.id);
+      return {
+        liquidacion_id: liqSA.id,
+        soloAsistencias: true,
+        totales: { premio: premioF, viaticos: viaticosF, feriado: feriadoF, total_negro: totalNegroSA, efectivo: efectivoSA },
+        puntos_mes, cobraPremio,
+      };
     }
 
     // ── Pago de vacaciones imputado a este mes ──
