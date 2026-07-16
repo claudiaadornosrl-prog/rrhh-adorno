@@ -14743,6 +14743,9 @@ async function renderLiquidaciones() {
             return Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
           }
         case 'cat':        return (l.empleado?.categoria?.nombre || '').toLowerCase();
+        case 'antiguedad': return (l.empleado?.fecha_ingreso || '9999-12-31'); // más viejo = más antigüedad
+        case 'bruto':      return Number(l.recibo_bruto || 0);
+        case 'descuentos': return Number(l.recibo_descuentos || 0);
         case 'fijo':       return Number(l.fijo || 0);
         case 'comision':   return Number(l.comision || 0);
         case 'premios':    return l.premio_cobra ? Number(l.premio_monto || 0) : 0;
@@ -15051,6 +15054,30 @@ async function renderLiquidaciones() {
               tdRender:(l,c)=>`<td style="padding:8px;">${l.dias_trabajados}</td>` },
             { id:'puntos',    label:'Pts',        sortKey:'puntos',
               tdRender:(l,c)=>`<td style="padding:8px;${(l.puntos_mes||0)>4 ? 'color:#dc2626;font-weight:600;' : ''}">${l.puntos_mes||0}</td>` },
+            { id:'antiguedad', label:'Antig.',    sortKey:'antiguedad',
+              tdRender:(l,c)=>{
+                const fi = l.empleado?.fecha_ingreso;
+                if (!fi) return `<td style="padding:8px;color:var(--muted);text-align:center;">—</td>`;
+                // Calcular antigüedad al fin del período de la liq (no ahora mismo)
+                const per = String(l.periodo || '').slice(0, 7);
+                const refDate = per ? new Date(per + '-28T12:00:00') : new Date();
+                const ing = new Date(fi + 'T12:00:00');
+                let years  = refDate.getFullYear() - ing.getFullYear();
+                let months = refDate.getMonth() - ing.getMonth();
+                if (months < 0) { years -= 1; months += 12; }
+                const txt = years > 0 ? `${years}a ${months}m` : `${months}m`;
+                return `<td style="padding:8px;font-family:monospace;color:var(--muted);text-align:center;" title="Ingreso: ${fi}">${txt}</td>`;
+              } },
+            { id:'bruto',     label:'Bruto',      sortKey:'bruto', thOpts:{title:'Recibo bruto (remunerativo + no remunerativo) antes de descuentos de ley'},
+              tdRender:(l,c)=>{
+                const b = Number(l.recibo_bruto||0);
+                return `<td style="padding:8px;font-family:monospace;${b===0?'color:var(--muted);':''}">${c.fmt(b)}</td>`;
+              } },
+            { id:'descuentos',label:'Descuentos', sortKey:'descuentos', thOpts:{title:'Descuentos de ley: Jubilación + Obra Social + Ley 19032 + SEC + Faecys'},
+              tdRender:(l,c)=>{
+                const d = Number(l.recibo_descuentos||0);
+                return `<td style="padding:8px;font-family:monospace;color:${d>0?'#dc2626':'var(--muted)'};" title="Jub + OS + Ley 19032 + SEC + Faecys">${d>0?'−'+c.fmt(d):c.fmt(0)}</td>`;
+              } },
             { id:'fijo',      label:'Fijo',       sortKey:'fijo',
               tdRender:(l,c)=>{
                 const ov = l.overrides_manuales && l.overrides_manuales['fijo'];
@@ -15297,14 +15324,18 @@ async function renderLiquidaciones() {
           const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp };
 
           // Filtrar por condition (local==='todos', esMesSAC)
-          // + Sub-tab Banco: mostrar solo Empleada / Recibo / Préstamos / Adelantos / Banco
-          // + Columnas ocultas de forma permanente (JP no las quiere en la vista actual)
-          const BANCO_COLS = new Set(['empleada','recibo','prestamos','adelantos','banco']);
-          const OCULTAS_PERMANENTES = new Set(['cat','puntos']);
+          // + Sub-tab Banco: mostrar columnas del recibo CCT (más info)
+          // + Sub-tab Sueldo: ocultar Cat y Pts (JP no las quiere ahí)
+          const BANCO_COLS = new Set([
+            'empleada','cat','antiguedad','dias',
+            'bruto','descuentos','recibo','sac',
+            'prestamos','adelantos','banco','firma','detalle'
+          ]);
+          const OCULTAS_EN_SUELDO = new Set(['cat','puntos','antiguedad','bruto','descuentos']);
           const colsAvailable = ALL_COLS
             .filter(c => !c.condition || c.condition(ctxL))
             .filter(c => liqState.subTab !== 'banco' || BANCO_COLS.has(c.id))
-            .filter(c => !OCULTAS_PERMANENTES.has(c.id));
+            .filter(c => liqState.subTab !== 'sueldo' || !OCULTAS_EN_SUELDO.has(c.id));
           // Guardar lista de columnas disponibles para que el modal de config las muestre
           window._liqAvailableCols = colsAvailable.map(c => ({ id: c.id, label: c.label }));
 
