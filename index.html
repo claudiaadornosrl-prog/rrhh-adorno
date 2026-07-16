@@ -15169,9 +15169,9 @@ async function renderLiquidaciones() {
                 return `<td style="padding:8px;font-family:monospace;background:#fef3c7;font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${c.fmt(total)} 👁</td>`;
               } },
             { id:'prestamos', label:'Préstamos',  sortKey:'prestamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco. Click para ver detalle.'},
-              tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${pres>0?'pointer':'default'};color:${pres>0?'#d97706':'var(--muted)'};" ${pres>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${pres>0?'Capital del/los préstamo(s) descontado del banco — click para ver detalle':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):'—'}</td>`; } },
+              tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${pres>0?'pointer':'default'};color:${pres>0?'#d97706':'var(--muted)'};" ${pres>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${pres>0?'Capital del/los préstamo(s) descontado del banco — click para ver detalle':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):c.fmt(0)}</td>`; } },
             { id:'adelantos', label:'Adelantos',  sortKey:'adelantos',  thOpts:{title:'Adelantos del mes (préstamos 1 cuota tasa 0%)'},
-              tdRender:(l,c)=>{ const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+c.fmt(adel):'—'}</td>`; } },
+              tdRender:(l,c)=>{ const adel = c.adelantosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;color:${adel>0?'#9333ea':'var(--muted)'};" title="${adel>0?'Adelanto del mes (préstamo 1 cuota tasa 0%)':'Sin adelanto este mes'}">${adel>0?'−'+c.fmt(adel):c.fmt(0)}</td>`; } },
             { id:'banco',     label:'Banco',      sortKey:'banco', thOpts:{bg:'#dcfce7',title:'Lo que efectivamente se transfiere por banco (Recibo mensual + SAC blanco − Préstamos − Adelantos)'},
               tdRender:(l,c)=>{
                 const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0;
@@ -15202,7 +15202,7 @@ async function renderLiquidaciones() {
                 return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} ${c.isAdmin?'title="Click para editar"':''}>${c.fmt(l.mercaderia)}</td>`;
               } },
             { id:'intereses', label:'Intereses',  sortKey:'intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
-              tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):'—'}</td>`; } },
+              tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):c.fmt(0)}</td>`; } },
             { id:'ajustes',   label:'Ajustes',    sortKey:'ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
             { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8',title:'Efectivo neto = Subtotal − Mercadería − Intereses − Ajustes'},
@@ -16367,14 +16367,10 @@ async function liqAutoRefreshSueldo(local, periodo) {
       }
     }
 
-    if (info) info.innerHTML = `<span style="font-size:11px;color:#0d9488;">✓ ${totalOk} comisiones actualizadas hace ${new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>`;
-
-    // Re-render silencioso: refetch de las liquidaciones sin borrar el DOM completo
-    // Simplemente re-disparamos switchTab para redibujar la grilla con los valores actualizados
-    if (totalOk > 0 && liqState.subTab === 'sueldo') {
-      // Delay corto para dejar que el user vea el indicador de éxito
-      setTimeout(() => { if (currentTab === 'liquidaciones' && liqState.subTab === 'sueldo') switchTab('liquidaciones'); }, 600);
-    }
+    if (info) info.innerHTML = `<span style="font-size:11px;color:#0d9488;">✓ ${totalOk} comisiones actualizadas · <a href="#" onclick="event.preventDefault();switchTab('liquidaciones');" style="color:#0d9488;text-decoration:underline;">refrescar grilla</a></span>`;
+    // NO re-renderizamos automáticamente para evitar sensación de "refresh cada varios seg".
+    // Los valores nuevos están en DB; se ven cuando el usuario navega, filtra, ordena
+    // o hace click en "refrescar grilla".
   } catch (e) {
     console.warn('[liqAutoRefreshSueldo] error:', e);
   }

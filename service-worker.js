@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v190-banco-tab-grilla-reducida';
+const CACHE_VERSION = 'rrhh-v191-no-rerender-post-refresh-y-mas-ceros';
 const ASSETS = [
   './',
   './index.html',
