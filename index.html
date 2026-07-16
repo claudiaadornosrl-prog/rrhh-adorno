@@ -15042,11 +15042,6 @@ async function renderLiquidaciones() {
         </select>
       </label>` : ''}
 
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;${liqState.soloAlertas?'background:#fef3c7;padding:4px 10px;border-radius:6px;':''}">
-        <input type="checkbox" ${liqState.soloAlertas?'checked':''} onchange="liqState.soloAlertas=this.checked; switchTab('liquidaciones');">
-        ⚠️ Solo con alertas (puntos > 4)
-      </label>
-
       <div style="margin-left:auto;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:8px;">
         <span>Mostrando <strong style="color:var(--text);">${liqs.length}</strong> de ${liqsAll.length}</span>
         ${(busqNorm || liqState.estado !== 'todos' || liqState.categoria !== 'todas' || liqState.soloAlertas)
