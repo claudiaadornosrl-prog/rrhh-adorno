@@ -16853,7 +16853,87 @@ async function liqCerrarMes(local, periodo) {
   const msgExtra = cuotasAplicadas > 0
     ? `\n💵 ${cuotasAplicadas} cuota(s) de préstamo aplicadas${prestamosPagados>0?` · ${prestamosPagados} préstamo(s) finalizado(s)`:''}`
     : '';
-  toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)${msgExtra}`, 'success');
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Fase 2B: cascada al mes siguiente
+  //  Generar borradores del mes N+1 con los fijos copiados del mes N.
+  //  Cuando arranque el mes siguiente, ya está pre-cargada la liq de cada
+  //  empleada activa con el fijo actual (aumentos incluidos). Resto en 0.
+  //  Idempotente: si ya existe la liq del mes N+1 no se pisa.
+  // ═══════════════════════════════════════════════════════════════════════
+  let cascadaCreadas = 0;
+  try {
+    const [_yN, _mN] = periodo.split('-').map(Number);
+    const _mSig = _mN === 12 ? 1 : _mN + 1;
+    const _ySig = _mN === 12 ? _yN + 1 : _yN;
+    const periodoSig = `${_ySig}-${String(_mSig).padStart(2,'0')}-01`;
+
+    for (const loc of locales) {
+      // Liq del mes N recién cerrado
+      const { data: liqsN } = await sb.from('rrhh_liquidacion')
+        .select('empleado_id, fijo')
+        .eq('local', loc)
+        .eq('periodo', periodo + '-01');
+      if (!liqsN || liqsN.length === 0) continue;
+
+      // Ya existentes del mes N+1 (para no pisar)
+      const { data: liqsExistN1 } = await sb.from('rrhh_liquidacion')
+        .select('empleado_id')
+        .eq('local', loc)
+        .eq('periodo', periodoSig);
+      const existN1 = new Set((liqsExistN1 || []).map(l => l.empleado_id));
+
+      // Solo empleadas activas (no las que fueron bajas después)
+      const empIds = liqsN.map(l => l.empleado_id);
+      const { data: activas } = await sb.from('rrhh_empleados')
+        .select('id').in('id', empIds).eq('estado', 'activo');
+      const setActivas = new Set((activas || []).map(e => e.id));
+
+      const inserts = liqsN
+        .filter(l => setActivas.has(l.empleado_id) && !existN1.has(l.empleado_id))
+        .map(l => ({
+          empleado_id: l.empleado_id,
+          periodo: periodoSig,
+          local: loc,
+          estado: 'borrador',
+          tipo: 'proforma',
+          dias_trabajados: 30,
+          uniforme_ok: true,
+          puntos_mes: 0,
+          mercaderia: 0, ajuste: 0,
+          fijo: Number(l.fijo || 0),
+          comision: 0,
+          premio_cobra: false, premio_monto: 0,
+          viaticos: 0, extras: 0,
+          feriado_dias: 0, feriado_monto: 0,
+          vacaciones_pago: 0,
+          recibo_basico: 0, recibo_antiguedad: 0, recibo_presentismo: 0,
+          recibo_sumafija_nr: 0, recibo_antig_nr: 0, recibo_pres_nr: 0,
+          recibo_recompos_nr: 0, recibo_otros_rem: 0,
+          recibo_jubilacion: 0, recibo_ley19032: 0, recibo_obra_social: 0,
+          recibo_sec: 0, recibo_faecys: 0,
+          recibo_total_rem: 0, recibo_total_nr: 0,
+          recibo_bruto: 0, recibo_descuentos: 0, recibo_neto: 0,
+          total_negro: Number(l.fijo || 0),
+          efectivo: 0,
+          ajuste_blanco: 0,
+          prestamo_capital: 0, prestamo_interes: 0,
+          observaciones: `Borrador auto-generado al cerrar ${periodo} (fijo copiado del mes anterior)`,
+        }));
+      if (inserts.length > 0) {
+        const { error: errIns, data: dataIns } = await sb.from('rrhh_liquidacion').insert(inserts).select('id');
+        if (errIns) console.warn(`[cascada mes] ${loc}:`, errIns.message);
+        else cascadaCreadas += (dataIns || []).length;
+      }
+    }
+  } catch (e) {
+    console.warn('[cascada mes] error:', e);
+  }
+
+  const msgCascada = cascadaCreadas > 0
+    ? `\n📅 ${cascadaCreadas} borrador(es) del mes siguiente pre-cargado(s) con los fijos actuales`
+    : '';
+  toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)${msgExtra}${msgCascada}`, 'success');
   switchTab('liquidaciones');
 }
 
