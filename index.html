@@ -14838,7 +14838,8 @@ async function renderLiquidaciones() {
           }
         case 'subtotal_efectivo': {
             const sac = sacPorEmp[l.empleado_id] || 0;
-            return Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+            const sacRec = esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+            return Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0) - sacRec);
           }
         case 'cat':        return (l.empleado?.categoria?.nombre || '').toLowerCase();
         case 'antiguedad': return (l.empleado?.fecha_ingreso || '9999-12-31'); // más viejo = más antigüedad
@@ -15388,8 +15389,11 @@ async function renderLiquidaciones() {
                 // Modelo claro: parte del Subtotal efectivo (Total − Recibo) y restamos
                 // mercadería, intereses (live) y ajustes. Así el cálculo siempre cuadra
                 // con lo que vé el usuario en pantalla, independiente del DB.
+                // En junio/diciembre (mes SAC) también hay que restar el SAC blanco del recibo,
+                // igual que hace el Subtotal — sino el Efectivo aparece inflado por sac_recibo_neto.
                 const sac = c.sacPorEmpLiq[l.empleado_id] || 0;
-                const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0));
+                const sacRec = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
+                const subtotal = Math.max(0, (+l.total_negro || 0) + sac - (+l.recibo_neto || 0) - sacRec);
                 const mercaderia = Number(l.mercaderia || 0);
                 const intrLive   = c.interesesPorEmpLiq[l.empleado_id] || 0;
                 const ajuste     = Number(l.ajuste || 0);
