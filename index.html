@@ -13164,12 +13164,13 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setTextColor(...COLOR_GREEN);
     doc.text('Neto a cobrar', margen + 5, y + 9);
     doc.setFontSize(16);
-    doc.text(fmt(liq.recibo_neto), W - margen - 5, y + 9.5, { align: 'right' });
+    doc.text(fmt(_netoBanner), W - margen - 5, y + 9.5, { align: 'right' });
 
-    // 10. QR con código identificador REC-XXXXX (para escaneo bulk de firmados)
+    // 10. QR con código identificador REC-XXXXX (mensual) o SAC-XXXXX (aguinaldo)
+    // para escaneo bulk de firmados y distinguirlos visualmente
     try {
       if (typeof qrcode === 'function') {
-        const codigoQR = 'REC-' + String(liq.id).padStart(5, '0');
+        const codigoQR = (esSAC ? 'SAC-' : 'REC-') + String(liq.id).padStart(5, '0');
         const qr = qrcode(0, 'M');  // tipo 0 (auto), corrección media
         qr.addData(codigoQR);
         qr.make();
