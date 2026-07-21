@@ -12851,10 +12851,17 @@ async function abrirConfirmacionRecibo(liqId) {
           <div style="background:#fef3c7;border-radius:8px;padding:12px;margin-bottom:14px;">
             <div style="font-size:12px;color:#92400e;text-transform:uppercase;margin-bottom:4px;">RECIBO CCT (lo que va al estudio)</div>
             <div style="font-size:18px;font-weight:700;color:#92400e;">${fmt(liq.recibo_neto)}</div>
+            ${(m === 6 || m === 12) && Number(liq.sac_recibo_neto || 0) > 0 ? `
+              <div style="border-top:1px dashed #d97706;margin-top:10px;padding-top:8px;">
+                <div style="font-size:12px;color:#92400e;text-transform:uppercase;margin-bottom:4px;">1er SAC ${periodo}</div>
+                <div style="font-size:18px;font-weight:700;color:#92400e;">${fmt(liq.sac_recibo_neto)}</div>
+              </div>` : ''}
           </div>
 
-          <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button class="btn" onclick="document.getElementById('conf-recibo-modal').remove()">← Volver</button>
+            ${(m === 6 || m === 12) && Number(liq.sac_recibo_neto || 0) > 0 ? `
+              <button class="btn" style="background:#fef3c7;border-color:#d97706;color:#92400e;" onclick="document.getElementById('conf-recibo-modal').remove(); verSacPDF(${liqId}); auditLog('ver_sac_pdf', 'rrhh_liquidacion', ${liqId}, null, null, 'PDF SAC generado');">🎁 PDF SAC</button>` : ''}
             <button class="btn primary" style="background:#0d9488;border-color:#0f766e;" onclick="document.getElementById('conf-recibo-modal').remove(); verReciboPDF(${liqId}); auditLog('confirmar_recibo', 'rrhh_liquidacion', ${liqId}, null, null, 'PDF generado tras confirmación de faltas');">✅ Confirmar y ver PDF</button>
           </div>
         </div>
@@ -12883,16 +12890,42 @@ async function verReciboPDF(liqId) {
   }
 }
 
+// Vista previa del PDF del SAC (junio/diciembre). Lee rrhh_liquidacion_sac_concepto
+// y usa sac_recibo_neto. Sin este flag es el recibo mensual normal.
+async function verSacPDF(liqId) {
+  try {
+    const doc = await generarPDFRecibo(liqId, { autoSave: false, esSAC: true });
+    if (!doc) return;
+    const url = doc.output('bloburl');
+    const w = window.open(url, '_blank', 'width=900,height=1100');
+    if (!w) {
+      toast('Tu navegador bloqueó la ventana emergente. Permitilas y volvé a intentar.', 'error');
+    }
+  } catch (e) {
+    toast('Error abriendo SAC: ' + (e.message || e), 'error');
+  }
+}
+
 async function generarPDFRecibo(liqId, opts = {}) {
   try {
+    // opts.esSAC = true → genera PDF del 1er SAC del semestre (junio/diciembre)
+    //   lee conceptos desde rrhh_liquidacion_sac_concepto y usa sac_recibo_neto
+    const esSAC = !!opts.esSAC;
+
     // 1. Cargar liquidación + empleado + conceptos
     const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
       .select('*, empleado:rrhh_empleados(*, categoria:rrhh_categorias_cct(nombre, sueldo_basico))')
       .eq('id', liqId).single();
     if (e1 || !liq) { toast('No se pudo cargar la liquidación: ' + (e1?.message || 'no encontrada'), 'error'); return; }
 
-    const { data: conceptos } = await sb.from('rrhh_liquidacion_concepto')
+    const _tablaConceptos = esSAC ? 'rrhh_liquidacion_sac_concepto' : 'rrhh_liquidacion_concepto';
+    const { data: conceptos } = await sb.from(_tablaConceptos)
       .select('*').eq('liquidacion_id', liqId).order('orden');
+    if (esSAC && (!conceptos || conceptos.length === 0)) {
+      toast('No hay conceptos SAC cargados para esta liquidación', 'error'); return;
+    }
+    // Neto que va al banner (mensual o SAC según flag)
+    const _netoBanner = esSAC ? Number(liq.sac_recibo_neto || 0) : Number(liq.recibo_neto || 0);
 
     const emp = liq.empleado;
     const cat = emp?.categoria;
@@ -12968,14 +13001,14 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
-    doc.text('PERÍODO LIQUIDADO', margen, y);
+    doc.text(esSAC ? 'PERÍODO LIQUIDADO (SAC)' : 'PERÍODO LIQUIDADO', margen, y);
     doc.text('NETO A COBRAR', W - margen, y, { align: 'right' });
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(18);
     doc.setTextColor(...COLOR_TEXT);
-    doc.text(labelMes(liq.periodo), margen, y + 8);
+    doc.text((esSAC ? '1er SAC ' : '') + labelMes(liq.periodo), margen, y + 8);
     doc.setTextColor(...COLOR_GREEN);
-    doc.text(fmt(liq.recibo_neto), W - margen, y + 8, { align: 'right' });
+    doc.text(fmt(_netoBanner), W - margen, y + 8, { align: 'right' });
 
     // 6. BOX EMPLEADA
     y = 62;

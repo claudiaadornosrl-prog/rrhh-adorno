@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v211-fix-efectivo-mes-sac';
+const CACHE_VERSION = 'rrhh-v212-pdf-sac-boton';
 const ASSETS = [
   './',
   './index.html',
