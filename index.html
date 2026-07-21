@@ -12932,7 +12932,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
 
     // 2. Helpers de formato
     const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
-    const fmtNeg = (n) => '−$' + Math.round(Number(Math.abs(n)||0)).toLocaleString('es-AR');
+    const fmtNeg = (n) => '-$' + Math.round(Number(Math.abs(n)||0)).toLocaleString('es-AR');
     const fmtPct = (n) => (Number(n||0)).toFixed(2) + '%';
     const labelMes = (iso) => {
       if (!iso) return '';
@@ -13015,7 +13015,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFillColor(...COLOR_SOFT);
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
-    doc.roundedRect(margen, y, ancho, 36, 2, 2, 'FD');
+    doc.roundedRect(margen, y, ancho, 44, 2, 2, 'FD');
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...COLOR_MUTED);
@@ -13078,7 +13078,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text(`${_diasTrab}/${_diasMes}`, colX3, y + 38);
 
     // 7. TABLA DEVENGADO
-    y = 105;
+    y = 113;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
