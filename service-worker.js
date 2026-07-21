@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v213-pdf-sac-masivo';
+const CACHE_VERSION = 'rrhh-v214-estado-revisada';
 const ASSETS = [
   './',
   './index.html',

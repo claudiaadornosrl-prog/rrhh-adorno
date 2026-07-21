@@ -16570,11 +16570,12 @@ async function liqAutoRefreshSueldo(local, periodo) {
     const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
 
     // Chequear que haya al menos una liq no cerrada por local (para no perder tiempo)
+    // Excluye 'firmada', 'revisada' y 'anulada' — solo tocamos borradores.
     const { count: existentes } = await sb.from('rrhh_liquidacion')
       .select('id', { count: 'exact', head: true })
       .in('local', locales)
       .eq('periodo', periodo + '-01')
-      .neq('estado', 'firmada');
+      .not('estado', 'in', '(firmada,revisada,anulada)');
     if (!existentes || existentes === 0) return;
 
     // Indicador chico en el DOM
@@ -16899,7 +16900,7 @@ async function liqValidarCierreMes(local, periodo) {
   return errores;
 }
 
-// Reabrir una liquidación individual (cambia estado firmada → borrador)
+// Reabrir una liquidación individual (cambia estado revisada/firmada → borrador)
 // para hacer correcciones puntuales sin reabrir todo el mes del local.
 async function liqReabrirEmpleado(liqId) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
@@ -16908,9 +16909,9 @@ async function liqReabrirEmpleado(liqId) {
     const { error } = await sb.from('rrhh_liquidacion')
       .update({ estado: 'borrador' })
       .eq('id', liqId)
-      .eq('estado', 'firmada');
+      .in('estado', ['revisada', 'firmada']);
     if (error) throw error;
-    await auditLog('reabrir_liquidacion_empleado', 'rrhh_liquidacion', liqId, 'firmada', 'borrador', null);
+    await auditLog('reabrir_liquidacion_empleado', 'rrhh_liquidacion', liqId, null, 'borrador', null);
     toast('✓ Liquidación reabierta — ya podés editarla', 'success');
     switchTab('liquidaciones');
   } catch (e) {
@@ -23560,10 +23561,10 @@ const salaryWorkflow = (() => {
     if (_idsDelLote.length > 0) {
       try {
         const { data: _liqsCheck } = await sb.from('rrhh_liquidacion')
-          .select('empleado_id')
+          .select('empleado_id, estado')
           .eq('local', local)
           .eq('periodo', periodo + '-01')
-          .eq('estado', 'firmada')
+          .in('estado', ['firmada', 'revisada', 'anulada'])
           .in('empleado_id', _idsDelLote);
         (_liqsCheck || []).forEach(r => _firmadas.add(r.empleado_id));
       } catch (_) {}
@@ -23571,7 +23572,7 @@ const salaryWorkflow = (() => {
     if (_firmadas.size > 0) {
       const _nombresFirm = lista.filter(e => _firmadas.has(e.id))
         .map(e => `${e.apellido}, ${e.nombre}`).join('\n  • ');
-      const _continuar = confirm(`⚠️ ${_firmadas.size} liquidación(es) están CERRADAS:\n\n  • ${_nombresFirm}\n\nNO se van a procesar. Reabrí esas liquidaciones (click en 🔒) si querés que entren en el recálculo.\n\n¿Continuar con las abiertas?`);
+      const _continuar = confirm(`⚠️ ${_firmadas.size} liquidación(es) están CERRADAS (revisada/firmada/anulada):\n\n  • ${_nombresFirm}\n\nNO se van a procesar. Reabrí esas liquidaciones (click en 🔒) si querés que entren en el recálculo.\n\n¿Continuar con las abiertas?`);
       if (!_continuar) return { ok: [], errores: [] };
       lista = lista.filter(e => !_firmadas.has(e.id));
     }
