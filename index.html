@@ -22011,7 +22011,7 @@ async function descargarTodosRecibosCombinados(local, periodo) {
     toast('Solo admin/encargada', 'error'); return;
   }
   let q = sb.from('rrhh_liquidacion')
-    .select('id, periodo, local, empleado_id, empleado:rrhh_empleados(apellido, nombre)')
+    .select('id, periodo, local, empleado_id, sac_recibo_neto, empleado:rrhh_empleados(apellido, nombre)')
     .eq('periodo', periodo + '-01')
     .order('local').order('empleado(apellido)');
   if (local && local !== 'todos') q = q.eq('local', local);
@@ -22019,26 +22019,54 @@ async function descargarTodosRecibosCombinados(local, periodo) {
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   if (!liqs || liqs.length === 0) { toast('No hay recibos para combinar', 'warning'); return; }
 
-  toast(`Generando ${liqs.length} recibos…`, '');
-  let masterDoc = null;
-  let exitosos = 0, fallidos = 0;
+  // Detectar si estamos en un mes de SAC (junio/diciembre) y si hay alguna liq con SAC neto > 0
+  const mesNum = parseInt(periodo.split('-')[1], 10);
+  const esMesSAC = (mesNum === 6 || mesNum === 12);
+  const liqsConSAC = esMesSAC ? liqs.filter(l => Number(l.sac_recibo_neto || 0) > 0) : [];
+  const hayQueGenerarSAC = liqsConSAC.length > 0;
+
+  const _totalTareas = liqs.length + (hayQueGenerarSAC ? liqsConSAC.length : 0);
+  toast(`Generando ${_totalTareas} recibos…`, '');
+
+  // ── Paso 1: PDF combinado de sueldos mensuales ──
+  let masterSueldo = null;
+  let okSuel = 0, failSuel = 0;
   for (const liq of liqs) {
     try {
-      if (!masterDoc) {
-        masterDoc = await generarPDFRecibo(liq.id, { autoSave: false });
-      } else {
-        await generarPDFRecibo(liq.id, { existingDoc: masterDoc, autoSave: false });
-      }
-      exitosos++;
+      if (!masterSueldo) masterSueldo = await generarPDFRecibo(liq.id, { autoSave: false });
+      else await generarPDFRecibo(liq.id, { existingDoc: masterSueldo, autoSave: false });
+      okSuel++;
     } catch (e) {
-      console.error('Fallo recibo liq', liq.id, e);
-      fallidos++;
+      console.error('Fallo recibo sueldo liq', liq.id, e);
+      failSuel++;
     }
   }
-  if (!masterDoc) { toast('No se pudo generar ningún recibo', 'error'); return; }
+  if (!masterSueldo) { toast('No se pudo generar ningún recibo de sueldo', 'error'); return; }
   const localTxt = (local && local !== 'todos') ? local : 'Adorno';
-  masterDoc.save(`Recibos ${localTxt} ${periodo}.pdf`);
-  toast(`✓ ${exitosos} recibo(s) combinados${fallidos ? ' · ' + fallidos + ' fallaron' : ''}`, 'success');
+  const nombreSueldo = hayQueGenerarSAC ? `Sueldos ${localTxt} ${periodo}.pdf` : `Recibos ${localTxt} ${periodo}.pdf`;
+  masterSueldo.save(nombreSueldo);
+
+  // ── Paso 2: PDF combinado de SAC (solo si es junio/diciembre y hay SAC cargado) ──
+  if (hayQueGenerarSAC) {
+    let masterSAC = null;
+    let okSAC = 0, failSAC = 0;
+    for (const liq of liqsConSAC) {
+      try {
+        if (!masterSAC) masterSAC = await generarPDFRecibo(liq.id, { autoSave: false, esSAC: true });
+        else await generarPDFRecibo(liq.id, { existingDoc: masterSAC, autoSave: false, esSAC: true });
+        okSAC++;
+      } catch (e) {
+        console.error('Fallo recibo SAC liq', liq.id, e);
+        failSAC++;
+      }
+    }
+    if (masterSAC) {
+      masterSAC.save(`SAC ${localTxt} ${periodo}.pdf`);
+    }
+    toast(`✓ Sueldos: ${okSuel}${failSuel ? ' ('+failSuel+' err)' : ''} · SAC: ${okSAC}${failSAC ? ' ('+failSAC+' err)' : ''} — 2 archivos descargados`, 'success');
+  } else {
+    toast(`✓ ${okSuel} recibo(s) combinados${failSuel ? ' · ' + failSuel + ' fallaron' : ''}`, 'success');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
