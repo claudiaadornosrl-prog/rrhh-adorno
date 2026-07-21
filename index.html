@@ -4327,7 +4327,14 @@ async function abrirDetalleVacEmpleada(empId, año) {
       const fecha = new Date(m.documento_firmado_at).toLocaleDateString('es-AR');
       const origen = m.documento_firmado_origen === 'mail' ? ' (mail)'
                    : m.documento_firmado_origen === 'manual' ? ' (manual)' : '';
-      return `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;" title="PDF firmado en OneDrive desde ${fecha}${origen}">✓ Firmado ${fecha}</span>`;
+      const url = m.documento_firmado_path || '';
+      const esUrl = /^https?:\/\//i.test(url);
+      if (esUrl) {
+        return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener"
+                 style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;text-decoration:none;display:inline-block;"
+                 title="Click para abrir el PDF firmado en OneDrive (firmado ${fecha}${origen})">✓ Firmado ${fecha}</a>`;
+      }
+      return `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;" title="Firmado ${fecha}${origen} — archivo antiguo sin link directo">✓ Firmado ${fecha}</span>`;
     }
     if (requiereFirma(m.estado)) {
       return `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;" title="Pendiente: hay que imprimir, firmar y mandar el PDF a claudiaadornosrl@gmail.com">⏳ Falta firmar</span>`;
@@ -5436,7 +5443,7 @@ async function subirMiFoto(inputEl) {
 async function renderMisRecibos() {
   // Liquidaciones DEFINITIVAS (las únicas firmables) de la empleada — últimas 12
   const { data: liqs, error } = await sb.from('rrhh_liquidacion')
-    .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_enviado_at, calculado_at, total_negro')
+    .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_enviado_at, calculado_at, total_negro, sac_recibo_neto, sac_pdf_firmado_at')
     .eq('empleado_id', session.empleado_id)
     .eq('tipo', 'definitivo')
     .order('periodo', { ascending: false })
@@ -5483,7 +5490,8 @@ async function renderMisRecibos() {
             <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Acción</th>
           </tr></thead>
           <tbody>
-            ${liqs.map(l => {
+            ${liqs.flatMap(l => {
+              // Determina estado del recibo mensual
               let estado, bgEs, fgEs;
               if (l.pdf_firmado_at) {
                 const fmtFecha = new Date(l.pdf_firmado_at).toLocaleDateString('es-AR');
@@ -5496,7 +5504,7 @@ async function renderMisRecibos() {
                 estado = '📄 Listo para descargar';
                 bgEs = '#dbeafe'; fgEs = '#1e40af';
               }
-              return `<tr style="border-top:1px solid var(--border);">
+              const filaMensual = `<tr style="border-top:1px solid var(--border);">
                 <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">${labelMes(l.periodo)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(l.recibo_neto)}</td>
                 <td style="padding:10px 14px;text-align:center;">
@@ -5506,6 +5514,31 @@ async function renderMisRecibos() {
                   <button class="btn small primary" onclick="generarPDFRecibo(${l.id})">📄 Descargar PDF</button>
                 </td>
               </tr>`;
+              // Fila del SAC — solo en junio/diciembre y si tiene SAC neto cargado
+              const _mes = parseInt((l.periodo||'').split('-')[1], 10);
+              const _esMesSAC = _mes === 6 || _mes === 12;
+              const _sacNeto = Number(l.sac_recibo_neto || 0);
+              if (!_esMesSAC || _sacNeto <= 0) return [filaMensual];
+              let estadoSac, bgSac, fgSac;
+              if (l.sac_pdf_firmado_at) {
+                const f = new Date(l.sac_pdf_firmado_at).toLocaleDateString('es-AR');
+                estadoSac = `✓ Firmado ${f}`;
+                bgSac = '#d1fae5'; fgSac = '#065f46';
+              } else {
+                estadoSac = '📄 Listo para descargar';
+                bgSac = '#dbeafe'; fgSac = '#1e40af';
+              }
+              const filaSac = `<tr style="border-top:1px solid var(--border);background:#fefce8;">
+                <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">🎁 1er SAC ${labelMes(l.periodo)}</td>
+                <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(_sacNeto)}</td>
+                <td style="padding:10px 14px;text-align:center;">
+                  <span style="background:${bgSac};color:${fgSac};padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;">${estadoSac}</span>
+                </td>
+                <td style="padding:10px 14px;text-align:right;">
+                  <button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" onclick="generarPDFRecibo(${l.id}, {esSAC:true})">🎁 Descargar SAC</button>
+                </td>
+              </tr>`;
+              return [filaMensual, filaSac];
             }).join('')}
           </tbody>
         </table>
@@ -15467,10 +15500,14 @@ async function renderLiquidaciones() {
             { id:'detalle',   label:'Acciones',
               tdRender:(l,c)=>{
                 const firmado = l.pdf_firmado_at;
-                const path = l.pdf_firmado_path || '';
+                const url = l.pdf_url_firmado || l.pdf_firmado_path || '';
+                const esUrl = /^https?:\/\//i.test(url);
                 const mesCerr = c.cierresSueldosPorLocal && c.cierresSueldosPorLocal[l.local];
+                const fechaFirma = firmado ? new Date(firmado).toLocaleDateString('es-AR') : '';
                 const btnFirmado = firmado
-                  ? `<button class="btn small" style="background:#d1fae5;color:#065f46;border-color:#86efac;" onclick="liqVerFirmadoOneDrive(${l.id})" title="✓ Firmada el ${new Date(firmado).toLocaleDateString('es-AR')}. Click para detalles.">✓ Firmada</button>`
+                  ? (esUrl
+                      ? `<a class="btn small" href="${escapeHtml(url)}" target="_blank" rel="noopener" style="background:#d1fae5;color:#065f46;border-color:#86efac;text-decoration:none;" title="✓ Firmada el ${fechaFirma}. Click para abrir el archivo en OneDrive.">✓ Firmada</a>`
+                      : `<button class="btn small" style="background:#d1fae5;color:#065f46;border-color:#86efac;cursor:default;" disabled title="✓ Firmada el ${fechaFirma}. Archivo antiguo — sin link directo.">✓ Firmada</button>`)
                   : (mesCerr
                       ? `<button class="btn small" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc;" disabled title="Mes cerrado — el sistema espera que llegue el PDF firmado por la empleada por Gmail o que lo subas manualmente.">🗓️ Esperando firma</button>`
                       : `<button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" disabled title="No firmada — esperando que llegue el PDF firmado.">✗ No firmada</button>`);
@@ -15928,11 +15965,14 @@ async function procesarRecibosBulkPDF(file) {
           continue;
         }
         const pathOneDrive = onedriveResp.path;
+        const webUrlOneDrive = onedriveResp.webUrl || pathOneDrive;  // webUrl = link SharePoint clickeable
 
         // Marcar campo correspondiente en la liquidación
+        // pdf_firmado_path: path interno (para referencia). pdf_url_firmado: link clickeable a SharePoint.
         const _updatePatch = esSAC
-          ? { sac_pdf_firmado_at: new Date().toISOString(), sac_pdf_firmado_path: pathOneDrive }
-          : { pdf_firmado_at:     new Date().toISOString(), pdf_firmado_path:     pathOneDrive };
+          ? { sac_pdf_firmado_at: new Date().toISOString(), sac_pdf_firmado_path: webUrlOneDrive }
+          : { pdf_firmado_at:     new Date().toISOString(), pdf_firmado_path:     pathOneDrive,
+              pdf_url_firmado:    webUrlOneDrive };
         const { error: upErr2 } = await sb.from('rrhh_liquidacion').update(_updatePatch).eq('id', liqId);
         if (upErr2) {
           append(`  ⚠️ ${codigo}: PDF subido a OneDrive pero error marcando firmado — ${escapeHtml(upErr2.message)}`, '#d97706');
@@ -16767,15 +16807,21 @@ async function liqGenerarMes(local, periodo) {
 // ════════════════════════════════════════════════════════════
 async function liqVerFirmadoOneDrive(liqId) {
   const { data: liq } = await sb.from('rrhh_liquidacion')
-    .select('id, periodo, pdf_firmado_at, pdf_firmado_path, pdf_firmado_origen, pdf_enviado_at, empleado:rrhh_empleados(nombre_completo)')
+    .select('id, periodo, pdf_firmado_at, pdf_firmado_path, pdf_firmado_origen, pdf_url_firmado, pdf_enviado_at, empleado:rrhh_empleados(nombre_completo)')
     .eq('id', liqId).single();
   if (!liq || !liq.pdf_firmado_at) {
     toast('Este recibo todavía no tiene PDF firmado', 'error');
     return;
   }
+  const pathODurl = liq.pdf_url_firmado || liq.pdf_firmado_path || '';
+  // Si es HTTP(S), abrir directamente en nueva pestaña. Si es un string tipo "[Graph] ..." o path viejo, mostrar modal informativo.
+  const esUrl = /^https?:\/\//i.test(pathODurl);
+  if (esUrl) {
+    window.open(pathODurl, '_blank', 'noopener');
+    return;
+  }
   const fechaFirma = new Date(liq.pdf_firmado_at).toLocaleString('es-AR');
   const fechaEnvio = liq.pdf_enviado_at ? new Date(liq.pdf_enviado_at).toLocaleString('es-AR') : '—';
-  const path = liq.pdf_firmado_path || '—';
   const origen = liq.pdf_firmado_origen || '—';
   const codigoSeg = 'REC-' + String(liq.id).padStart(5, '0');
   const html = `
@@ -16787,9 +16833,9 @@ async function liqVerFirmadoOneDrive(liqId) {
         </div>
         <button class="btn" onclick="closeModal()">✕ Cerrar</button>
       </div>
-      <div style="background:#d1fae5;border:1px solid #86efac;padding:12px;border-radius:8px;margin-bottom:14px;">
-        <strong style="color:#065f46;">✓ Recibo firmado y archivado</strong>
-        <div style="font-size:13px;color:#065f46;margin-top:4px;">El sistema detectó el PDF firmado y lo archivó automáticamente.</div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;padding:12px;border-radius:8px;margin-bottom:14px;">
+        <strong style="color:#92400e;">⚠ Archivo detectado antes del fix de link directo</strong>
+        <div style="font-size:13px;color:#92400e;margin-top:4px;">El sistema marcó este recibo firmado, pero el link directo se implementó después. Buscalo manualmente en OneDrive.</div>
       </div>
       <table style="width:100%;font-size:13px;background:#fafafa;border-radius:8px;">
         <tr><td style="padding:8px 12px;color:var(--muted);width:35%;">Código seguimiento</td>
@@ -16802,14 +16848,11 @@ async function liqVerFirmadoOneDrive(liqId) {
             <td style="padding:8px 12px;">${escapeHtml(origen)}</td></tr>
         <tr style="border-top:1px solid var(--border);">
             <td style="padding:8px 12px;color:var(--muted);vertical-align:top;">Ruta archivado</td>
-            <td style="padding:8px 12px;font-family:monospace;font-size:11px;word-break:break-all;">${escapeHtml(path)}</td></tr>
+            <td style="padding:8px 12px;font-family:monospace;font-size:11px;word-break:break-all;">${escapeHtml(pathODurl || '—')}</td></tr>
         <tr style="border-top:1px solid var(--border);">
             <td style="padding:8px 12px;color:var(--muted);">Generado el</td>
             <td style="padding:8px 12px;">${fechaEnvio}</td></tr>
       </table>
-      <div style="margin-top:14px;font-size:11px;color:var(--muted);">
-        💡 El archivo está archivado en la carpeta del empleado.
-      </div>
     </div>
   `;
   openModal(html);

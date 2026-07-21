@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v219-bulk-a-onedrive-via-graph';
+const CACHE_VERSION = 'rrhh-v221-link-firmada-onedrive';
 const ASSETS = [
   './',
   './index.html',
