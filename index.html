@@ -15436,14 +15436,28 @@ async function renderLiquidaciones() {
               } },
             { id:'firma',     label:'Firma',
               tdRender:(l,c)=>{
+                // Chip del sueldo mensual
+                let chipMensual = '';
                 if (l.pdf_firmado_at) {
                   const fecha = new Date(l.pdf_firmado_at).toLocaleDateString('es-AR');
-                  return `<td style="padding:8px;text-align:center;"><span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;" title="Firmada el ${fecha}">✓ ${fecha}</span></td>`;
+                  chipMensual = `<span style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="Recibo mensual firmado el ${fecha}">📄 ${fecha}</span>`;
+                } else if (l.pdf_enviado_at) {
+                  chipMensual = `<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="Recibo mensual enviado para firmar">📄 ⏳</span>`;
                 }
-                if (l.pdf_enviado_at) {
-                  return `<td style="padding:8px;text-align:center;"><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;" title="Enviado para firmar — esperando que la empleada responda con el PDF firmado">⏳ Falta firmar</span></td>`;
+                // Chip del SAC (solo en junio/diciembre y si tiene SAC neto)
+                let chipSAC = '';
+                if (c.esMesSAC && Number(l.sac_recibo_neto || 0) > 0) {
+                  if (l.sac_pdf_firmado_at) {
+                    const fechaSac = new Date(l.sac_pdf_firmado_at).toLocaleDateString('es-AR');
+                    chipSAC = `<span style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="SAC firmado el ${fechaSac}">🎁 ${fechaSac}</span>`;
+                  } else {
+                    chipSAC = `<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="SAC pendiente de firma">🎁 ⏳</span>`;
+                  }
                 }
-                // Si el mes está cerrado a nivel local, mostrar badge visible
+                if (chipMensual || chipSAC) {
+                  return `<td style="padding:8px;text-align:center;"><div style="display:flex;flex-direction:column;gap:3px;align-items:center;">${chipMensual}${chipSAC}</div></td>`;
+                }
+                // Fallback si el mes está cerrado a nivel local
                 const mesCerr = c.cierresSueldosPorLocal && c.cierresSueldosPorLocal[l.local];
                 if (mesCerr) {
                   return `<td style="padding:8px;text-align:center;"><span style="background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;" title="Mes cerrado el ${(mesCerr.cerrado_at||'').split('T')[0]} — falta que llegue el PDF firmado por la empleada">🗓️ Mes cerrado</span></td>`;
@@ -15862,17 +15876,19 @@ async function procesarRecibosBulkPDF(file) {
           continue;
         }
         const codigo = qrResult.data.trim();
-        const m = codigo.match(/^REC-(\d+)$/);
+        // Reconoce REC-XXXXX (recibo mensual) o SAC-XXXXX (aguinaldo)
+        const m = codigo.match(/^(REC|SAC)-(\d+)$/);
         if (!m) {
           append(`  ❌ QR no reconocido: "${escapeHtml(codigo)}"`, '#dc2626');
           errCount++;
           continue;
         }
-        const liqId = parseInt(m[1], 10);
+        const esSAC = m[1] === 'SAC';
+        const liqId = parseInt(m[2], 10);
 
         // Buscar la liquidación + empleada
         const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
-          .select('id, empleado_id, periodo, pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre)')
+          .select('id, empleado_id, periodo, pdf_firmado_at, sac_pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre)')
           .eq('id', liqId).single();
         if (e1 || !liq) {
           append(`  ❌ ${codigo}: liquidación no encontrada en DB`, '#dc2626');
@@ -15888,8 +15904,10 @@ async function procesarRecibosBulkPDF(file) {
         pdfPag.addImage(jpegDataUrl, 'JPEG', 0, 0, wMM, hMM);
         const pdfBlob = pdfPag.output('blob');
 
-        // Subir a Storage en {empleado_id}/recibo_{liqId}_firmado.pdf
-        const path = `${liq.empleado_id}/recibo_${liqId}_firmado.pdf`;
+        // Subir a Storage — path distinto para SAC vs mensual
+        const path = esSAC
+          ? `${liq.empleado_id}/sac_${liqId}_firmado.pdf`
+          : `${liq.empleado_id}/recibo_${liqId}_firmado.pdf`;
         const { error: upErr } = await sb.storage.from('rrhh-recibos').upload(path, pdfBlob, {
           upsert: true,
           contentType: 'application/pdf',
@@ -15900,17 +15918,18 @@ async function procesarRecibosBulkPDF(file) {
           continue;
         }
 
-        // Marcar liquidación como firmada
-        const { error: upErr2 } = await sb.from('rrhh_liquidacion').update({
-          pdf_firmado_at:   new Date().toISOString(),
-          pdf_firmado_path: path,
-        }).eq('id', liqId);
+        // Marcar campo correspondiente en la liquidación
+        const _updatePatch = esSAC
+          ? { sac_pdf_firmado_at: new Date().toISOString(), sac_pdf_firmado_path: path }
+          : { pdf_firmado_at:     new Date().toISOString(), pdf_firmado_path:     path };
+        const { error: upErr2 } = await sb.from('rrhh_liquidacion').update(_updatePatch).eq('id', liqId);
         if (upErr2) {
           append(`  ⚠️ ${codigo}: PDF subido pero error marcando firmado — ${escapeHtml(upErr2.message)}`, '#d97706');
         }
 
-        const yaFirmado = !!liq.pdf_firmado_at;
-        append(`  ✅ ${codigo} → <strong>${escapeHtml(nombreEmp)}</strong> · ${liq.periodo?.slice(0,7) || ''}${yaFirmado ? ' <span style="color:#d97706;">(reemplaza firma previa)</span>' : ''}`, '#16a34a');
+        const yaFirmadoPrev = esSAC ? !!liq.sac_pdf_firmado_at : !!liq.pdf_firmado_at;
+        const tipoLabel = esSAC ? '🎁 SAC' : '📄 Recibo';
+        append(`  ✅ ${codigo} → ${tipoLabel} <strong>${escapeHtml(nombreEmp)}</strong> · ${liq.periodo?.slice(0,7) || ''}${yaFirmadoPrev ? ' <span style="color:#d97706;">(reemplaza firma previa)</span>' : ''}`, '#16a34a');
         okCount++;
       } catch (e) {
         append(`  ❌ Error: ${escapeHtml(e.message || String(e))}`, '#dc2626');

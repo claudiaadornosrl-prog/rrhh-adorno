@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v217-ajustes-visuales-pdf';
+const CACHE_VERSION = 'rrhh-v218-circuito-sac-firmado';
 const ASSETS = [
   './',
   './index.html',
