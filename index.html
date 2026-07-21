@@ -15886,50 +15886,61 @@ async function procesarRecibosBulkPDF(file) {
         const esSAC = m[1] === 'SAC';
         const liqId = parseInt(m[2], 10);
 
-        // Buscar la liquidación + empleada
+        // Buscar la liquidación + empleada + local
         const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
-          .select('id, empleado_id, periodo, pdf_firmado_at, sac_pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre)')
+          .select('id, empleado_id, periodo, pdf_firmado_at, sac_pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre, nombre_completo, local)')
           .eq('id', liqId).single();
         if (e1 || !liq) {
           append(`  ❌ ${codigo}: liquidación no encontrada en DB`, '#dc2626');
           errCount++;
           continue;
         }
-        const nombreEmp = `${liq.empleado?.apellido || ''} ${liq.empleado?.nombre || ''}`.trim();
+        const nombreEmp = liq.empleado?.nombre_completo
+          || `${liq.empleado?.apellido || ''} ${liq.empleado?.nombre || ''}`.trim();
 
         // Generar PDF individual con esta página (jpeg embebido)
         const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.7);
         const pdfPag = new jsPDF({ unit: 'mm', format: 'a4' });
         const wMM = 210, hMM = 297;
         pdfPag.addImage(jpegDataUrl, 'JPEG', 0, 0, wMM, hMM);
-        const pdfBlob = pdfPag.output('blob');
+        // Convertir a base64 (para mandarlo por JSON a la Edge Function)
+        const pdfArrayBuffer = pdfPag.output('arraybuffer');
+        const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(pdfArrayBuffer)));
 
-        // Subir a Storage — path distinto para SAC vs mensual
-        const path = esSAC
-          ? `${liq.empleado_id}/sac_${liqId}_firmado.pdf`
-          : `${liq.empleado_id}/recibo_${liqId}_firmado.pdf`;
-        const { error: upErr } = await sb.storage.from('rrhh-recibos').upload(path, pdfBlob, {
-          upsert: true,
-          contentType: 'application/pdf',
+        // Llamar a la Edge Function que sube el PDF a OneDrive vía Graph API
+        // (el CLIENT_SECRET nunca sale del backend — está en los Supabase Secrets)
+        const _periodoStr = (liq.periodo || '').slice(0, 7); // "YYYY-MM"
+        const { data: onedriveResp, error: fnErr } = await sb.functions.invoke('subir-recibo-a-onedrive', {
+          body: {
+            pdf_base64:      pdfBase64,
+            tipo:            esSAC ? 'sac' : 'recibo',
+            liq_id:          liqId,
+            empleado_id:     liq.empleado_id,
+            apellido_nombre: nombreEmp,
+            local:           liq.empleado?.local || 'oficina',
+            periodo:         _periodoStr,
+          },
         });
-        if (upErr) {
-          append(`  ❌ ${codigo} (${escapeHtml(nombreEmp)}): error subiendo a Storage — ${escapeHtml(upErr.message)}`, '#dc2626');
+        if (fnErr || !onedriveResp?.ok) {
+          const msg = fnErr?.message || onedriveResp?.error || 'error desconocido';
+          append(`  ❌ ${codigo} (${escapeHtml(nombreEmp)}): error subiendo a OneDrive — ${escapeHtml(msg)}`, '#dc2626');
           errCount++;
           continue;
         }
+        const pathOneDrive = onedriveResp.path;
 
         // Marcar campo correspondiente en la liquidación
         const _updatePatch = esSAC
-          ? { sac_pdf_firmado_at: new Date().toISOString(), sac_pdf_firmado_path: path }
-          : { pdf_firmado_at:     new Date().toISOString(), pdf_firmado_path:     path };
+          ? { sac_pdf_firmado_at: new Date().toISOString(), sac_pdf_firmado_path: pathOneDrive }
+          : { pdf_firmado_at:     new Date().toISOString(), pdf_firmado_path:     pathOneDrive };
         const { error: upErr2 } = await sb.from('rrhh_liquidacion').update(_updatePatch).eq('id', liqId);
         if (upErr2) {
-          append(`  ⚠️ ${codigo}: PDF subido pero error marcando firmado — ${escapeHtml(upErr2.message)}`, '#d97706');
+          append(`  ⚠️ ${codigo}: PDF subido a OneDrive pero error marcando firmado — ${escapeHtml(upErr2.message)}`, '#d97706');
         }
 
         const yaFirmadoPrev = esSAC ? !!liq.sac_pdf_firmado_at : !!liq.pdf_firmado_at;
         const tipoLabel = esSAC ? '🎁 SAC' : '📄 Recibo';
-        append(`  ✅ ${codigo} → ${tipoLabel} <strong>${escapeHtml(nombreEmp)}</strong> · ${liq.periodo?.slice(0,7) || ''}${yaFirmadoPrev ? ' <span style="color:#d97706;">(reemplaza firma previa)</span>' : ''}`, '#16a34a');
+        append(`  ✅ ${codigo} → ${tipoLabel} <strong>${escapeHtml(nombreEmp)}</strong> · ${_periodoStr} → <span style="color:#64748b;">OneDrive: ${escapeHtml(pathOneDrive)}</span>${yaFirmadoPrev ? ' <span style="color:#d97706;">(reemplaza firma previa)</span>' : ''}`, '#16a34a');
         okCount++;
       } catch (e) {
         append(`  ❌ Error: ${escapeHtml(e.message || String(e))}`, '#dc2626');
