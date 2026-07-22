@@ -3937,6 +3937,7 @@ async function renderVacContent() {
               <th style="padding:10px 12px;text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;">Días</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Estado</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Firma</th>
+              <th style="padding:10px 12px;text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;">PDF</th>
             </tr>
           </thead>
           <tbody>
@@ -3947,6 +3948,11 @@ async function renderVacContent() {
               const periodo = m.fecha_desde === m.fecha_hasta
                 ? fmtFecha(m.fecha_desde)
                 : `${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}`;
+              // Botón descargar PDF: para movs aprobados/tomados/pagados
+              const puedePdf = ['aprobada','tomada','pagada'].includes(m.estado);
+              const btnPdf = puedePdf
+                ? `<button class="btn small" style="padding:3px 8px;font-size:11px;" onclick="generarNotificacionVacaciones(${m.id})" title="Descargar PDF de notificación">📄 PDF</button>`
+                : `<span style="color:var(--muted);font-size:11px;">—</span>`;
               return `
                 <tr style="border-top:1px solid var(--border);">
                   <td style="padding:8px 12px;color:var(--muted);white-space:nowrap;">${fSol}</td>
@@ -3957,6 +3963,7 @@ async function renderVacContent() {
                   <td style="padding:8px 12px;text-align:center;font-weight:600;">${m.dias}</td>
                   <td style="padding:8px 12px;">${estadoChip(m.estado)}</td>
                   <td style="padding:8px 12px;">${firmaChip(m)}</td>
+                  <td style="padding:8px 12px;text-align:center;">${btnPdf}</td>
                 </tr>
               `;
             }).join('')}
