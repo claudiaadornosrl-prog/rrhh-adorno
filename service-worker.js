@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v221-link-firmada-onedrive';
+const CACHE_VERSION = 'rrhh-v222-scroll-horizontal-top';
 const ASSETS = [
   './',
   './index.html',

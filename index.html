@@ -1180,6 +1180,7 @@ async function renderPage(tabId) {
     if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
     if (tabId === 'mi-legajo')      setTimeout(renderPushCard, 0);
     if (tabId === 'liquidaciones' && liqState.busqueda) setTimeout(liqFiltrarBusquedaLocal, 0);
+    if (tabId === 'liquidaciones') setTimeout(liqWireScrollDoble, 50);
     // Auto-refresh silencioso de comisiones al entrar a Sueldo (Fase 2A)
     if (tabId === 'liquidaciones' && liqState.subTab === 'sueldo' && (session.rol === 'admin')) {
       setTimeout(() => { liqAutoRefreshSueldo(liqState.local, liqState.periodo); }, 150);
@@ -15193,7 +15194,12 @@ async function renderLiquidaciones() {
         `;
       })()}
 
-      <div class="card" style="overflow-x:auto;">
+      <!-- Scroll horizontal DOBLE (arriba + abajo) sincronizado con la tabla -->
+      <div class="card" style="padding:0;">
+        <div id="liq-scroll-top" style="overflow-x:auto;overflow-y:hidden;height:14px;border-bottom:1px solid var(--border);">
+          <div id="liq-scroll-top-inner" style="height:1px;"></div>
+        </div>
+      <div id="liq-scroll-main" style="overflow-x:auto;overflow-y:visible;padding:14px;">
         ${(() => {
           // ── Definición de TODAS las columnas posibles del Liquidador ──
           // ─── Helper para renderizar celdas editables con override visual ───
@@ -15650,19 +15656,57 @@ async function renderLiquidaciones() {
             return `<td style="padding:10px 8px;text-align:${align};font-weight:700;font-family:monospace;background:#f1f5f9;color:#1e293b;border-top:2px solid #94a3b8;${sticky}">${val}</td>`;
           }).join('');
 
-          return `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+          return `<table id="liq-tabla-main" style="width:100%;border-collapse:collapse;font-size:12.5px;">
             <thead><tr style="background:#f9fafb;text-align:right;">${thHtml}</tr></thead>
             <tbody>${bodyHtml}</tbody>
             <tfoot><tr>${tfootHtml}</tr></tfoot>
           </table>`;
         })()}
       </div>
+      </div>
+      <!-- fin card doble-scroll liquidador -->
 
       <div class="card" style="margin-top:14px;padding:12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
         💡 <strong>Cómo se lee:</strong> el <strong>Total</strong> (azulado) es lo que debería cobrar la empleada (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. <strong>Banco</strong> (verde) es lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos). <strong>Subtotal</strong> (verde claro) es la base del efectivo (Total − Recibo); de ahí se descuentan Mercadería, Intereses y Ajustes para llegar al <strong>Efectivo</strong> (rojo) que va en mano. Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
       </div>
     `}
   `;
+}
+
+// ─── Wireado del scroll horizontal DOBLE del Liquidador ────────────────
+// La tabla tiene dos scrollbars horizontales sincronizadas: una arriba
+// (para no tener que bajar hasta el fondo si querés desplazarte lateral)
+// y la normal debajo de la tabla. Se sincronizan con eventos scroll.
+function liqWireScrollDoble() {
+  const top = document.getElementById('liq-scroll-top');
+  const main = document.getElementById('liq-scroll-main');
+  const inner = document.getElementById('liq-scroll-top-inner');
+  const tabla = document.getElementById('liq-tabla-main');
+  if (!top || !main || !inner || !tabla) return;
+  // Igualar ancho del inner al scrollWidth de la tabla — así ambas barras
+  // tienen el mismo rango de scroll.
+  const sync = () => { inner.style.width = tabla.scrollWidth + 'px'; };
+  sync();
+  // Re-sync cuando la ventana cambia de tamaño (columnas se reflowean)
+  if (window._liqResizeObs) window._liqResizeObs.disconnect();
+  try {
+    window._liqResizeObs = new ResizeObserver(sync);
+    window._liqResizeObs.observe(tabla);
+  } catch (e) { /* ResizeObserver no soportado — no rompe nada */ }
+  // Sincronizar scroll (guard con flag para evitar loop infinito)
+  let bloqueado = false;
+  top.addEventListener('scroll', () => {
+    if (bloqueado) return;
+    bloqueado = true;
+    main.scrollLeft = top.scrollLeft;
+    requestAnimationFrame(() => { bloqueado = false; });
+  });
+  main.addEventListener('scroll', () => {
+    if (bloqueado) return;
+    bloqueado = true;
+    top.scrollLeft = main.scrollLeft;
+    requestAnimationFrame(() => { bloqueado = false; });
+  });
 }
 
 // Filtra las filas de la tabla del Liquidador SIN recargar desde Supabase.
