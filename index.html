@@ -3713,6 +3713,7 @@ async function renderVacacionesAdmin() {
         <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
         <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
         <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos</button>
+        <button class="modal-tab ${vacState.tab==='historial'?'active':''}" data-vactab="historial" style="border-bottom:2px solid transparent;padding:12px 14px;">📋 Historial</button>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
         <button class="btn primary" onclick="abrirAsignarVacacion()">+ Asignar vacaciones</button>
@@ -3877,6 +3878,93 @@ async function renderVacContent() {
       <div style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;">
         <span><span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;">amarillo</span> = saldo de años anteriores (arrastre)</span>
         <span><span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;">azul</span> = año en curso</span>
+      </div>
+    `;
+
+  } else if (vacState.tab === 'historial') {
+    // TODAS las solicitudes de vacaciones, ordenadas por fecha_solicitud DESC
+    let q = sb.from('rrhh_vacaciones_movimientos')
+      .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
+      .order('fecha_solicitud', { ascending: false, nullsFirst: false });
+    const { data, error } = await q;
+    if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
+    const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
+    if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">Sin solicitudes.</div>`; return; }
+
+    const estadoChip = (est) => {
+      const map = {
+        solicitada: { bg:'#fef3c7', fg:'#92400e', label:'⏳ Solicitada' },
+        aprobada:   { bg:'#dbeafe', fg:'#1e40af', label:'✓ Aprobada' },
+        tomada:     { bg:'#d1fae5', fg:'#065f46', label:'✓ Tomada' },
+        pagada:     { bg:'#ede9fe', fg:'#5b21b6', label:'💵 Pagada' },
+        rechazada:  { bg:'#fee2e2', fg:'#991b1b', label:'✗ Rechazada' },
+        cancelada:  { bg:'#f3f4f6', fg:'#6b7280', label:'⊘ Cancelada' },
+      };
+      const m = map[est] || { bg:'#f3f4f6', fg:'#374151', label: est };
+      return `<span style="background:${m.bg};color:${m.fg};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${m.label}</span>`;
+    };
+    const firmaChip = (m) => {
+      if (m.documento_firmado_at) {
+        const fecha = new Date(m.documento_firmado_at).toLocaleDateString('es-AR');
+        const url = m.documento_firmado_path || '';
+        const esUrl = /^https?:\/\//i.test(url);
+        if (esUrl) {
+          return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;text-decoration:none;" title="Abrir PDF firmado en OneDrive">✓ Firmado ${fecha}</a>`;
+        }
+        return `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;" title="Firmado — archivo antiguo sin link directo">✓ Firmado ${fecha}</span>`;
+      }
+      const requiere = ['aprobada','tomada','pagada'].includes(m.estado);
+      if (requiere) {
+        return `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;" title="Esperando PDF firmado">⏳ Sin firmar</span>`;
+      }
+      return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+    };
+    const tipoChip = (tipo) =>
+      tipo === 'pago'
+        ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:4px;font-size:10px;">💵 Pago</span>`
+        : `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10px;">🌴 Toma</span>`;
+
+    cont.innerHTML = `
+      <div class="card" style="overflow-x:auto;padding:0;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f9fafb;">
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Solicitado</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Empleada</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Local</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Tipo</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Período</th>
+              <th style="padding:10px 12px;text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;">Días</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Estado</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Firma</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lista.map(m => {
+              const fSol = m.fecha_solicitud
+                ? new Date(m.fecha_solicitud).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
+                : '—';
+              const periodo = m.fecha_desde === m.fecha_hasta
+                ? fmtFecha(m.fecha_desde)
+                : `${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}`;
+              return `
+                <tr style="border-top:1px solid var(--border);">
+                  <td style="padding:8px 12px;color:var(--muted);white-space:nowrap;">${fSol}</td>
+                  <td style="padding:8px 12px;"><strong>${escapeHtml(m.empleado?.nombre_completo || '—')}</strong></td>
+                  <td style="padding:8px 12px;"><span class="emp-tag local-${m.empleado?.local||''}" style="font-size:10px;">${LOCALES[m.empleado?.local]?.nombre||'—'}</span></td>
+                  <td style="padding:8px 12px;">${tipoChip(m.tipo_solicitud)}</td>
+                  <td style="padding:8px 12px;white-space:nowrap;">${periodo}</td>
+                  <td style="padding:8px 12px;text-align:center;font-weight:600;">${m.dias}</td>
+                  <td style="padding:8px 12px;">${estadoChip(m.estado)}</td>
+                  <td style="padding:8px 12px;">${firmaChip(m)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted);">
+        Ordenado por fecha de solicitud (más reciente primero). ${lista.length} solicitud${lista.length===1?'':'es'} en total.
       </div>
     `;
 
