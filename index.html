@@ -11763,9 +11763,18 @@ async function generarNotificacionVacaciones(movId) {
   doc.setFontSize(6.5);
   doc.text(`Generado automáticamente · ${new Date().toLocaleString('es-AR')} · ${codigo}`, W/2, 296, { align: 'center' });
 
-  // Nombre del archivo
-  const apellido = (nombre.split(',')[0] || nombre.split(' ')[0] || 'EMPLEADO').toUpperCase().replace(/[^A-Z]/g,'');
-  const fname = `${codigo} Notificacion Vacaciones ${apellido} ${mov.fecha_desde}_${mov.fecha_hasta}.pdf`;
+  // Nombre del archivo — formato JP: "VACACIONES AAAA NOMBRE APELLIDO - DD-MM-AAAA HASTA DD-MM-AAAA.pdf"
+  // AAAA = año devengado (mov.saldo.año). Fechas en DD-MM-AAAA (no ISO).
+  const _fmtDdMmAaaa = (ymd) => {
+    if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd || '';
+    const [Y, M, D] = ymd.split('-');
+    return `${D}-${M}-${Y}`;
+  };
+  // "nombre_completo" viene como "APELLIDO, NOMBRE" o "APELLIDO NOMBRE"
+  const nombreLimpio = String(nombre || 'EMPLEADO').replace(/,/g, '').trim().toUpperCase();
+  const fDesde = _fmtDdMmAaaa(mov.fecha_desde);
+  const fHasta = _fmtDdMmAaaa(mov.fecha_hasta);
+  const fname = `VACACIONES ${año} ${nombreLimpio} - ${fDesde} HASTA ${fHasta}.pdf`;
   doc.save(fname);
   toast('✓ PDF generado y descargado', 'success');
 }

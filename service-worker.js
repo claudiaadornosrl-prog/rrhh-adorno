@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v224-historial-vacaciones';
+const CACHE_VERSION = 'rrhh-v225-nombre-pdf-vacaciones';
 const ASSETS = [
   './',
   './index.html',
