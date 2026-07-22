@@ -15194,12 +15194,16 @@ async function renderLiquidaciones() {
         `;
       })()}
 
-      <!-- Scroll horizontal DOBLE (arriba + abajo) sincronizado con la tabla -->
+      <!-- Scroll horizontal DOBLE (arriba + abajo) sincronizado con la tabla.
+           #liq-scroll-main scrollea EN AMBOS EJES para que:
+             - el thead sticky (top:0) se anchore ACÁ y quede fijo al bajar
+             - la col Empleada sticky (left:0) se anchore ACÁ y quede fija al ir a la derecha
+           El max-height se ajusta dinámicamente por JS (liqWireScrollDoble). -->
       <div class="card" style="padding:0;">
         <div id="liq-scroll-top" style="overflow-x:auto;overflow-y:hidden;height:14px;border-bottom:1px solid var(--border);">
           <div id="liq-scroll-top-inner" style="height:1px;"></div>
         </div>
-      <div id="liq-scroll-main" style="overflow-x:auto;overflow-y:visible;padding:14px;">
+      <div id="liq-scroll-main" style="overflow:auto;padding:14px;max-height:calc(100vh - 340px);">
         ${(() => {
           // ── Definición de TODAS las columnas posibles del Liquidador ──
           // ─── Helper para renderizar celdas editables con override visual ───
@@ -15683,6 +15687,16 @@ function liqWireScrollDoble() {
   const inner = document.getElementById('liq-scroll-top-inner');
   const tabla = document.getElementById('liq-tabla-main');
   if (!top || !main || !inner || !tabla) return;
+  // Ajustar max-height del contenedor scroll para que ocupe el resto de la pantalla.
+  // Esto hace que scrollee VERTICAL adentro (no la página) → el thead sticky funciona.
+  const ajustarAltura = () => {
+    const rect = main.getBoundingClientRect();
+    const marginBottom = 40;  // deja lugar para el card explicativo de abajo
+    const disponible = window.innerHeight - rect.top - marginBottom;
+    main.style.maxHeight = Math.max(300, disponible) + 'px';
+  };
+  ajustarAltura();
+  window.addEventListener('resize', ajustarAltura);
   // Igualar ancho del inner al scrollWidth de la tabla — así ambas barras
   // tienen el mismo rango de scroll.
   const sync = () => { inner.style.width = tabla.scrollWidth + 'px'; };
@@ -15690,7 +15704,7 @@ function liqWireScrollDoble() {
   // Re-sync cuando la ventana cambia de tamaño (columnas se reflowean)
   if (window._liqResizeObs) window._liqResizeObs.disconnect();
   try {
-    window._liqResizeObs = new ResizeObserver(sync);
+    window._liqResizeObs = new ResizeObserver(() => { sync(); ajustarAltura(); });
     window._liqResizeObs.observe(tabla);
   } catch (e) { /* ResizeObserver no soportado — no rompe nada */ }
   // Sincronizar scroll (guard con flag para evitar loop infinito)
