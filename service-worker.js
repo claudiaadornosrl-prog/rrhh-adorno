@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v229-borrar-documentos';
+const CACHE_VERSION = 'rrhh-v230-aumento-auto-detect';
 const ASSETS = [
   './',
   './index.html',
