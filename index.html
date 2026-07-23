@@ -5569,7 +5569,7 @@ async function renderMisRecibos() {
     <div class="card" style="background:#eff6ff;border-left:4px solid #3b82f6;padding:14px;margin-bottom:14px;font-size:13px;color:#1e40af;">
       💡 Acá ves tus recibos definitivos del mes. Cuando cerramos el mes y se genera el recibo final:
       <ol style="margin:6px 0 0 18px;line-height:1.6;">
-        <li>Descargás el PDF tocando el botón 📄</li>
+        <li>Tocás el estado ("📄 Listo para descargar") y se descarga el PDF</li>
         <li>Lo imprimís y lo firmás</li>
         <li>Lo escaneás (o le sacás foto bien clara) y lo mandás por mail a <strong>claudiaadornosrl@gmail.com</strong></li>
         <li>El sistema lo detecta por el código QR y queda archivado ✓</li>
@@ -5583,7 +5583,6 @@ async function renderMisRecibos() {
             <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Mes</th>
             <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Neto recibo</th>
             <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:0.05em;">Estado</th>
-            <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Acción</th>
           </tr></thead>
           <tbody>
             ${liqs.flatMap(l => {
@@ -5600,14 +5599,14 @@ async function renderMisRecibos() {
                 estado = '📄 Listo para descargar';
                 bgEs = '#dbeafe'; fgEs = '#1e40af';
               }
+              // El chip AHORA es el botón — al tocarlo descarga el PDF
               const filaMensual = `<tr style="border-top:1px solid var(--border);">
                 <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">${labelMes(l.periodo)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(l.recibo_neto)}</td>
                 <td style="padding:10px 14px;text-align:center;">
-                  <span style="background:${bgEs};color:${fgEs};padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;">${estado}</span>
-                </td>
-                <td style="padding:10px 14px;text-align:right;">
-                  <button class="btn small primary" onclick="generarPDFRecibo(${l.id})">📄 Descargar PDF</button>
+                  <button type="button" onclick="generarPDFRecibo(${l.id})"
+                          title="Tocá para descargar el PDF"
+                          style="background:${bgEs};color:${fgEs};padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;border:none;cursor:pointer;line-height:1.3;">${estado}</button>
                 </td>
               </tr>`;
               // Fila del SAC — solo en junio/diciembre y si tiene SAC neto cargado
@@ -5628,10 +5627,9 @@ async function renderMisRecibos() {
                 <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">🎁 1er SAC ${labelMes(l.periodo)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(_sacNeto)}</td>
                 <td style="padding:10px 14px;text-align:center;">
-                  <span style="background:${bgSac};color:${fgSac};padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;">${estadoSac}</span>
-                </td>
-                <td style="padding:10px 14px;text-align:right;">
-                  <button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" onclick="generarPDFRecibo(${l.id}, {esSAC:true})">🎁 Descargar SAC</button>
+                  <button type="button" onclick="generarPDFRecibo(${l.id}, {esSAC:true})"
+                          title="Tocá para descargar el PDF del SAC"
+                          style="background:${bgSac};color:${fgSac};padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;border:none;cursor:pointer;line-height:1.3;">${estadoSac}</button>
                 </td>
               </tr>`;
               return [filaMensual, filaSac];
