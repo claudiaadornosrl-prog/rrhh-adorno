@@ -751,7 +751,6 @@ const NAV = {
     { id: 'prestamos',   label: 'Préstamos',     icon: '💵', section: 'Personal' },
     { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
-    { id: 'documentos',  label: 'Documentos',    icon: '📄', section: 'Personal' },
     { id: 'reportes',    label: 'Reportes',      icon: '📈', section: 'Análisis' },
     { id: 'buzon-admin', label: 'Buzón anónimo', icon: '✉️', section: 'Admin' },
     { id: 'config',      label: 'Configuración', icon: '⚙️', section: 'Admin' },
@@ -1153,7 +1152,6 @@ async function renderPage(tabId) {
     'prestamos':       renderPrestamos,
     'asistencias':     renderAsistenciasAdmin,
     'vacaciones':      renderVacacionesAdmin,
-    'documentos':      renderDocumentosAdmin,
     'reportes':        () => placeholder('Reportes', '📈', 'Exports Excel y PDF', 1),
     'config':          renderConfigAdmin,
     'buzon':           renderBuzonEnviar,
@@ -2147,7 +2145,6 @@ let empModalState = {
 
 const EMP_MODAL_TABS = [
   { id: 'datos',      label: 'Datos personales',  icon: '👤' },
-  { id: 'documentos', label: 'Documentos',        icon: '📄' },
   { id: 'sueldos',    label: 'Sueldos',           icon: '💰' },
   { id: 'asistencias',label: 'Asistencias',       icon: '🕐' },
   { id: 'turnos',     label: 'Turnos habituales', icon: '📅' },
@@ -2233,7 +2230,6 @@ async function renderModalBody() {
 
   switch (empModalState.activeTab) {
     case 'datos':       await renderTabDatos();       break;
-    case 'documentos':  await renderTabDocumentos();  break;
     case 'sueldos':     await renderTabSueldos();     break;
     case 'asistencias': await renderTabAsistencias(); break;
     case 'turnos':      await renderTabTurnos();      break;
