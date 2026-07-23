@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v227-mis-recibos-chip-boton';
+const CACHE_VERSION = 'rrhh-v228-terminologia-colaborador';
 const ASSETS = [
   './',
   './index.html',

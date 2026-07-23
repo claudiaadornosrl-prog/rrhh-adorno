@@ -744,7 +744,7 @@ const LOCALES = {
 const NAV = {
   admin: [
     { id: 'dashboard',   label: 'Dashboard',     icon: '📊', section: null },
-    { id: 'empleados',   label: 'Empleados',     icon: '👥', section: 'Personal' },
+    { id: 'empleados',   label: 'Colaboradores',     icon: '👥', section: 'Personal' },
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
     { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
@@ -1002,7 +1002,7 @@ async function onLoggedIn(user) {
 
   if (errU || !usuarioRow) {
     // ─── AUTO-VINCULACIÓN ───
-    // Si la empleada se registró con un email que matchea con rrhh_empleados,
+    // Si la colaboradora se registró con un email que matchea con rrhh_empleados,
     // la RPC crea automáticamente la fila en rrhh_usuarios y se llama a
     // onLoggedIn de nuevo (recursivo) para usar el flow normal.
     if (!user.__autovinc_intentado) {
@@ -1069,7 +1069,7 @@ async function onLoggedIn(user) {
   let firstTab;
   if (session.rol === 'directora') firstTab = 'liquidaciones';
   else firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
-  // Si es empleada y le faltan datos críticos, arrancar en Mi legajo
+  // Si es colaboradora y le faltan datos críticos, arrancar en Mi legajo
   if (session.rol === 'empleado' && legajoIncompleto(session.empleadoData).length > 0) {
     firstTab = 'mi-legajo';
     setTimeout(() => toast('👋 Bienvenida! Antes de empezar, completá los datos faltantes de tu legajo.', 'info'), 500);
@@ -1118,7 +1118,7 @@ function renderSidebar() {
 // TABS / PÁGINAS
 // ════════════════════════════════════════════════════════════
 function switchTab(tabId) {
-  // Si es empleada y tiene legajo incompleto, forzar 'mi-legajo'
+  // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
   if (session && session.rol === 'empleado' && tabId !== 'mi-legajo') {
     // Chequeo async: si está incompleto, redirigir
     legajoCompletoOk().then(ok => {
@@ -1285,7 +1285,7 @@ async function borrarBuzonMensaje(id) { if (!confirm('¿Borrar este mensaje? No 
 // DASHBOARD (Fase 0 — métricas básicas para verificar conexión)
 // ════════════════════════════════════════════════════════════
 async function renderDashboard() {
-  // Solo para admin/gerente — empleado tiene su propio "mi-legajo"
+  // Solo para admin/gerente — colaborador tiene su propio "mi-legajo"
   const isAdmin = session.rol === 'admin';
   const local = session.local_gerencia;
 
@@ -1302,7 +1302,7 @@ async function renderDashboard() {
   const mesActual = hoy.getMonth() + 1;
   const diaActual = hoy.getDate();
 
-  // Listado completo de empleados activos con fechas
+  // Listado completo de colaboradores activos con fechas
   const { data: empAll } = await sb
     .from('rrhh_empleados')
     .select('id, nombre, apellido, fecha_nacimiento, fecha_ingreso, local')
@@ -1446,7 +1446,7 @@ async function renderDashboard() {
   const tolsBy = {};
   (tolsCfg||[]).forEach(t => { tolsBy[t.local] = t; });
 
-  // 3. Empleadas próximas a perder premio (errores >= max - 1)
+  // 3. Colaboradoras próximas a perder premio (errores >= max - 1)
   // 4. Tardanzas > umbral mensual (60 min)
   const acumPorEmp = {};
   (detalleMes || []).forEach(d => {
@@ -1516,7 +1516,7 @@ async function renderDashboard() {
     return { ...e, _diasFalta: dias };
   }).filter(e => e._diasFalta <= 30).sort((a,b) => a._diasFalta - b._diasFalta);
 
-  // 8. Empleadas con +30 días pendientes acumulados (años anteriores)
+  // 8. Colaboradoras con +30 días pendientes acumulados (años anteriores)
   const añoActual = hoy.getFullYear();
   let qVacAtraso = sb.from('rrhh_vacaciones')
     .select('empleado_id, dias_pendientes, empleado:rrhh_empleados!inner(nombre_completo, local)')
@@ -1547,7 +1547,7 @@ async function renderDashboard() {
 
     <div class="metrics-grid">
       <div class="metric-card accent">
-        <div class="label">Empleados activos</div>
+        <div class="label">Colaboradores activos</div>
         <div class="value">${totalEmp || 0}</div>
         ${isAdmin ? `<div class="hint">Unicenter ${conteoPorLocal.unicenter||0} · Alcorta ${conteoPorLocal.alcorta||0} · Oficina ${conteoPorLocal.oficina||0}</div>` : '<div class="hint">' + (LOCALES[local]?.nombre || '') + '</div>'}
       </div>
@@ -2026,8 +2026,8 @@ async function renderEmpleados() {
   // Listado base
   const html = `
     <div class="page-header">
-      <h2>Empleados</h2>
-      <div class="subtitle">${isAdmin ? 'Padrón completo de Claudia Adorno SRL' : 'Empleados de ' + (LOCALES[session.local_gerencia]?.nombre || 'tu local')}</div>
+      <h2>Colaboradores</h2>
+      <div class="subtitle">${isAdmin ? 'Padrón completo de Claudia Adorno SRL' : 'Colaboradores de ' + (LOCALES[session.local_gerencia]?.nombre || 'tu local')}</div>
     </div>
 
     <div class="toolbar">
@@ -2105,7 +2105,7 @@ async function renderEmpleadosList() {
   }
 
   if (lista.length === 0) {
-    cont.innerHTML = `<div class="emp-empty">No hay empleados que coincidan con los filtros.</div>`;
+    cont.innerHTML = `<div class="emp-empty">No hay colaboradores que coincidan con los filtros.</div>`;
     return;
   }
 
@@ -2442,7 +2442,7 @@ async function renderTabDatos() {
     <div class="form-grid" style="background:${(d.lactancia_hasta && d.lactancia_hasta >= new Date().toISOString().split('T')[0])?'#fce7f3':'#f9fafb'};padding:14px;border-radius:10px;">
       <div class="form-row full" style="margin-bottom:4px;">
         <div style="font-size:12px;color:var(--muted);line-height:1.5;">
-          Cuando una empleada está en período de lactancia, el sistema ajusta su turno automáticamente para no marcarla como "salida temprana" o "entrada tarde". La ley argentina permite 1 hora diaria reducida hasta 1 año desde el nacimiento (prorrogable a 6 meses más).
+          Cuando una colaboradora está en período de lactancia, el sistema ajusta su turno automáticamente para no marcarla como "salida temprana" o "entrada tarde". La ley argentina permite 1 hora diaria reducida hasta 1 año desde el nacimiento (prorrogable a 6 meses más).
         </div>
       </div>
       <div class="form-row ${!editing?'readonly':''}">
@@ -2537,7 +2537,7 @@ async function renderTabDatos() {
     <div class="form-grid" style="background:#f9fafb;padding:14px;border-radius:10px;">
       <div class="form-row full" style="margin-bottom:4px;">
         <div style="font-size:12px;color:var(--muted);line-height:1.5;">
-          El sistema revisa mensualmente (días 25 y último de mes) si la ganancia neta acumulada superaría el tope MNI + deducciones. Si activás esto, te avisa en el banner del Liquidador y sugiere bruto máximo para no gatillar retención. Editar solo para empleados con riesgo de tope (Claudia, JP, gerencia).
+          El sistema revisa mensualmente (días 25 y último de mes) si la ganancia neta acumulada superaría el tope MNI + deducciones. Si activás esto, te avisa en el banner del Liquidador y sugiere bruto máximo para no gatillar retención. Editar solo para colaboradores con riesgo de tope (Claudia, JP, gerencia).
         </div>
       </div>
       <div class="form-row full ${!editing?'readonly':''}">
@@ -2881,7 +2881,7 @@ async function renderTabSueldos() {
 
   const empleadoId = empModalState.empleadoId;
   if (!empleadoId) {
-    body.innerHTML = '<div class="placeholder"><div class="icon">💰</div><h3>Sin empleado seleccionado</h3></div>';
+    body.innerHTML = '<div class="placeholder"><div class="icon">💰</div><h3>Sin colaborador seleccionado</h3></div>';
     return;
   }
 
@@ -2911,7 +2911,7 @@ async function renderTabSueldos() {
     return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   };
 
-  // ─── Cargar cuotas de préstamo del empleado para el período ───
+  // ─── Cargar cuotas de préstamo del colaborador para el período ───
   // Se usan para desglosar Adelantos vs Préstamos vs Intereses por mes.
   const periodosStr = liqs.map(l => String(l.periodo).slice(0, 10));
   const { data: prestamosEmp } = await sb.from('rrhh_prestamo')
@@ -3032,7 +3032,7 @@ async function renderTabAsistencias() {
 
   const empleadoId = empModalState.empleadoId;
   if (!empleadoId) {
-    body.innerHTML = '<div class="placeholder"><div class="icon">🕐</div><h3>Sin empleado seleccionado</h3></div>';
+    body.innerHTML = '<div class="placeholder"><div class="icon">🕐</div><h3>Sin colaborador seleccionado</h3></div>';
     return;
   }
 
@@ -3077,7 +3077,7 @@ async function renderTabAsistencias() {
     const r = porPeriodo[p];
     if (['puntual','tarde'].includes(d.estado)) r.dias_trabajados++;
     // Ausencia salvada = cuenta como trabajado (encargada confirmó que la
-    // empleada vino aunque el reloj no fichó). No cuenta como ausencia real.
+    // colaboradora vino aunque el reloj no fichó). No cuenta como ausencia real.
     if (d.estado === 'ausente' && d.error_salvado) r.dias_trabajados++;
     if (d.estado === 'ausente' && !d.error_salvado) r.dias_ausente++;
     if (d.estado === 'vacaciones') r.dias_vacaciones++;
@@ -3340,7 +3340,7 @@ async function renderTabCertificados() {
       `).join('') + '</ul>';
 }
 
-// Versión que pide borrado de cert. de OTRA empleada (encargada/admin desde ficha)
+// Versión que pide borrado de cert. de OTRA colaboradora (encargada/admin desde ficha)
 async function pedirBorradoCertifEmp(certId, archivoPath, desde, hasta, empId) {
   // Si es admin, ofrecer borrado directo
   if (session.rol === 'admin') {
@@ -3433,7 +3433,7 @@ async function renderTabNotas() {
   }
 }
 
-// ─── Guardar empleado (crear o actualizar) ───
+// ─── Guardar colaborador (crear o actualizar) ───
 async function saveEmpleado() {
   const d = empModalState.formData;
   // Validaciones mínimas
@@ -3503,7 +3503,7 @@ async function saveEmpleado() {
       const antigüedadAños = created.fecha_ingreso ? Math.floor((new Date() - new Date(created.fecha_ingreso)) / (1000*60*60*24*365.25)) : 0;
       const dias = antigüedadAños >= 20 ? 35 : antigüedadAños >= 10 ? 28 : antigüedadAños >= 5 ? 21 : 14;
       await sb.from('rrhh_vacaciones').insert({ empleado_id: created.id, año, dias_correspondientes: dias, dias_tomados: 0 });
-      toast('Empleado creado', 'success');
+      toast('Colaborador creado', 'success');
       empModalState.empleadoId = created.id;
       empModalState.isNew = false;
       empModalState.editing = false;
@@ -3579,7 +3579,7 @@ async function renderDocumentosAdmin() {
     </div>
 
     <div class="toolbar">
-      <input type="search" id="doc-search" placeholder="Buscar por empleado o nombre…" value="${escapeHtml(docState.search)}">
+      <input type="search" id="doc-search" placeholder="Buscar por colaborador o nombre…" value="${escapeHtml(docState.search)}">
       <select id="doc-filter-tipo">
         ${TIPOS.map(t => `<option value="${t.id}" ${docState.tipo===t.id?'selected':''}>${t.label}</option>`).join('')}
       </select>
@@ -3647,7 +3647,7 @@ async function renderDocList() {
     <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
       <thead>
         <tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-transform:uppercase;">Empleado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-transform:uppercase;">Colaborador</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Tipo</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Nombre</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Cargado</th>
@@ -3841,7 +3841,7 @@ async function renderVacContent() {
       <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
-            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleado</th>
+            <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Colaborador</th>
             <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local</th>
             <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Antigüedad</th>
             <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:center;">Corresponden</th>
@@ -3930,7 +3930,7 @@ async function renderVacContent() {
           <thead>
             <tr style="background:#f9fafb;">
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Solicitado</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Empleada</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Colaboradora</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Local</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Tipo</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Período</th>
@@ -4389,12 +4389,12 @@ async function enviarSolicitudPago() {
 
 
 // ════════════════════════════════════════════════════════════
-// Modal: detalle de vacaciones de una empleada (saldos → click)
+// Modal: detalle de vacaciones de una colaboradora (saldos → click)
 // ════════════════════════════════════════════════════════════
 async function abrirDetalleVacEmpleada(empId, año) {
   if (!empId) return;
 
-  // Datos del empleado + saldo del año
+  // Datos del colaborador + saldo del año
   const [{ data: emp }, { data: saldos }, { data: movs }] = await Promise.all([
     sb.from('rrhh_empleados').select('id, nombre_completo, local, fecha_ingreso').eq('id', empId).single(),
     sb.from('rrhh_vacaciones').select('*').eq('empleado_id', empId).order('año', { ascending: false }),
@@ -4588,7 +4588,7 @@ async function renderMiCalendario() {
   const diasMes = fechaHasta.getDate();
   const hoyStr = new Date().toISOString().split('T')[0];
 
-  // Cargar turnos del empleado del mes
+  // Cargar turnos del colaborador del mes
   const { data: turnos } = await sb.from('rrhh_turnos')
     .select('*, template:rrhh_templates_turno(codigo, nombre, color, icono)')
     .eq('empleado_id', session.empleado_id)
@@ -4879,7 +4879,7 @@ async function renderMiCalendario() {
 // (única vía permitida para fechas pasadas)
 // ════════════════════════════════════════════════════════════
 async function abrirCompensarFalta(fecha, empleadoId) {
-  // Modo admin/encargada: si llega empleadoId, opera sobre esa empleada (no sobre la sesión)
+  // Modo admin/encargada: si llega empleadoId, opera sobre esa colaboradora (no sobre la sesión)
   const _empTarget = empleadoId || session.empleado_id;
   const _esAdminMode = (empleadoId && empleadoId !== session.empleado_id);
   if (!_empTarget) { toast('Tu usuario no está vinculado', 'error'); return; }
@@ -5016,7 +5016,7 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
     descontar_vacaciones = true;
   }
 
-  // Modo admin/encargada: si llega empleadoId, opera sobre esa empleada y crea APROBADO directo
+  // Modo admin/encargada: si llega empleadoId, opera sobre esa colaboradora y crea APROBADO directo
   const _empTarget = empleadoId || session.empleado_id;
   const _esAdminMode = (empleadoId && empleadoId !== session.empleado_id);
   const _estadoFinal = _esAdminMode ? 'aprobado' : 'pendiente';
@@ -5109,7 +5109,7 @@ function cambiarMiMes(delta) {
 
 // ════════════════════════════════════════════════════════════
 //  Validación de legajo completo para empleadas
-//  Si faltan campos críticos, la empleada queda forzada en Mi legajo.
+//  Si faltan campos críticos, la colaboradora queda forzada en Mi legajo.
 // ════════════════════════════════════════════════════════════
 const CAMPOS_LEGAJO_CRITICOS = [
   { campo: 'dni',                 label: 'DNI' },
@@ -5335,7 +5335,7 @@ async function guardarMisDatos() {
 async function subirMiDniFoto(input, lado) {
   if (!input.files || !input.files[0]) return;
   const file = input.files[0];
-  if (!session.empleado_id) { toast('Sin empleado vinculado', 'error'); return; }
+  if (!session.empleado_id) { toast('Sin colaborador vinculado', 'error'); return; }
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
   const path = `${session.empleado_id}/dni-${lado}-${Date.now()}.${ext}`;
   toast('Subiendo…', 'info');
@@ -5537,7 +5537,7 @@ async function subirMiFoto(inputEl) {
 }
 
 async function renderMisRecibos() {
-  // Liquidaciones DEFINITIVAS (las únicas firmables) de la empleada — últimas 12
+  // Liquidaciones DEFINITIVAS (las únicas firmables) de la colaboradora — últimas 12
   const { data: liqs, error } = await sb.from('rrhh_liquidacion')
     .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_enviado_at, calculado_at, total_negro, sac_recibo_neto, sac_pdf_firmado_at')
     .eq('empleado_id', session.empleado_id)
@@ -5556,7 +5556,7 @@ async function renderMisRecibos() {
     return lbl.charAt(0).toUpperCase() + lbl.slice(1);
   };
 
-  // Archivos legacy del bucket (si los hay) — para empleadas con histórico anterior
+  // Archivos legacy del bucket (si los hay) — para colaboradoras con histórico anterior
   const { data: files } = await sb.storage.from('rrhh-recibos').list(String(session.empleado_id), { limit: 200, sortBy: { column: 'name', order: 'desc' } });
   const archivos = (files || []).filter(f => f.name && !f.name.startsWith('.')).slice(0, 12);
 
@@ -5670,7 +5670,7 @@ async function descargarRecibo(path) {
 
 async function renderMisVacaciones() {
   const añoActual = new Date().getFullYear();
-  // Traer TODOS los saldos del empleado (no solo del año actual) para soportar arrastre multi-año
+  // Traer TODOS los saldos del colaborador (no solo del año actual) para soportar arrastre multi-año
   const { data: todosSaldos } = await sb.from('rrhh_vacaciones')
     .select('*').eq('empleado_id', session.empleado_id).order('año', { ascending: true });
   const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
@@ -5799,7 +5799,7 @@ let _editandoVacacionId = null;
 
 // Traduce errores técnicos de PostgREST a mensajes amigables para vacaciones.
 // El constraint vac_no_overlap_activo (DB) rechaza solicitudes superpuestas con
-// otra activa del mismo empleado — los duplicados accidentales por doble click
+// otra activa del mismo colaborador — los duplicados accidentales por doble click
 // del 2026-06-08 ya no pueden repetirse.
 function _mensajeErrorVacaciones(error) {
   if (!error) return 'Error desconocido';
@@ -6069,7 +6069,7 @@ async function renderMisPrestamos() {
     return '<div class="emp-empty">Tu usuario no está vinculado a un empleado.</div>';
   }
 
-  // Cargar préstamos del empleado + sus cuotas
+  // Cargar préstamos del colaborador + sus cuotas
   const { data: prestamos, error: e1 } = await sb.from('rrhh_prestamo')
     .select('*')
     .eq('empleado_id', session.empleado_id)
@@ -6393,7 +6393,7 @@ async function rechazarMiPrestamo(prestamoId) {
 //            adelantoMaxAislado, cuotaPrestamoVigente, adelantoMaxPedible, mensaje }
 async function _calcularTopesPrestamo(empleadoId) {
   try {
-    // 1) Traer empleado para conocer la antigüedad (fecha_ingreso)
+    // 1) Traer colaborador para conocer la antigüedad (fecha_ingreso)
     const { data: emp } = await sb.from('rrhh_empleados')
       .select('fecha_ingreso, nombre_completo')
       .eq('id', empleadoId).maybeSingle();
@@ -7033,10 +7033,10 @@ function generarPeriodos(actual) {
 async function renderSueldoContent() {
   const cont = document.getElementById('sueldo-content');
   cont.innerHTML = '<div class="spinner"></div>';
-  // Traer todos los empleados activos + sueldos del período (LEFT JOIN simulado)
+  // Traer todos los colaboradores activos + sueldos del período (LEFT JOIN simulado)
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local, categoria:rrhh_categorias_cct(nombre, sueldo_basico)').eq('estado', 'activo');
   if (sueldosState.local) qEmp = qEmp.eq('local', sueldosState.local);
-  const { data: empleados } = await qEmp;
+  const { data: colaboradores } = await qEmp;
 
   const { data: sueldos } = await sb.from('rrhh_sueldos')
     .select('*').eq('periodo', sueldosState.periodo);
@@ -7059,7 +7059,7 @@ async function renderSueldoContent() {
     <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
       <thead>
         <tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Empleado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Colaborador</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Categoría</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);text-align:right;">Bruto</th>
@@ -7097,7 +7097,7 @@ async function renderSueldoContent() {
 
     ${total_cargados < lista.length ? `
       <div class="card" style="background:#eff6ff;border-color:#bfdbfe;margin-top:16px;">
-        <strong style="color:#1e40af;">💡 Tip:</strong> Para subir varios recibos a la vez, usá el botón <em>"Subir recibos del mes"</em>. Cada PDF debe nombrarse con el apellido del empleado (ej. <code>BIANCHI 04-2026.pdf</code>) para que se asocie automáticamente.
+        <strong style="color:#1e40af;">💡 Tip:</strong> Para subir varios recibos a la vez, usá el botón <em>"Subir recibos del mes"</em>. Cada PDF debe nombrarse con el apellido del colaborador (ej. <code>BIANCHI 04-2026.pdf</code>) para que se asocie automáticamente.
       </div>
     ` : ''}
   `;
@@ -7286,7 +7286,7 @@ async function actualizarBadgePermisos() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CALENDARIO DE TURNOS — grid empleados × días
+// CALENDARIO DE TURNOS — grid colaboradores × días
 // ─────────────────────────────────────────────────────────────
 async function renderCalendario(cont) {
   const isAdmin = session.rol === 'admin';
@@ -7336,10 +7336,10 @@ async function renderCalendarioGrid() {
   const diasMes = fechaHasta.getDate();
   const hoyStr = new Date().toISOString().split('T')[0];
 
-  // Empleados
+  // Colaboradores
   let qEmp = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, foto_url').eq('estado', 'activo').order('local').order('apellido');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
-  const { data: empleados } = await qEmp;
+  const { data: colaboradores } = await qEmp;
   const empIds = (empleados || []).map(e => e.id);
   const desdeISO = fechaDesde.toISOString().split('T')[0];
   const hastaISO = fechaHasta.toISOString().split('T')[0];
@@ -7430,7 +7430,7 @@ async function renderCalendarioGrid() {
   });
 
   if (!empleados || empleados.length === 0) {
-    cont.innerHTML = '<div class="emp-empty">Sin empleados para mostrar.</div>';
+    cont.innerHTML = '<div class="emp-empty">Sin colaboradores para mostrar.</div>';
     return;
   }
 
@@ -7530,7 +7530,7 @@ async function renderCalendarioGrid() {
     <div class="cal-container">
       <div class="cal-grid" style="grid-template-columns: ${gridTemplate};">
         <div class="cal-cell-emp" style="background:#f9fafb;font-weight:600;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">
-          Empleado
+          Colaborador
         </div>
         ${headerCells}
         ${rows}
@@ -7639,7 +7639,7 @@ async function abrirPopoverTurno(cellEl) {
   }, 100);
 }
 
-// Helper: chequea si el mes de asistencias del empleado en esa fecha está cerrado.
+// Helper: chequea si el mes de asistencias del colaborador en esa fecha está cerrado.
 // Retorna true si está bloqueado (con toast/alert), false si se puede operar.
 window._mesAsistCerradoBloquea = async function(empleadoId, fecha) {
   if (!empleadoId || !fecha) return false;
@@ -7724,10 +7724,10 @@ async function generarMesDesdeDefault() {
 
   toast('Generando mes…');
 
-  // Empleados filtrados por local
+  // Colaboradores filtrados por local
   let qEmp = sb.from('rrhh_empleados').select('id, local').eq('estado', 'activo');
   if (local) qEmp = qEmp.eq('local', local);
-  const { data: empleados } = await qEmp;
+  const { data: colaboradores } = await qEmp;
 
   // Defaults
   const { data: defaults } = await sb.from('rrhh_turnos_default')
@@ -7848,7 +7848,7 @@ async function renderFichadas(cont) {
   elc.innerHTML = `
     <div class="metrics-grid">
       <div class="metric-card accent"><div class="label">Fichadas del mes</div><div class="value">${data.length.toLocaleString('es-AR')}</div></div>
-      <div class="metric-card"><div class="label">Empleados distintos</div><div class="value">${empleadosUnicos.size}</div></div>
+      <div class="metric-card"><div class="label">Colaboradores distintos</div><div class="value">${empleadosUnicos.size}</div></div>
       <div class="metric-card"><div class="label">Días con fichadas</div><div class="value">${fechasUnicas.size}</div></div>
     </div>
     <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
@@ -7856,7 +7856,7 @@ async function renderFichadas(cont) {
         <tr style="background:#f9fafb;text-align:left;">
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;">Fecha</th>
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Hora</th>
-          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Empleado</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Colaborador</th>
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Local</th>
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Dispositivo</th>
         </tr>
@@ -8044,11 +8044,11 @@ async function cerrarMes(periodo, local) {
     .select('id').eq('local', local).eq('año', y).eq('mes', m).maybeSingle();
   if (existente) throw new Error('Este mes ya está cerrado');
 
-  // Cargar empleados del local
-  const { data: empleados } = await sb.from('rrhh_empleados')
+  // Cargar colaboradores del local
+  const { data: colaboradores } = await sb.from('rrhh_empleados')
     .select('id').eq('local', local).eq('estado','activo').eq('ficha', true);
   const empIds = (empleados || []).map(e => e.id);
-  if (empIds.length === 0) throw new Error('Sin empleados para procesar');
+  if (empIds.length === 0) throw new Error('Sin colaboradores para procesar');
 
   // Cargar detalles del mes con minutos_banco
   const { data: detalle } = await sb.from('rrhh_asistencias_detalle')
@@ -8173,7 +8173,7 @@ async function cerrarMes(periodo, local) {
     try {
       // Solo carga premio/viáticos/feriado + recalcula total_negro y efectivo.
       // NO toca fijo, comisión, extras, mercadería ni el recibo blanco.
-      // Aplica a TODAS las empleadas del local (incluidas Contreras/Escasany);
+      // Aplica a TODAS las colaboradoras del local (incluidas Contreras/Escasany);
       // el solver inverso de Doble Blanco lo corre JP manualmente después.
       const _r = await salaryWorkflow.liquidarMes(local, periodo, {
         soloAsistencias: true, silent: true, filtroNombre: '',
@@ -8223,7 +8223,7 @@ async function reabrirMesUI() {
   // Borrar movimientos creados en el cierre (filtramos por observaciones que contienen "Cierre mes <periodo> <local>")
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
-  const { data: empleados } = await sb.from('rrhh_empleados')
+  const { data: colaboradores } = await sb.from('rrhh_empleados')
     .select('id').eq('local', localFiltro).eq('estado','activo').eq('ficha', true);
   const empIds = (empleados || []).map(e => e.id);
 
@@ -8280,16 +8280,16 @@ async function renderResumenContent() {
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
 
-  // Empleados + detalle del mes
+  // Colaboradores + detalle del mes
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local, ficha').eq('estado', 'activo');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
   const { data: empleadosRaw } = await qEmp;
-  const empleados = (empleadosRaw || []).filter(e => e.ficha !== false);
+  const colaboradores = (empleadosRaw || []).filter(e => e.ficha !== false);
 
   const { data: detalle } = await sb.from('rrhh_asistencias_detalle')
     .select('*').gte('fecha', fechaDesde).lte('fecha', fechaHasta);
 
-  // Agrupar por empleado + contar errores de fichada
+  // Agrupar por colaborador + contar errores de fichada
   const porEmp = {};
   (detalle || []).forEach(d => {
     if (!porEmp[d.empleado_id]) porEmp[d.empleado_id] = {
@@ -8327,7 +8327,7 @@ async function renderResumenContent() {
   const maxErrPorLocal = {};
   (tols || []).forEach(t => { maxErrPorLocal[t.local] = t.max_errores_premio || 4; });
 
-  // Cargar overrides por empleada (caso Escasany = 2) — config vigente al mes
+  // Cargar overrides por colaboradora (caso Escasany = 2) — config vigente al mes
   // Tope: primer día del mes SIGUIENTE (robusto, no asume 31 días)
   const [yyMes, mmMes] = asisState.mes.split('-').map(Number);
   const mesSig = mmMes === 12 ? `${yyMes+1}-01` : `${yyMes}-${String(mmMes+1).padStart(2,'0')}`;
@@ -8382,7 +8382,7 @@ async function renderResumenContent() {
 
   cont.innerHTML = `
     <div class="metrics-grid">
-      <div class="metric-card accent"><div class="label">Empleados procesados</div><div class="value">${Object.keys(porEmp).length}</div></div>
+      <div class="metric-card accent"><div class="label">Colaboradores procesados</div><div class="value">${Object.keys(porEmp).length}</div></div>
       <div class="metric-card"><div class="label">Días puntuales</div><div class="value">${tot.puntual}</div></div>
       <div class="metric-card warn"><div class="label">Llegadas tarde</div><div class="value">${tot.tarde}</div><div class="hint">${fmtMin(tot.min_tarde)} acumulado</div></div>
       <div class="metric-card" style="border-left:4px solid var(--danger);"><div class="label">Ausencias</div><div class="value">${tot.ausente}</div></div>
@@ -8399,7 +8399,7 @@ async function renderResumenContent() {
     <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
       <thead>
         <tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Empleado</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Colaborador</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);">Local</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">✓ Punt.</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">⚠ Tarde</th>
@@ -8505,11 +8505,11 @@ async function procesarMes(periodo, local = null) {
     }
   }
 
-  // 1) Empleados activos del local
+  // 1) Colaboradores activos del local
   let qEmp = sb.from('rrhh_empleados').select('id, local, fecha_ingreso, lactancia_desde, lactancia_hasta, lactancia_reduccion_diaria_min, lactancia_reduccion_finde_min').eq('estado', 'activo').eq('ficha', true);
   if (local) qEmp = qEmp.eq('local', local);
-  const { data: empleados } = await qEmp;
-  if (!empleados || empleados.length === 0) throw new Error('Sin empleados para procesar');
+  const { data: colaboradores } = await qEmp;
+  if (!empleados || empleados.length === 0) throw new Error('Sin colaboradores para procesar');
 
   const empIds = empleados.map(e => e.id);
   const empByLocal = {};
@@ -8623,7 +8623,7 @@ async function procesarMes(periodo, local = null) {
   const detalleRows = [];
   const bancoMovs = [];
   const stats = { dias_total: 0, puntuales: 0, tardanzas: 0, ausencias: 0, extras: 0 };
-  // Acumulador mensual de tardanzas por empleado (para aplicar umbral al final)
+  // Acumulador mensual de tardanzas por colaborador (para aplicar umbral al final)
   const tardanzaAcum = {}; // empleado_id -> minutos tarde acumulados
 
   // Preservar salvados previos antes de borrar el detalle (idempotencia)
@@ -8694,7 +8694,7 @@ async function procesarMes(periodo, local = null) {
         let ti = horaToMin(turno.hora_inicio);
         let tf = horaToMin(turno.hora_fin);
 
-        // AJUSTE POR LACTANCIA: si la empleada está en período activo,
+        // AJUSTE POR LACTANCIA: si la colaboradora está en período activo,
         // reducir el turno automáticamente.
         //  - Jornada normal (< 8hs): -X min al fin (sale antes)
         //  - Jornada larga (>= 8hs): +X min al inicio (entra más tarde)
@@ -8895,7 +8895,7 @@ async function procesarMes(periodo, local = null) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Dropdown detalle día×día por empleado en Resumen mensual
+// Dropdown detalle día×día por colaborador en Resumen mensual
 // ─────────────────────────────────────────────────────────────
 async function toggleDetalleResumen(empId) {
   const row = document.getElementById(`detalle-${empId}`);
@@ -8961,9 +8961,9 @@ async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCu
     return;
   }
 
-  // Traer empleado (local) y template (si templateId)
+  // Traer colaborador (local) y template (si templateId)
   const { data: emp } = await sb.from('rrhh_empleados').select('id, local, nombre_completo').eq('id', empId).single();
-  if (!emp) { toast('Empleado no encontrado', 'error'); return; }
+  if (!emp) { toast('Colaborador no encontrado', 'error'); return; }
 
   let nuevoTpl = null;
   let horaInicio, horaFin, tipo;
@@ -9040,7 +9040,7 @@ async function abrirMenuCambiarTurno(detalleId, empId, fecha) {
     toast('Solo encargada/admin', 'error'); return;
   }
   const { data: emp } = await sb.from('rrhh_empleados').select('local, nombre_completo').eq('id', empId).single();
-  if (!emp) { toast('Empleado no encontrado', 'error'); return; }
+  if (!emp) { toast('Colaborador no encontrado', 'error'); return; }
   const { data: tpls } = await sb.from('rrhh_templates_turno')
     .select('id, codigo, nombre, hora_inicio, hora_fin, es_franco, icono')
     .eq('local', emp.local).order('orden', { ascending: true });
@@ -9394,7 +9394,7 @@ async function renderConfigBorrados(cont) {
       : `<div style="padding:4px 8px;border-radius:4px;background:${bgEst};color:${colorEst};font-size:11px;font-weight:600;flex-shrink:0;">${s.estado.toUpperCase()}</div>`;
     return `<li style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
       <div style="flex:1;min-width:0;">
-        <div><strong>${escapeHtml(s.empleado?.nombre_completo || 'Empleado #'+s.empleado_id)}</strong> <span style="color:var(--muted);font-size:12px;">· ${escapeHtml(s.empleado?.local || '')}</span></div>
+        <div><strong>${escapeHtml(s.empleado?.nombre_completo || 'Colaborador #'+s.empleado_id)}</strong> <span style="color:var(--muted);font-size:12px;">· ${escapeHtml(s.empleado?.local || '')}</span></div>
         <div style="font-size:13px;margin-top:4px;">${tipoTxt} · <span style="color:var(--muted);">${escapeHtml(s.descripcion || '')}</span></div>
         <div style="font-size:12px;color:#92400e;margin-top:6px;background:#fef3c7;padding:6px 8px;border-radius:4px;border-left:3px solid #d97706;">
           💬 ${escapeHtml(s.motivo || 'Sin motivo')}
@@ -9515,7 +9515,7 @@ async function renderConfigSalvados(cont) {
       <thead>
         <tr style="background:#f9fafb;text-align:left;">
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;">Fecha</th>
-          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Empleada</th>
+          <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Colaboradora</th>
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Local</th>
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Tipo de error</th>
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);">Motivo</th>
@@ -9561,7 +9561,7 @@ async function renderConfigUsuarios(cont) {
       <ol style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.6;">
         <li>En Supabase → <em>Authentication → Users → Add user</em>, crear con email + password</li>
         <li>Copiar el UUID que se generó</li>
-        <li>Volver acá, tocar <strong>+ Vincular usuario</strong> y pegar el UUID + asignar empleado + rol</li>
+        <li>Volver acá, tocar <strong>+ Vincular usuario</strong> y pegar el UUID + asignar colaborador + rol</li>
       </ol>
     </div>
 
@@ -9574,7 +9574,7 @@ async function renderConfigUsuarios(cont) {
       <thead>
         <tr style="background:#f9fafb;text-align:left;">
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Email</th>
-          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Empleado</th>
+          <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Colaborador</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Rol</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Local (si gerente)</th>
           <th style="padding:12px 16px;font-size:12px;color:var(--muted);">Activo</th>
@@ -9592,7 +9592,7 @@ async function renderConfigUsuarios(cont) {
             <td style="padding:10px 16px;font-size:13px;">${u.activo ? '✅' : '⏸️'}</td>
             <td style="padding:10px 16px;font-size:12px;color:var(--muted);">${u.last_login ? fmtFecha(u.last_login.split('T')[0]) : '—'}</td>
             <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
-              <button class="btn small" style="background:#eef2ff;color:#3730a3;border-color:#c7d2fe;" onclick="abrirEditarUsuario(${u.id})" title="Editar empleado vinculado, rol y/o local">✏ Editar</button>
+              <button class="btn small" style="background:#eef2ff;color:#3730a3;border-color:#c7d2fe;" onclick="abrirEditarUsuario(${u.id})" title="Editar colaborador vinculado, rol y/o local">✏ Editar</button>
               <button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;margin-left:4px;" onclick="resetPasswordUsuario(${u.id}, ${JSON.stringify(u.email || '?').replace(/"/g, '&quot;')})" title="Setear nueva contraseña manualmente (sin email de Supabase)">🔑 Pass</button>
               <button class="btn small" style="margin-left:4px;" onclick="toggleActivoUsuario(${u.id}, ${u.activo})">${u.activo ? 'Desactivar' : 'Activar'}</button>
               <button class="btn small" style="background:#fee2e2;color:#b91c1c;border-color:#fca5a5;margin-left:4px;" onclick="borrarUsuario(${u.id}, ${JSON.stringify(u.email || '?').replace(/"/g, '&quot;')})" title="Borrar definitivamente (no toca rrhh_empleados)">🗑</button>
@@ -9652,7 +9652,7 @@ window.resetPasswordUsuario = async function(id, email) {
   }
 };
 
-// Editar la fila de rrhh_usuarios: empleado vinculado + rol + local_gerencia.
+// Editar la fila de rrhh_usuarios: colaborador vinculado + rol + local_gerencia.
 // auth_user_id (UUID) y email quedan bloqueados (van atados a Supabase Auth, hay que
 // borrar y re-crear la fila si querés cambiarlos).
 async function abrirEditarUsuario(id) {
@@ -9675,13 +9675,13 @@ async function abrirEditarUsuario(id) {
         <div class="form-row">
           <label>Rol *</label>
           <select id="cfg-edit-rol">
-            <option value="empleado" ${u.rol==='empleado'?'selected':''}>Empleado (self-service)</option>
+            <option value="empleado" ${u.rol==='empleado'?'selected':''}>Colaborador (self-service)</option>
             <option value="gerente" ${u.rol==='gerente'?'selected':''}>Gerente de local</option>
             <option value="admin" ${u.rol==='admin'?'selected':''}>Admin (acceso total)</option>
           </select>
         </div>
         <div class="form-row">
-          <label>Empleado vinculado *</label>
+          <label>Colaborador vinculado *</label>
           <select id="cfg-edit-empleado">
             <option value="">Cargando…</option>
           </select>
@@ -9702,7 +9702,7 @@ async function abrirEditarUsuario(id) {
       </div>
     </div>
   `;
-  // Cargar empleados con la pre-selección
+  // Cargar colaboradores con la pre-selección
   sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').order('nombre_completo').then(({ data }) => {
     document.getElementById('cfg-edit-empleado').innerHTML = '<option value="">— Seleccionar —</option>' +
       (data||[]).map(e => `<option value="${e.id}" ${e.id === u.empleado_id ? 'selected' : ''}>${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('');
@@ -9759,13 +9759,13 @@ function abrirNuevoUsuario() {
         <div class="form-row">
           <label>Rol *</label>
           <select id="cfg-rol">
-            <option value="empleado">Empleado (self-service)</option>
+            <option value="empleado">Colaborador (self-service)</option>
             <option value="gerente">Gerente de local</option>
             <option value="admin">Admin (acceso total)</option>
           </select>
         </div>
         <div class="form-row">
-          <label>Empleado vinculado *</label>
+          <label>Colaborador vinculado *</label>
           <select id="cfg-empleado">
             <option value="">Cargando…</option>
           </select>
@@ -9982,7 +9982,7 @@ async function listarPermisos() {
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
             <th onclick="onPermSortHeader('fecha')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por fecha">Fecha${_permSortIndicator('fecha')}</th>
-            <th onclick="onPermSortHeader('empleado')" style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por empleada">Empleado${_permSortIndicator('empleado')}</th>
+            <th onclick="onPermSortHeader('empleado')" style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por colaborador">Colaborador${_permSortIndicator('empleado')}</th>
             <th onclick="onPermSortHeader('local')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por local">Local${_permSortIndicator('local')}</th>
             <th onclick="onPermSortHeader('tipo')"     style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por tipo">Tipo${_permSortIndicator('tipo')}</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Horario</th>
@@ -10028,7 +10028,7 @@ async function abrirNuevoPermisoAdmin() {
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
-  const { data: empleados } = await qEmp.order('nombre_completo');
+  const { data: colaboradores } = await qEmp.order('nombre_completo');
 
   const html = `
     <div class="modal-bg" id="permiso-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -10036,7 +10036,7 @@ async function abrirNuevoPermisoAdmin() {
         <h3 style="margin:0 0 16px;">Cargar permiso puntual</h3>
         <div class="form-grid" style="display:grid;gap:12px;">
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="perm-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
@@ -10113,7 +10113,7 @@ function permAdminToggleComp() {
   const rowB = document.getElementById('perm-banco-row');
   if (rowV) rowV.style.display = ckV.checked ? 'flex' : 'none';
   if (rowB) rowB.style.display = ckB.checked ? 'flex' : 'none';
-  // Si elige vacaciones, cargar saldo del empleado para mostrar
+  // Si elige vacaciones, cargar saldo del colaborador para mostrar
   if (ckV.checked) {
     const empSelect = document.getElementById('perm-emp');
     const fechaInp = document.getElementById('perm-fecha');
@@ -10237,7 +10237,7 @@ async function aprobarPermiso(id) {
         sugerido = 60;
       }
     }
-    // "Sin almuerzo Oficina": empleada compensa 30 min saltándose el almuerzo
+    // "Sin almuerzo Oficina": colaboradora compensa 30 min saltándose el almuerzo
     // (solo aplica a permisos parciales, no día_completo)
     if (perm.sin_almuerzo && perm.tipo !== 'dia_completo') {
       const antes = sugerido;
@@ -10248,7 +10248,7 @@ async function aprobarPermiso(id) {
       `¿Cuántos minutos descontar del banco?\n\n` +
       `Sugerencia: ${sugerido} min (${(sugerido/60).toFixed(1)}h)` +
       (perm.tipo === 'dia_completo' ? ' — día completo típico' : '') +
-      (perm.sin_almuerzo ? '\n🍽 Empleada marcó "sin almuerzo": ya restados 30 min' : '') +
+      (perm.sin_almuerzo ? '\n🍽 Colaboradora marcó "sin almuerzo": ya restados 30 min' : '') +
       `\n\nTip: 540 = 9h · 720 = 12h · 360 = 6h`,
       String(sugerido)
     );
@@ -10858,7 +10858,7 @@ async function enviarPermisoEmpleado() {
     }
   }
 
-  // "Sin almuerzo Oficina": la empleada compensa 30 min saltándose el almuerzo.
+  // "Sin almuerzo Oficina": la colaboradora compensa 30 min saltándose el almuerzo.
   // Solo aplica si el toggle está visible (Oficina) + tipo != dia_completo.
   const _sinAlmChk = document.getElementById('perme-sin-almuerzo');
   const _sinAlmRow = document.getElementById('perme-sin-almuerzo-row');
@@ -10957,8 +10957,8 @@ async function abrirAsignarVacacion() {
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
-  const { data: empleados } = await qEmp.order('nombre_completo');
-  window._asignVacEmpleados = empleados || [];
+  const { data: colaboradores } = await qEmp.order('nombre_completo');
+  window._asignVacEmpleados = colaboradores || [];
 
   const html = `
     <div class="modal-bg" id="asignvac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -10968,7 +10968,7 @@ async function abrirAsignarVacacion() {
 
         <div style="display:grid;gap:12px;">
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="asg-emp" onchange="actualizarCalcAsignVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               ${(empleados||[]).map(e => `<option value="${e.id}" data-local="${e.local}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
@@ -11012,7 +11012,7 @@ async function actualizarCalcAsignVac() {
   const saldoBox = document.getElementById('asg-saldo-box');
   const calcBox = document.getElementById('asg-calc-box');
 
-  // 1) Mostrar saldo del empleado seleccionado (año del 'desde' si está cargado, sino año actual)
+  // 1) Mostrar saldo del colaborador seleccionado (año del 'desde' si está cargado, sino año actual)
   if (empId) {
     const año = desde ? parseInt(desde.substring(0,4),10) : new Date().getFullYear();
     const { data: saldo } = await sb.from('rrhh_vacaciones')
@@ -11058,7 +11058,7 @@ async function actualizarCalcAsignVac() {
 //   Si el rango incluye sáb o dom (uno solo de los dos), se extiende
 //   automáticamente para incluir el otro día del finde.
 //   Excepción única: si el día opuesto tiene un turno regular cargado
-//   (= empleada trabaja ambos esa semana específica), no se extiende.
+//   (= colaboradora trabaja ambos esa semana específica), no se extiende.
 async function _extenderPorFranco(empId, fechaDesde, fechaHasta) {
   const { data: emp } = await sb.from('rrhh_empleados').select('local').eq('id', empId).maybeSingle();
   if (!emp || emp.local === 'oficina') {
@@ -11129,7 +11129,7 @@ async function _extenderPorFranco(empId, fechaDesde, fechaHasta) {
 // Si el saldo del año más viejo no es suficiente y NO hay años siguientes,
 // crea el año actual con corresp=0.
 async function _consumirSaldoFIFO(empId, diasTotal) {
-  // 1) Cargar todos los saldos del empleado (ordenado por año asc)
+  // 1) Cargar todos los saldos del colaborador (ordenado por año asc)
   const { data: saldos } = await sb.from('rrhh_vacaciones')
     .select('id, año, dias_correspondientes, dias_tomados, dias_pendientes')
     .eq('empleado_id', empId)
@@ -11251,7 +11251,7 @@ async function abrirPagarVacaciones() {
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
-  const { data: empleados } = await qEmp.order('nombre_completo');
+  const { data: colaboradores } = await qEmp.order('nombre_completo');
 
   const html = `
     <div class="modal-bg" id="pagvac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -11261,7 +11261,7 @@ async function abrirPagarVacaciones() {
 
         <div style="display:grid;gap:12px;">
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="pag-emp" onchange="actualizarSaldoPagVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
@@ -11564,7 +11564,7 @@ function _textTracked(doc, text, x, y, options = {}) {
 }
 
 async function generarNotificacionVacaciones(movId) {
-  // Cargar movimiento + empleado + saldo de vacaciones (para sacar el año fiscal correcto)
+  // Cargar movimiento + colaborador + saldo de vacaciones (para sacar el año fiscal correcto)
   const { data: mov, error } = await sb.from('rrhh_vacaciones_movimientos')
     .select('*, empleado:rrhh_empleados(nombre_completo, dni, local), saldo:rrhh_vacaciones(año)')
     .eq('id', movId).single();
@@ -11574,7 +11574,7 @@ async function generarNotificacionVacaciones(movId) {
   const fechaActual = _fechaLargaEs(new Date().toISOString().split('T')[0]);
   const desde = _fechaLargaEs(mov.fecha_desde);
   const hasta = _fechaLargaEs(mov.fecha_hasta);
-  // Reintegro: si la empleada es de oficina, salta sáb/dom y feriados que cierran oficina
+  // Reintegro: si la colaboradora es de oficina, salta sáb/dom y feriados que cierran oficina
   // (la oficina trabaja días hábiles). Para locales (alcorta/unicenter) es el día siguiente literal.
   const reintegroYmd = await _proximoDiaReintegro(mov.fecha_hasta, emp?.local);
   const reintegro = _fechaLargaEs(reintegroYmd);
@@ -11786,7 +11786,7 @@ async function generarNotificacionVacaciones(movId) {
 
 // ════════════════════════════════════════════════════════════
 // CARGA MASIVA DE VACACIONES (admin/gerente)
-//   Permite cargar varias vacaciones de varias empleadas de una vez,
+//   Permite cargar varias vacaciones de varias colaboradoras de una vez,
 //   sin pasar por el flujo de aprobación. Quedan en estado='tomada'.
 // ════════════════════════════════════════════════════════════
 
@@ -11794,7 +11794,7 @@ async function abrirCargaMasivaVac() {
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
-  const { data: empleados } = await qEmp.order('nombre_completo');
+  const { data: colaboradores } = await qEmp.order('nombre_completo');
 
   const html = `
     <div class="modal-bg" id="cargavac-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -11819,7 +11819,7 @@ async function abrirCargaMasivaVac() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
-  window._cargaVacEmpleados = empleados || [];
+  window._cargaVacEmpleados = colaboradores || [];
   agregarFilaVac();
   agregarFilaVac();
   agregarFilaVac();  // arranca con 3 filas
@@ -11833,7 +11833,7 @@ function agregarFilaVac() {
   const html = `
     <div class="cargavac-row" data-i="${i}" style="display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:8px;align-items:end;padding:10px;background:#f9fafb;border-radius:8px;">
       <div>
-        <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;">Empleado</label>
+        <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;">Colaborador</label>
         <select data-cv="empleado" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
           <option value="">— Seleccionar —</option>
           ${emps.map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
@@ -11874,7 +11874,7 @@ async function guardarCargaMasivaVac() {
   const items = [];   // {empId, desde, hasta, dias, año, obs, esOficina}
   const errores = [];
 
-  // Necesitamos saber el local del empleado para calcular días hábiles vs corridos
+  // Necesitamos saber el local del colaborador para calcular días hábiles vs corridos
   // Lo conseguimos de la lista pre-cargada
   const empMap = {};
   (window._cargaVacEmpleados || []).forEach(e => { empMap[e.id] = e; });
@@ -12065,7 +12065,7 @@ async function listarExtras(fechaDesde, fechaHasta) {
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Fecha</th>
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Empleado</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Colaborador</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Local</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Tipo</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Minutos</th>
@@ -12115,7 +12115,7 @@ async function abrirNuevoExtraAdmin() {
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
-  const { data: empleados } = await qEmp.order('nombre_completo');
+  const { data: colaboradores } = await qEmp.order('nombre_completo');
 
   const html = `
     <div class="modal-bg" id="extra-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -12123,7 +12123,7 @@ async function abrirNuevoExtraAdmin() {
         <h3 style="margin:0 0 16px;">Cargar hora extra</h3>
         <div class="form-grid" style="display:grid;gap:12px;">
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="ext-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
@@ -12293,7 +12293,7 @@ async function renderBancoAdmin(cont) {
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
-            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Empleado</th>
+            <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Colaborador</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);">Local</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Saldo</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);text-align:right;">Acciones</th>
@@ -12376,7 +12376,7 @@ async function abrirAjusteBancoAdmin() {
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
-  const { data: empleados } = await qEmp.order('nombre_completo');
+  const { data: colaboradores } = await qEmp.order('nombre_completo');
 
   const html = `
     <div class="modal-bg" id="ajuste-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -12385,7 +12385,7 @@ async function abrirAjusteBancoAdmin() {
         <p style="margin:0 0 16px;color:var(--muted);font-size:13px;">Sumá o restá minutos manualmente. Queda registrado quién y cuándo.</p>
         <div style="display:grid;gap:12px;">
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Empleado *</label>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="ajus-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
@@ -12445,7 +12445,7 @@ async function guardarAjusteBanco() {
 // ════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════
-//  MANUAL DE USO (Gerente + Empleado)
+//  MANUAL DE USO (Gerente + Colaborador)
 //  Contenido hardcodeado para fácil actualización.
 //  Imágenes opcionales: subir a manual_assets/ y referenciar
 //  con `img: 'manual_assets/nombre.png'`
@@ -12453,7 +12453,7 @@ async function guardarAjusteBanco() {
 const MANUAL_GERENTE = [
   {
     tab: 'dashboard', icon: '📊', titulo: 'Mi local',
-    desc: 'Vista rápida del estado del local: empleadas activas, próximas vacaciones, alertas y tareas pendientes.',
+    desc: 'Vista rápida del estado del local: colaboradoras activas, próximas vacaciones, alertas y tareas pendientes.',
     pasos: [
       'Al entrar al sistema arrancás directo acá.',
       'Las tarjetas de arriba muestran los puntos críticos (vacaciones por aprobar, asistencias por cerrar, etc.).',
@@ -12463,9 +12463,9 @@ const MANUAL_GERENTE = [
   },
   {
     tab: 'empleados', icon: '👥', titulo: 'Mi equipo',
-    desc: 'Listado de todas las empleadas de tu local con datos básicos y acceso a sus legajos completos.',
+    desc: 'Listado de todas las colaboradoras de tu local con datos básicos y acceso a sus legajos completos.',
     pasos: [
-      'Click sobre una empleada abre su ficha completa.',
+      'Click sobre una colaboradora abre su ficha completa.',
       'Desde la ficha podés ver datos personales, asistencias del mes, vacaciones, préstamos y más.',
       'Los datos personales no los podés modificar — eso lo hace el admin desde su panel.',
     ],
@@ -12475,8 +12475,8 @@ const MANUAL_GERENTE = [
     tab: 'asistencias', icon: '🕐', titulo: 'Asistencias',
     desc: 'Control mensual de fichadas, tardanzas, faltas y permisos. Acá se cierra el mes.',
     pasos: [
-      'Antes de cerrar el mes, revisá el "Resumen mensual" — listado por empleada con sus errores.',
-      'Si una empleada tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
+      'Antes de cerrar el mes, revisá el "Resumen mensual" — listado por colaboradora con sus errores.',
+      'Si una colaboradora tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
       'Si tenés permisos pendientes de aprobar, aparecen marcados.',
       'Cuando todo está OK, apretás el botón rojo "🔒 Cerrar mes" — esto materializa el banco de minutos y aplica las cuotas de préstamo.',
       'Importante: una vez cerrado, las modificaciones quedan registradas con aviso.',
@@ -12487,8 +12487,8 @@ const MANUAL_GERENTE = [
     tab: 'vacaciones', icon: '🌴', titulo: 'Vacaciones',
     desc: 'Saldos de vacaciones por empleada, aprobar pedidos y registrar tomas de vacaciones.',
     pasos: [
-      'La tab "Saldos" muestra todas tus empleadas con días correspondientes / tomados / pendientes.',
-      'Click en una empleada abre el detalle con los movimientos del año + botón para descargar PDF de cada uno.',
+      'La tab "Saldos" muestra todas tus colaboradoras con días correspondientes / tomados / pendientes.',
+      'Click en una colaboradora abre el detalle con los movimientos del año + botón para descargar PDF de cada uno.',
       'En "Pendientes" aprobás o rechazás los pedidos que mandaron las vendedoras.',
       'Botón "+ Asignar vacaciones" carga directo (sin pasar por aprobación).',
     ],
@@ -12496,19 +12496,19 @@ const MANUAL_GERENTE = [
   },
   {
     tab: 'retiros', icon: '🛍', titulo: 'Retiros mercadería',
-    desc: 'Cargás los retiros de mercadería de las empleadas que se descuentan en la liquidación.',
+    desc: 'Cargás los retiros de mercadería de las colaboradoras que se descuentan en la liquidación.',
     pasos: [
-      'Cargás monto y empleada → queda registrado.',
+      'Cargás monto y colaboradora → queda registrado.',
       'En el cierre del mes, el monto se descuenta del Efectivo final.',
     ],
     img: null,
   },
   {
     tab: 'aumentos', icon: '📈', titulo: 'Aumentos',
-    desc: 'Cuando JP envía rangos de aumento mensual, vos definís el monto exacto para cada empleada dentro del rango.',
+    desc: 'Cuando JP envía rangos de aumento mensual, vos definís el monto exacto para cada colaboradora dentro del rango.',
     pasos: [
       'Vas a recibir un push cuando JP envíe los rangos.',
-      'En la tabla cargás el monto del nuevo fijo de cada empleada (dentro del rango).',
+      'En la tabla cargás el monto del nuevo fijo de cada colaboradora (dentro del rango).',
       'Para tu propia fila viene pre-marcado el MAX del rango.',
       'Click "💾 Aplicar aumentos" — se actualizan los fijos vigentes desde el período del envío.',
     ],
@@ -12519,14 +12519,14 @@ const MANUAL_GERENTE = [
     desc: 'Vista solo lectura de los préstamos activos del equipo. Para otorgar, refinanciar o cancelar contactá al admin.',
     pasos: [
       'KPIs arriba: cantidad de préstamos, capital total, saldo pendiente, interés pendiente.',
-      'Tabla por empleada con detalle de cada préstamo activo.',
+      'Tabla por colaboradora con detalle de cada préstamo activo.',
       'Para gestionar préstamos, las acciones las hace el admin.',
     ],
     img: null,
   },
   {
     tab: 'liquidaciones', icon: '🧮', titulo: 'Liquidación',
-    desc: 'Cálculo final del recibo de cada empleada — fijo + comisión + premio + viáticos + extras.',
+    desc: 'Cálculo final del recibo de cada colaboradora — fijo + comisión + premio + viáticos + extras.',
     pasos: [
       'Solo lectura para vos — el cálculo lo hace el admin.',
       'Click en la celda amarilla "Recibo" para ver el desglose completo del recibo CCT.',
@@ -12713,7 +12713,7 @@ async function renderMiBanco() {
 
   // ── Movimientos PENDIENTES DE CIERRE: días con minutos_banco != 0 que aún
   // no se materializaron como rows de rrhh_banco_minutos (porque el mes no
-  // se cerró). Mostramos como "pendientes" para que la empleada vea su saldo
+  // se cerró). Mostramos como "pendientes" para que la colaboradora vea su saldo
   // proyectado sin esperar al cierre. ──
   const { data: dets } = await sb.from('rrhh_asistencias_detalle')
     .select('id, fecha, estado, minutos_banco, error_salvado')
@@ -13048,7 +13048,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     //   lee conceptos desde rrhh_liquidacion_sac_concepto y usa sac_recibo_neto
     const esSAC = !!opts.esSAC;
 
-    // 1. Cargar liquidación + empleado + conceptos
+    // 1. Cargar liquidación + colaborador + conceptos
     const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
       .select('*, empleado:rrhh_empleados(*, categoria:rrhh_categorias_cct(nombre, sueldo_basico))')
       .eq('id', liqId).single();
@@ -13419,7 +13419,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
 
 // ═══════════════════════════════════════════════════════════════════
 //  Workflow firma: descarga PDF + abre Gmail con asunto pre-armado
-//  La empleada firma a mano (o desde su Drive) y reenvía por mail.
+//  La colaboradora firma a mano (o desde su Drive) y reenvía por mail.
 //  El script 11_procesar_recibos_firmados.py lo procesa automáticamente.
 // ═══════════════════════════════════════════════════════════════════
 async function enviarReciboFirma(liqId) {
@@ -13430,7 +13430,7 @@ async function enviarReciboFirma(liqId) {
       .eq('id', liqId).single();
     if (error || !liq) { toast('No se pudo cargar la liquidación', 'error'); return; }
     const emp = liq.empleado;
-    if (!emp) { toast('Liquidación sin empleada asociada', 'error'); return; }
+    if (!emp) { toast('Liquidación sin colaboradora asociada', 'error'); return; }
 
     // 2. Asunto + cuerpo del mail
     const periodo = (liq.periodo || '').slice(0, 7);
@@ -13504,7 +13504,7 @@ async function marcarReciboEnviado(liqId) {
   }).eq('id', liqId);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast('Marcado como enviado ✓', 'success');
-  // 🔔 Push a la empleada — recibo listo para firmar
+  // 🔔 Push a la colaboradora — recibo listo para firmar
   const { data: liq } = await sb.from('rrhh_liquidacion').select('empleado_id, periodo').eq('id', liqId).single();
   if (liq && liq.empleado_id) {
     const periodo = (liq.periodo || '').slice(0, 7);
@@ -13755,7 +13755,7 @@ async function abrirSubirRecibosBulk() {
         <button class="btn" onclick="closeModal()">✕</button>
       </div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
-        Arrastrá uno o varios PDFs de MEMOSOFT. El sistema parsea cada recibo, lo matchea con la empleada por el nombre que aparece adentro, y compara los importes contra el cálculo CCT 130/75 + paritaria vigente. Te avisa de discrepancias antes de guardar.
+        Arrastrá uno o varios PDFs de MEMOSOFT. El sistema parsea cada recibo, lo matchea con la colaboradora por el nombre que aparece adentro, y compara los importes contra el cálculo CCT 130/75 + paritaria vigente. Te avisa de discrepancias antes de guardar.
       </div>
 
       <div id="recibos-drop" style="border:2px dashed var(--border);border-radius:10px;padding:36px;text-align:center;color:var(--muted);cursor:pointer;margin-bottom:14px;">
@@ -13784,7 +13784,7 @@ async function procesarRecibos(fileList) {
   const cont = document.getElementById('recibos-resultados');
   cont.innerHTML = `<div style="padding:10px;">Procesando ${archivos.length} archivo(s)…</div>`;
 
-  // Cargar empleados activos una sola vez
+  // Cargar colaboradores activos una sola vez
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, nombre_completo, apellido, nombre, cuil, dni, fecha_ingreso, obra_social_codigo, fuera_convenio, categoria:rrhh_categorias_cct(sueldo_basico)')
     .eq('estado', 'activo');
@@ -13874,7 +13874,7 @@ function renderResultadosRecibos(filas, empleados) {
 
       let head = '';
       if (!it.parsed?.ok) head = `<span style="color:#b91c1c;">⚠ ${escapeHtml(it.parsed.error || 'error')}</span>`;
-      else if (!emp) head = `<span style="color:#b91c1c;">⚠ Empleada no identificada</span>`;
+      else if (!emp) head = `<span style="color:#b91c1c;">⚠ Colaboradora no identificada</span>`;
       else if (!calc) head = `<span style="color:#b91c1c;">⚠ Sin cálculo (faltan datos)</span>`;
       else if (audit.discrepancias.length === 0) head = `<span style="color:#15803d;">✓ Coincide con el cálculo CCT</span>`;
       else head = `<span style="color:#b45309;">⚠ ${audit.discrepancias.length} observación(es)</span>`;
@@ -13921,14 +13921,14 @@ function renderResultadosRecibos(filas, empleados) {
 //  Exportar transferencias en formato Galicia Office (xlsx)
 //  Genera el archivo idéntico al que el portal de Galicia acepta:
 //    Fila 1: headers (Nombre, NroCuenta | CBU, Fecha de Acred., Importe, Estado, Email, Observaciones)
-//    Fila 2+: una empleada por fila
-//  Solo incluye empleadas con liquidación + CBU/Cta cargado.
+//    Fila 2+: una colaboradora por fila
+//  Solo incluye colaboradoras con liquidación + CBU/Cta cargado.
 // ═══════════════════════════════════════════════════════════════════
 async function exportarGaliciaXLSX(local, periodo) {
   try {
     if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
 
-    // Cargar liquidaciones del período + datos de empleada (incluido cbu)
+    // Cargar liquidaciones del período + datos de colaboradora (incluido cbu)
     let q = sb.from('rrhh_liquidacion')
       .select('id, periodo, recibo_neto, prestamo_capital, local, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, cuil, cbu)')
       .eq('periodo', periodo + '-01');
@@ -13971,7 +13971,7 @@ async function exportarGaliciaXLSX(local, periodo) {
     }
 
     if (filas.length === 0) {
-      toast('Ninguna empleada con CBU cargado y monto > 0', 'error');
+      toast('Ninguna colaboradora con CBU cargado y monto > 0', 'error');
       return;
     }
 
@@ -14109,7 +14109,7 @@ async function renderPagosMes() {
   const periodo = pagosMesState.periodo;
   const periodoFull = periodo + '-01';
 
-  // 1) Empleadas activas (sin JOIN para evitar problemas con RLS)
+  // 1) Colaboradoras activas (sin JOIN para evitar problemas con RLS)
   const { data: empleados, error: errEmp } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, nombre_completo, local, cbu, cuil, fecha_ingreso, categoria_cct_id')
     .eq('estado', 'activo').order('local').order('apellido');
@@ -14118,7 +14118,7 @@ async function renderPagosMes() {
   }
 
   if (!empleados || empleados.length === 0) {
-    return '<div class="card"><div class="card-body">No hay empleadas activas.</div></div>';
+    return '<div class="card"><div class="card-body">No hay colaboradoras activas.</div></div>';
   }
 
   // Cargar categorías CCT en query separada
@@ -14184,7 +14184,7 @@ async function renderPagosMes() {
   const pagosMap = {};
   (pagosCargados || []).forEach(p => { pagosMap[p.empleado_id] = p; });
 
-  // 4) Calcular neto CCT automático por cada empleada (asumiendo 30 días trabajados)
+  // 4) Calcular neto CCT automático por cada colaboradora (asumiendo 30 días trabajados)
   //    Si JP ya cargó un override manual en rrhh_pagos_blanco, ese gana.
   const netosCalculados = {};
   if (paritaria) {
@@ -14276,11 +14276,11 @@ async function renderPagosMes() {
     </div>
 
     <div class="card">
-      <div class="section-title">${empleados.length} empleadas activas</div>
+      <div class="section-title">${empleados.length} colaboradoras activas</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
-            <th style="padding:8px;">Empleada</th>
+            <th style="padding:8px;">Colaboradora</th>
             <th style="padding:8px;">Local</th>
             <th style="padding:8px;text-align:right;" title="Neto del recibo CCT calculado automáticamente. Verde = automático, violeta = override manual.">Neto CCT</th>
             <th style="padding:8px;text-align:right;" title="Adelantos del mes (préstamos 1 cuota 0%)">Adelantos</th>
@@ -14441,7 +14441,7 @@ async function exportarPagosGalicia() {
     XLSX.writeFile(wb, nombre);
 
     if (totalSinCbu > 0) {
-      toast(`⚠ ${totalSinCbu} empleadas sin CBU válido — revisalas en su legajo`, 'warning');
+      toast(`⚠ ${totalSinCbu} colaboradoras sin CBU válido — revisalas en su legajo`, 'warning');
     } else {
       toast(`Excel descargado ✓ · ${filas.length} pagos`, 'success');
     }
@@ -14472,7 +14472,7 @@ async function exportarPlanillaCompleta() {
         .select('id, empleado_id, cuotas_totales, tasa_mensual').in('estado', ['activo','pagado']),
     ]);
 
-    const empleados = empRes.data || [];
+    const colaboradores = empRes.data || [];
     const catMap = {}; (catRes.data||[]).forEach(c => catMap[c.id] = c);
     const paritaria = parRes.data?.[0] || null;
     const pagosMap = {}; (pagRes.data||[]).forEach(p => pagosMap[p.empleado_id] = p);
@@ -14565,7 +14565,7 @@ async function exportarPlanillaCompleta() {
     const nombre = `Planilla_Sueldos_${pagosMesState.periodo}.xlsx`;
     XLSX.writeFile(wb, nombre);
 
-    toast(`Planilla descargada ✓ · ${empleados.length} empleadas`, 'success');
+    toast(`Planilla descargada ✓ · ${empleados.length} colaboradoras`, 'success');
   } catch (e) {
     toast('Error: ' + (e.message || e), 'error');
   }
@@ -14573,7 +14573,7 @@ async function exportarPlanillaCompleta() {
 
 // ─── Ganancias 4ta: leer última revisión (auto-refresh si está stale) ──
 async function obtenerRevisionGanancias(periodo) {
-  // Empleadas marcadas para tope
+  // Colaboradoras marcadas para tope
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, nombre_completo, apellido, nombre')
     .eq('calcular_tope_ganancias', true).eq('estado', 'activo');
@@ -14657,7 +14657,7 @@ async function mostrarDetalleGanancias() {
                 <tr><td>Deducción especial</td><td style="text-align:right;font-family:monospace;">${fmt(det.especial_anual)}</td></tr>
                 ${det.conyuge_anual ? `<tr><td>Cónyuge a cargo</td><td style="text-align:right;font-family:monospace;">${fmt(det.conyuge_anual)}</td></tr>` : ''}
                 ${det.hijos_anual ? `<tr><td>Hijos a cargo</td><td style="text-align:right;font-family:monospace;">${fmt(det.hijos_anual)}</td></tr>` : ''}
-                ${det.domestica_deducible ? `<tr><td>Empleada doméstica</td><td style="text-align:right;font-family:monospace;">${fmt(det.domestica_deducible)}</td></tr>` : ''}
+                ${det.domestica_deducible ? `<tr><td>Colaboradora doméstica</td><td style="text-align:right;font-family:monospace;">${fmt(det.domestica_deducible)}</td></tr>` : ''}
                 ${det.prepaga_deducible ? `<tr><td>Prepaga (cap 5%)</td><td style="text-align:right;font-family:monospace;">${fmt(det.prepaga_deducible)}</td></tr>` : ''}
                 <tr style="border-top:1px solid #ddd;"><td><strong>Total anual</strong></td><td style="text-align:right;font-family:monospace;"><strong>${fmt(r.deducciones_anuales)}</strong></td></tr>
               </table>
@@ -14854,7 +14854,7 @@ async function renderLiquidaciones() {
         .in('local', Array.from(localesSet));
       const cfgLocalMap = {};
       (cfgLocalesRows || []).forEach(c => { cfgLocalMap[c.local] = c; });
-      // 3) Config por empleada (fracción, modo prorrateo, flag día×venta)
+      // 3) Config por colaboradora (fracción, modo prorrateo, flag día×venta)
       const { data: cfgEmpRows } = await sb.from('rrhh_sueldo_empleada_config')
         .select('empleado_id, fraccion_comision, dias_prorrateo_modo, comision_dia_por_venta')
         .in('empleado_id', empIdsLiq);
@@ -14896,7 +14896,7 @@ async function renderLiquidaciones() {
           }
         }
       }
-      // 6) Para empleadas con flag comision_dia_por_venta (Escasany), cargar días fichados + ventas diarias
+      // 6) Para colaboradoras con flag comision_dia_por_venta (Escasany), cargar días fichados + ventas diarias
       const diasLocalEmpIds = (liqs||[])
         .filter(l => {
           const c = cfgEmpMap[l.empleado_id];
@@ -14922,7 +14922,7 @@ async function renderLiquidaciones() {
             diasFichadosPorEmp[d.empleado_id].add(d.fecha);
           }
         });
-        // Ventas diarias por cada local que tiene una empleada dias_local
+        // Ventas diarias por cada local que tiene una colaboradora dias_local
         const localesConFranquera = new Set(
           (liqs||[])
             .filter(l => diasLocalEmpIds.includes(l.empleado_id))
@@ -15041,7 +15041,7 @@ async function renderLiquidaciones() {
   // ─── SAC (aguinaldo): solo en junio y diciembre. Auto = mejor bruto del
   //     semestre (Fijo+Comisión+Premio+Viáticos+Extras = total_negro) / 12
   //     × meses trabajados del semestre. En Adorno el "total_negro" del sistema
-  //     es el bruto real que cobra la empleada (blanco+negro conceptualmente).
+  //     es el bruto real que cobra la colaboradora (blanco+negro conceptualmente).
   const mesNumero = parseInt(periodo.split('-')[1], 10);
   const esMesSAC = mesNumero === 6 || mesNumero === 12;
   const sacPorEmp = {};
@@ -15110,7 +15110,7 @@ async function renderLiquidaciones() {
   return `
     <div class="page-header">
       <h2>Liquidación del mes</h2>
-      <div class="subtitle">Cálculo del recibo CCT + lo que cobra cada empleada según la fórmula de Adorno (fijo + comisión + premio + viáticos + extras).</div>
+      <div class="subtitle">Cálculo del recibo CCT + lo que cobra cada colaboradora según la fórmula de Adorno (fijo + comisión + premio + viáticos + extras).</div>
     </div>
 
     <!-- ══════ LÍNEA 1: Sub-tabs + Ventas + Guardar + Acciones + Kebab ══════ -->
@@ -15142,7 +15142,7 @@ async function renderLiquidaciones() {
           <!-- ════ BOTONES DE BANCO (colores jerarquizados v204) ════ -->
           ${isAdmin ? `<button class="btn" style="background:white;color:#92400e;border:1px solid #fcd34d;" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='white'" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales.">📋 Proforma</button>` : ''}
           ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="background:white;color:#6b21a8;border:1px solid #ddd6fe;" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='white'" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO empleadas en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="background:white;color:#6b21a8;border:1px solid #ddd6fe;" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='white'" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO colaboradoras en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
           ${(isAdmin || isGerente) ? `<button class="btn" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
           ${isAdmin ? `
             <div class="liq-export-dd" style="position:relative;display:inline-block;">
@@ -15277,7 +15277,7 @@ async function renderLiquidaciones() {
         const bg = hayExcedido ? '#fef2f2' : '#fef9c3';
         const border = hayExcedido ? '#dc2626' : '#d97706';
         const icono = hayExcedido ? '🔴' : '🟡';
-        const titulo = hayExcedido ? 'Tope Ganancias: hay empleadas excedidas' : 'Tope Ganancias: hay empleadas al borde';
+        const titulo = hayExcedido ? 'Tope Ganancias: hay colaboradoras excedidas' : 'Tope Ganancias: hay colaboradoras al borde';
         const lineas = alertas.map(a => {
           const r = a.revision;
           const lbl = r.estado === 'excedido' ? 'excedido' : 'al borde';
@@ -15299,7 +15299,7 @@ async function renderLiquidaciones() {
       <!-- Scroll horizontal DOBLE (arriba + abajo) sincronizado con la tabla.
            #liq-scroll-main scrollea EN AMBOS EJES para que:
              - el thead sticky (top:0) se anchore ACÁ y quede fijo al bajar
-             - la col Empleada sticky (left:0) se anchore ACÁ y quede fija al ir a la derecha
+             - la col Colaboradora sticky (left:0) se anchore ACÁ y quede fija al ir a la derecha
            El max-height se ajusta dinámicamente por JS (liqWireScrollDoble). -->
       <div class="card" style="padding:0;">
         <div id="liq-scroll-top" style="overflow-x:auto;overflow-y:hidden;height:14px;border-bottom:1px solid var(--border);">
@@ -15538,7 +15538,7 @@ async function renderLiquidaciones() {
                 const banco = (+l.recibo_neto || 0) + sacRec - pres - adel;
                 const tip = sacRec > 0
                   ? `Banco = Recibo mensual + SAC blanco − Préstamos − Adelantos\n  Mensual: $${c.fmt(l.recibo_neto)}\n  + SAC:   $${c.fmt(sacRec)}\n  − Prést: $${c.fmt(pres)}\n  − Adel:  $${c.fmt(adel)}\n  ──────\n  Banco:   $${c.fmt(banco)}`
-                  : 'Lo que efectivamente transferís a la cuenta de la empleada (Recibo − Préstamos − Adelantos)';
+                  : 'Lo que efectivamente transferís a la cuenta de la colaboradora (Recibo − Préstamos − Adelantos)';
                 return `<td style="padding:8px;font-family:monospace;background:#dcfce7;font-weight:600;" title="${c.escapeHtml(tip)}">${c.fmt(banco)}</td>`;
               } },
             { id:'subtotal_efectivo', label:'Subtotal', sortKey:'subtotal_efectivo', thOpts:{bg:'#ecfccb',title:'Subtotal del efectivo (Total − Recibo). En junio/diciembre resta también el SAC blanco. De acá se descuentan Mercadería, Intereses y Ajustes.'},
@@ -15621,7 +15621,7 @@ async function renderLiquidaciones() {
                       ? `<a class="btn small" href="${escapeHtml(url)}" target="_blank" rel="noopener" style="background:#d1fae5;color:#065f46;border-color:#86efac;text-decoration:none;" title="✓ Firmada el ${fechaFirma}. Click para abrir el archivo en OneDrive.">✓ Firmada</a>`
                       : `<button class="btn small" style="background:#d1fae5;color:#065f46;border-color:#86efac;cursor:default;" disabled title="✓ Firmada el ${fechaFirma}. Archivo antiguo — sin link directo.">✓ Firmada</button>`)
                   : (mesCerr
-                      ? `<button class="btn small" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc;" disabled title="Mes cerrado — el sistema espera que llegue el PDF firmado por la empleada por Gmail o que lo subas manualmente.">🗓️ Esperando firma</button>`
+                      ? `<button class="btn small" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc;" disabled title="Mes cerrado — el sistema espera que llegue el PDF firmado por la colaboradora por Gmail o que lo subas manualmente.">🗓️ Esperando firma</button>`
                       : `<button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" disabled title="No firmada — esperando que llegue el PDF firmado.">✗ No firmada</button>`);
                 // Candado: cerrado si (mes cerrado a nivel local) O (liq en estado 'revisada'/'firmada'/'anulada')
                 const estaCerrado = !!mesCerr || l.estado === 'firmada' || l.estado === 'revisada' || l.estado === 'anulada';
@@ -15773,7 +15773,7 @@ async function renderLiquidaciones() {
       <!-- fin card doble-scroll liquidador -->
 
       <div class="card" style="margin-top:14px;padding:12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
-        💡 <strong>Cómo se lee:</strong> el <strong>Total</strong> (azulado) es lo que debería cobrar la empleada (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. <strong>Banco</strong> (verde) es lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos). <strong>Subtotal</strong> (verde claro) es la base del efectivo (Total − Recibo); de ahí se descuentan Mercadería, Intereses y Ajustes para llegar al <strong>Efectivo</strong> (rojo) que va en mano. Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
+        💡 <strong>Cómo se lee:</strong> el <strong>Total</strong> (azulado) es lo que debería cobrar la colaboradora (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. <strong>Banco</strong> (verde) es lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos). <strong>Subtotal</strong> (verde claro) es la base del efectivo (Total − Recibo); de ahí se descuentan Mercadería, Intereses y Ajustes para llegar al <strong>Efectivo</strong> (rojo) que va en mano. Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
       </div>
     `}
   `;
@@ -16083,7 +16083,7 @@ async function procesarRecibosBulkPDF(file) {
         const esSAC = m[1] === 'SAC';
         const liqId = parseInt(m[2], 10);
 
-        // Buscar la liquidación + empleada + local
+        // Buscar la liquidación + colaboradora + local
         const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
           .select('id, empleado_id, periodo, pdf_firmado_at, sac_pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre, nombre_completo, local)')
           .eq('id', liqId).single();
@@ -16220,7 +16220,7 @@ async function liqSyncVentasFromSheets(local, periodo) {
 async function liqGenerarProforma(local, periodo) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
-  // 1) Cargar empleadas del local
+  // 1) Cargar colaboradoras del local
   const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, nombre_completo, local')
@@ -16285,11 +16285,11 @@ async function liqGenerarProforma(local, periodo) {
     <div style="padding:20px;max-width:880px;width:100%;">
       <h3 style="margin:0 0 6px;">📋 Generar liquidación PROFORMA</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
-        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas · Detección hasta ${limiteDeteccion}
+        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} colaboradoras · Detección hasta ${limiteDeteccion}
       </div>
       <div style="background:#fef3c7;border:1px solid #fcd34d;padding:10px;border-radius:8px;font-size:12px;color:#92400e;margin-bottom:14px;">
         💡 La <strong>proforma</strong> es el cálculo base para transferir los sueldos el último día del mes.
-        No genera PDFs ni notifica a las empleadas. Después del cierre vas a generar el
+        No genera PDFs ni notifica a las colaboradoras. Después del cierre vas a generar el
         <strong>definitivo</strong> que aplica la paritaria final.
       </div>
 
@@ -16314,7 +16314,7 @@ async function liqGenerarProforma(local, periodo) {
           <table style="width:100%;font-size:12px;">
             <thead style="background:#f9fafb;position:sticky;top:0;">
               <tr>
-                <th style="padding:6px 10px;text-align:left;">Empleada</th>
+                <th style="padding:6px 10px;text-align:left;">Colaboradora</th>
                 <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
                 <th style="padding:6px 10px;text-align:left;width:170px;">Faltas detectadas</th>
                 <th style="padding:6px 10px;text-align:right;width:90px;">Días a descontar</th>
@@ -16421,7 +16421,7 @@ async function liqGenerarDefinitivo(local, periodo) {
 
   // Heredados de proforma (si existen) — mapa empId → {dias_extra, motivo}
   const heredados = {};
-  // Fecha de la proforma por empleado (para filtrar sugerencias y NO duplicar faltas
+  // Fecha de la proforma por colaborador (para filtrar sugerencias y NO duplicar faltas
   // que ya estaban consideradas cuando se generó la proforma).
   const fechaProformaPorEmp = {};
   (proformasPrevias || []).forEach(p => {
@@ -16502,14 +16502,14 @@ async function liqGenerarDefinitivo(local, periodo) {
          📋 <strong>${proformasPrevias.length} proforma(s)</strong> previa(s) con <strong>${totalDiasHeredados} día(s)</strong> descontados en ${cantHeredados} empleada(s). Los valores ya están pre-cargados; editá si entre proforma y definitivo hubo más faltas, suspensiones o ajustes.
        </div>`
     : `<div style="background:#dbeafe;border:1px solid #93c5fd;padding:10px;border-radius:8px;font-size:12px;color:#1e40af;margin-bottom:14px;">
-         💡 No hay proforma previa. Estás generando el <strong>cálculo final</strong> directamente — va a producir los PDFs firmables y aparecer en Mis recibos de las empleadas.
+         💡 No hay proforma previa. Estás generando el <strong>cálculo final</strong> directamente — va a producir los PDFs firmables y aparecer en Mis recibos de las colaboradoras.
        </div>`;
 
   const html = `
     <div style="padding:20px;max-width:980px;width:100%;">
       <h3 style="margin:0 0 6px;">${headerTitulo}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
-        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} empleadas
+        Período ${periodo} · ${locales.join(', ').toUpperCase()} · ${emps?.length || 0} colaboradoras
       </div>
       ${headerInfo}
       ${totalSug > 0 ? `
@@ -16532,7 +16532,7 @@ async function liqGenerarDefinitivo(local, periodo) {
           <table style="width:100%;font-size:12px;">
             <thead style="background:#f9fafb;position:sticky;top:0;">
               <tr>
-                <th style="padding:6px 10px;text-align:left;">Empleada</th>
+                <th style="padding:6px 10px;text-align:left;">Colaboradora</th>
                 <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
                 <th style="padding:6px 10px;text-align:right;width:90px;">Heredado<br>proforma</th>
                 <th style="padding:6px 10px;text-align:left;width:160px;">Faltas detectadas<br>(post-proforma)</th>
@@ -16683,7 +16683,7 @@ async function liqMostrarDiferenciasProformaDefinitivo(local, periodo) {
 
       <table style="width:100%;font-size:12px;border-collapse:collapse;">
         <thead><tr style="background:#f9fafb;">
-          <th style="padding:6px 10px;text-align:left;">Empleada</th>
+          <th style="padding:6px 10px;text-align:left;">Colaboradora</th>
           <th style="padding:6px 10px;text-align:right;">Recibo proforma</th>
           <th style="padding:6px 10px;text-align:right;">Recibo definitivo</th>
           <th style="padding:6px 10px;text-align:right;">Diferencia</th>
@@ -16753,7 +16753,7 @@ async function liqGenerarGaliciaAjuste(local, periodo) {
   }
   if (filas.length === 0) { toast('Sin diferencias positivas para exportar', 'warning'); return; }
   if (sinCuenta.length > 0) {
-    if (!confirm(`⚠ ${sinCuenta.length} empleadas sin CBU quedan fuera:\n\n  • ${sinCuenta.join('\n  • ')}\n\n¿Generar archivo con las ${filas.length} restantes?`)) return;
+    if (!confirm(`⚠ ${sinCuenta.length} colaboradoras sin CBU quedan fuera:\n\n  • ${sinCuenta.join('\n  • ')}\n\n¿Generar archivo con las ${filas.length} restantes?`)) return;
   }
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(filas, {
@@ -16762,7 +16762,7 @@ async function liqGenerarGaliciaAjuste(local, periodo) {
   ws['!cols'] = [{wch:32},{wch:22},{wch:14},{wch:14},{wch:12},{wch:18},{wch:30}];
   XLSX.utils.book_append_sheet(wb, ws, 'Ajuste');
   XLSX.writeFile(wb, `Galicia_Ajuste_${periodo}_${local}.xlsx`);
-  toast(`✓ XLSX ajuste generado · ${filas.length} empleadas`, 'success');
+  toast(`✓ XLSX ajuste generado · ${filas.length} colaboradoras`, 'success');
 }
 
 async function liqRegistrarCreditosEmpresa(local, periodo) {
@@ -16873,7 +16873,7 @@ async function liqActualizarSueldo(local, periodo) {
 
 async function liqGenerarImportes(local, periodo) {
   const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
-  if (!confirm(`⚡ Recalcular SOLO importes negros (fijo+comisión+premios+viáticos+extras+feriado+mercadería) de empleadas cct_negro en ${locales.join(', ')} para ${periodo}?\n\nNo toca el recibo CCT — súper rápido. Las empleadas en doble_blanco (Contreras/Escasany) se ignoran.`)) return;
+  if (!confirm(`⚡ Recalcular SOLO importes negros (fijo+comisión+premios+viáticos+extras+feriado+mercadería) de colaboradoras cct_negro en ${locales.join(', ')} para ${periodo}?\n\nNo toca el recibo CCT — súper rápido. Las colaboradoras en doble_blanco (Contreras/Escasany) se ignoran.`)) return;
   toast('⚡ Recalculando importes…', '');
   try {
     let totalOk = 0;
@@ -16898,7 +16898,7 @@ async function liqGenerarImportes(local, periodo) {
 
 async function liqGenerarDobleBlanco(local, periodo) {
   const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
-  if (!confirm(`💎 Procesar SOLO empleadas doble_blanco (Contreras, Escasany) en ${locales.join(', ')} para ${periodo}?\n\nRecalcula importes + recibo + solver inverso del ítem 0018 Comisiones.`)) return;
+  if (!confirm(`💎 Procesar SOLO colaboradoras doble_blanco (Contreras, Escasany) en ${locales.join(', ')} para ${periodo}?\n\nRecalcula importes + recibo + solver inverso del ítem 0018 Comisiones.`)) return;
   toast('💎 Procesando doble blanco…', '');
   try {
     let totalOk = 0;
@@ -16908,7 +16908,7 @@ async function liqGenerarDobleBlanco(local, periodo) {
       totalOk += r.ok.length;
       r.errores.forEach(e => todosErrores.push({ ...e, local: loc }));
     }
-    let msg = `💎 ${totalOk} empleadas doble_blanco recalculadas`;
+    let msg = `💎 ${totalOk} colaboradoras doble_blanco recalculadas`;
     if (todosErrores.length) msg += ` · ⚠ ${todosErrores.length} errores`;
     toast(msg, todosErrores.length ? 'error' : 'success');
     if (todosErrores.length) {
@@ -16938,7 +16938,7 @@ async function liqGenerarMes(local, periodo) {
     if (!confirm(msg)) return;
   }
   const _filtroNomGM = (typeof liqState !== 'undefined' && liqState.busqueda) ? liqState.busqueda.trim() : '';
-  const _msgFiltro = _filtroNomGM ? ` (SOLO empleadas que coinciden con "${_filtroNomGM}")` : '';
+  const _msgFiltro = _filtroNomGM ? ` (SOLO colaboradoras que coinciden con "${_filtroNomGM}")` : '';
   if (!confirm(`Generar/recalcular liquidaciones de ${locales.join(', ')} para ${periodo}${_msgFiltro}? Las liquidaciones existentes en estado "borrador" se sobrescribirán.`)) return;
   toast('Calculando…', '');
   try {
@@ -17124,11 +17124,11 @@ async function liqValidarCierreMes(local, periodo) {
       .select('id').eq('local', loc).eq('año', _yVC).eq('mes', _mVC).maybeSingle();
     if (!a) errores.push(`${tag}: asistencias del mes NO cerradas`);
     // 3. Si hubo envio de aumento para este periodo, validar que las encargadas hayan respondido
-    //    (cada empleada activa del local tiene config con vigente_desde >= periodo)
+    //    (cada colaboradora activa del local tiene config con vigente_desde >= periodo)
     const { data: envio } = await sb.from('rrhh_aumento_envio')
       .select('id, periodo_aplica').eq('periodo_aplica', periodoIso).order('id', { ascending: false }).limit(1).maybeSingle();
     if (envio) {
-      const { data: empleadas } = await sb.from('rrhh_empleados')
+      const { data: colaboradoras } = await sb.from('rrhh_empleados')
         .select('id, apellido, rrhh_sueldo_empleada_config(vigente_desde)')
         .eq('local', loc).eq('estado', 'activo');
       const sinNueva = [];
@@ -17298,7 +17298,7 @@ async function liqCerrarMes(local, periodo) {
   //  Fase 2B: cascada al mes siguiente
   //  Generar borradores del mes N+1 con los fijos copiados del mes N.
   //  Cuando arranque el mes siguiente, ya está pre-cargada la liq de cada
-  //  empleada activa con el fijo actual (aumentos incluidos). Resto en 0.
+  //  colaboradora activa con el fijo actual (aumentos incluidos). Resto en 0.
   //  Idempotente: si ya existe la liq del mes N+1 no se pisa.
   // ═══════════════════════════════════════════════════════════════════════
   let cascadaCreadas = 0;
@@ -17323,7 +17323,7 @@ async function liqCerrarMes(local, periodo) {
         .eq('periodo', periodoSig);
       const existN1 = new Set((liqsExistN1 || []).map(l => l.empleado_id));
 
-      // Solo empleadas activas (no las que fueron bajas después)
+      // Solo colaboradoras activas (no las que fueron bajas después)
       const empIds = liqsN.map(l => l.empleado_id);
       const { data: activas } = await sb.from('rrhh_empleados')
         .select('id').in('id', empIds).eq('estado', 'activo');
@@ -17511,10 +17511,10 @@ async function renderRetirosMercaderia() {
   const ultimoDia = new Date(y, m, 0).getDate();
   const hasta = `${y}-${String(m).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
 
-  // Empleadas activas
+  // Colaboradoras activas
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, apellido, nombre, local').eq('estado','activo');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
-  const { data: empleadas } = await qEmp.order('apellido');
+  const { data: colaboradoras } = await qEmp.order('apellido');
   const opcionesEmp = (empleadas||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
 
   // Retiros del mes (vista enriquecida con info de cuotas + empleada)
@@ -17530,7 +17530,7 @@ async function renderRetirosMercaderia() {
   if (localFiltro) qPend = qPend.eq('local', localFiltro);
   const { data: pendientes } = await qPend;
 
-  // Posibles duplicados detectados por el sync (mismo empleado + fecha ±3d + importe igual)
+  // Posibles duplicados detectados por el sync (mismo colaborador + fecha ±3d + importe igual)
   // Traemos los pares completos (el nuevo apunta al viejo con posible_duplicado_de)
   let qDupes = sb.from('rrhh_retiros_mercaderia')
     .select('id, fecha, importe, vendedor_dragonfish, local, empleado_id, dragonfish_codigo, observacion, posible_duplicado_de, estado')
@@ -17605,7 +17605,7 @@ async function renderRetirosMercaderia() {
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
           <thead><tr style="background:#fef3c7;text-align:left;">
-            <th style="padding:6px;">Empleada</th><th style="padding:6px;">Fecha</th><th style="padding:6px;">Local</th>
+            <th style="padding:6px;">Colaboradora</th><th style="padding:6px;">Fecha</th><th style="padding:6px;">Local</th>
             <th style="padding:6px;text-align:right;">Importe</th><th style="padding:6px;">Retiro A (original)</th><th style="padding:6px;">Retiro B (nuevo)</th><th style="padding:6px;">Acción</th>
           </tr></thead>
           <tbody>
@@ -17666,7 +17666,7 @@ async function renderRetirosMercaderia() {
       <h3 style="margin:0 0 12px;">➕ Cargar retiro manual</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Usar solo si NO se cargó en Dragonfish. Lo normal es que el sync los traiga automáticamente cada hora.</div>
       <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 2fr 70px auto;gap:10px;align-items:end;">
-        <div class="form-row"><label>Empleada</label>
+        <div class="form-row"><label>Colaboradora</label>
           <select id="ret-emp"><option value="">— Elegir —</option>${opcionesEmp}</select>
         </div>
         <div class="form-row"><label>Fecha</label><input type="date" id="ret-fecha" value="${new Date().toISOString().slice(0,10)}"></div>
@@ -17701,7 +17701,7 @@ async function renderRetirosMercaderia() {
           <div class="section-title">📊 Resumen por empleada</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead><tr style="background:#f9fafb;text-align:left;">
-              <th style="padding:8px;">Empleada</th>
+              <th style="padding:8px;">Colaboradora</th>
               ${isAdmin ? '<th style="padding:8px;">Local</th>' : ''}
               <th style="padding:8px;text-align:right;">Retiros</th>
               <th style="padding:8px;text-align:right;">Total $</th>
@@ -17739,7 +17739,7 @@ async function renderRetirosMercaderia() {
         <thead><tr style="background:#f9fafb;text-align:left;">
           <th style="padding:8px;">Fecha</th>
           <th style="padding:8px;">Origen</th>
-          <th style="padding:8px;">Empleada</th>
+          <th style="padding:8px;">Colaboradora</th>
           ${isAdmin ? '<th style="padding:8px;">Local</th>' : ''}
           <th style="padding:8px;text-align:right;">Importe</th>
           <th style="padding:8px;text-align:center;">Cuotas</th>
@@ -17897,16 +17897,16 @@ async function retDescartar(id) {
 
 async function retAsignarEmpleado(id, empId) {
   if (!empId) return;
-  // Cargar el empleado anterior (para refrescar su liq también)
+  // Cargar el colaborador anterior (para refrescar su liq también)
   const { data: prev } = await sb.from('rrhh_retiros_mercaderia')
     .select('empleado_id, fecha, cuotas_total').eq('id', id).maybeSingle();
   const { error } = await sb.from('rrhh_retiros_mercaderia').update({
     empleado_id: parseInt(empId), estado: 'asignado'
   }).eq('id', id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  // Refrescar liq del empleado NUEVO
+  // Refrescar liq del colaborador NUEVO
   await retRefrescarLiqDeRetiro(id);
-  // Refrescar liq del empleado ANTERIOR (que ya no debe tener este retiro)
+  // Refrescar liq del colaborador ANTERIOR (que ya no debe tener este retiro)
   if (prev?.empleado_id && prev.empleado_id !== parseInt(empId) && prev.fecha) {
     const cuotasPrev = Math.max(1, prev.cuotas_total || 1);
     const [yP, mP] = prev.fecha.split('-').map(Number);
@@ -17965,7 +17965,7 @@ window.retBorrar = retCancelar;
 // ═══════════════════════════════════════════════════════════════════
 //  AUMENTOS PEDIDOS — flujo encargada ↔ admin
 //  Admin abre un pedido para un local con rango % → la encargada
-//  propone un % por empleada → admin aprueba → admin aplica
+//  propone un % por colaboradora → admin aprueba → admin aplica
 //  (crea nuevas filas en rrhh_sueldo_empleada_config con fijo nuevo).
 // ═══════════════════════════════════════════════════════════════════
 let aumState = { local: null };
@@ -17988,7 +17988,7 @@ async function renderAumentos() {
       <h2>Aumentos pedidos</h2>
       <div class="subtitle">${isAdmin
         ? 'Mirá la inflación, definí el rango en pesos y mandale a cada encargada la planilla.'
-        : 'La oficina te pide que propongas un % de aumento por empleada dentro del rango habilitado.'}</div>
+        : 'La oficina te pide que propongas un % de aumento por colaboradora dentro del rango habilitado.'}</div>
     </div>
 
     ${isAdmin ? `
@@ -18001,7 +18001,7 @@ async function renderAumentos() {
     <div class="card" style="padding:16px;margin-bottom:14px;background:#fef3c7;border:1px solid #fde68a;">
       <h3 style="margin:0 0 6px;">📤 Disparar rangos a encargadas (en pesos)</h3>
       <div style="color:#78350f;font-size:13px;margin-bottom:14px;line-height:1.45;">
-        Ingresá el % mínimo y máximo. El sistema arma una planilla por empleada con su fijo actual + rango en PESOS REDONDEADOS y la manda por push a cada encargada. <strong>Soraya (Unicenter)</strong> recibe además la nota de aumentarle a Marcelo el máximo del rango.
+        Ingresá el % mínimo y máximo. El sistema arma una planilla por colaboradora con su fijo actual + rango en PESOS REDONDEADOS y la manda por push a cada encargada. <strong>Soraya (Unicenter)</strong> recibe además la nota de aumentarle a Marcelo el máximo del rango.
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;align-items:end;">
         <div class="form-row"><label>% mínimo</label><input type="number" id="aum-rg-pmin" value="6" min="0" step="0.5"></div>
@@ -18020,16 +18020,16 @@ async function renderAumentos() {
       </div>
     </div>
 
-    <!-- ═════ Aumento puntual a empleado (caso especial) ═════ -->
+    <!-- ═════ Aumento puntual a colaborador (caso especial) ═════ -->
     <div class="card" style="padding:16px;margin-bottom:14px;background:#ecfdf5;border:1px solid #a7f3d0;">
-      <h3 style="margin:0 0 6px;">🎯 Aumento puntual a empleada (caso especial)</h3>
+      <h3 style="margin:0 0 6px;">🎯 Aumento puntual a colaboradora (caso especial)</h3>
       <div style="color:#065f46;font-size:13px;margin-bottom:14px;line-height:1.45;">
-        Subir el <strong>fijo</strong> de una empleada sin pasar por el rango grupal. Pensado para promociones, ajustes individuales o casos especiales. Se crea una nueva fila vigente desde la fecha que elijas (se respeta el histórico anterior).
+        Subir el <strong>fijo</strong> de una colaboradora sin pasar por el rango grupal. Pensado para promociones, ajustes individuales o casos especiales. Se crea una nueva fila vigente desde la fecha que elijas (se respeta el histórico anterior).
       </div>
       <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 2fr auto;gap:10px;align-items:end;">
-        <div class="form-row"><label>Empleada</label>
+        <div class="form-row"><label>Colaboradora</label>
           <select id="aum-puntual-emp" onchange="aumPuntualOnSelect()">
-            <option value="">— Elegir empleada —</option>
+            <option value="">— Elegir colaboradora —</option>
           </select>
         </div>
         <div class="form-row"><label>Fijo actual</label>
@@ -18052,7 +18052,7 @@ async function renderAumentos() {
     <div class="card" style="padding:16px;margin-bottom:14px;background:#eff6ff;border:1px solid #bfdbfe;">
       <h3 style="margin:0 0 6px;">💼 Aumento admin — Viáticos · Premio fichadas · Feriado por día</h3>
       <div style="color:#1e40af;font-size:13px;margin-bottom:14px;line-height:1.45;">
-        Aplica el mismo % a viáticos y premio (todas las empleadas activas con config vigente) + feriado por día (config por local). No pasa por encargadas. Crea nuevas filas vigentes desde la fecha que elijas (respeta histórico).
+        Aplica el mismo % a viáticos y premio (todas las colaboradoras activas con config vigente) + feriado por día (config por local). No pasa por encargadas. Crea nuevas filas vigentes desde la fecha que elijas (respeta histórico).
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:10px;">
         <div class="form-row"><label>% aumento</label>
@@ -18093,7 +18093,7 @@ async function renderAumentos() {
     ` : ''}
   `;
 
-  // Render asincrónico del panel IPC + selector empleadas + historial (solo admin)
+  // Render asincrónico del panel IPC + selector colaboradoras + historial (solo admin)
   if (isAdmin) {
     aumIPCRender().catch(e => console.warn('aumIPCRender', e));
     aumPuntualCargarSelect().catch(e => console.warn('aumPuntualCargarSelect', e));
@@ -18165,7 +18165,7 @@ async function aumGerenteRender() {
   if (cantAplicadas === 0) {
     bannerEstado = `
       <div style="background:#fef3c7;border:1px solid #fcd34d;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
-        🟡 <strong>Pendiente</strong> — para cada empleada elegí el monto exacto del fijo nuevo (dentro del rango)
+        🟡 <strong>Pendiente</strong> — para cada colaboradora elegí el monto exacto del fijo nuevo (dentro del rango)
         y apretá <em>Aplicar aumentos</em>. Una vez aplicado queda registrado para la liquidación del mes.
         ${encargadaId ? '<br>🎯 <strong>Tu fila ya tiene MAX pre-cargado.</strong>' : ''}
         ${local === 'unicenter' ? '<br>🧹 <strong>Recordatorio:</strong> después de aplicar, avisale a JP para actualizar el sueldo de <strong>Marcelo</strong> (limpieza, monotributo, fuera de planilla).' : ''}
@@ -18174,13 +18174,13 @@ async function aumGerenteRender() {
   } else if (cantAplicadas >= cantTotal) {
     bannerEstado = `
       <div style="background:#d1fae5;border:1px solid #6ee7b7;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
-        🟢 <strong>Aplicado</strong> — Ya cargaste los aumentos de tus ${cantTotal} empleadas para este mes.
+        🟢 <strong>Aplicado</strong> — Ya cargaste los aumentos de tus ${cantTotal} colaboradoras para este mes.
       </div>
     `;
   } else {
     bannerEstado = `
       <div style="background:#dbeafe;border:1px solid #93c5fd;padding:10px;border-radius:6px;font-size:13px;margin-bottom:14px;">
-        🔵 <strong>Parcial</strong> — Llevás ${cantAplicadas} de ${cantTotal} empleadas cargadas. Completá las que faltan.
+        🔵 <strong>Parcial</strong> — Llevás ${cantAplicadas} de ${cantTotal} colaboradoras cargadas. Completá las que faltan.
       </div>
     `;
   }
@@ -18195,7 +18195,7 @@ async function aumGerenteRender() {
     ${bannerEstado}
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#f9fafb;text-align:left;">
-        <th style="padding:8px;">Empleada</th>
+        <th style="padding:8px;">Colaboradora</th>
         <th style="padding:8px;text-align:right;">Fijo actual</th>
         <th style="padding:8px;text-align:right;">Rango sugerido</th>
         <th style="padding:8px;text-align:right;">Fijo nuevo</th>
@@ -18241,11 +18241,11 @@ async function aumGerenteRender() {
     </table>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap;">
       <div style="font-size:12px;color:var(--muted);">
-        💡 El fijo nuevo tiene que estar dentro del rango. Si dejás un input vacío, esa empleada queda sin aplicar.
+        💡 El fijo nuevo tiene que estar dentro del rango. Si dejás un input vacío, esa colaboradora queda sin aplicar.
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${cantAplicadas < cantTotal
-          ? `<button class="btn" onclick="aumGerenteUsarMaxTodos()" title="Setea el MAX autorizado a TODAS las empleadas pendientes" style="background:#16a34a;color:white;border-color:#16a34a;font-weight:600;">⚡ Usar MAX en todas</button>`
+          ? `<button class="btn" onclick="aumGerenteUsarMaxTodos()" title="Setea el MAX autorizado a TODAS las colaboradoras pendientes" style="background:#16a34a;color:white;border-color:#16a34a;font-weight:600;">⚡ Usar MAX en todas</button>`
           : ''}
         <button class="btn" onclick="aumGerenteCopiarPropuesta()" title="Copiar como texto para WhatsApp/mail">📋 Copiar resumen</button>
         ${cantAplicadas < cantTotal
@@ -18418,7 +18418,7 @@ function aumGerenteCopiarPropuesta() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  Aumento puntual a empleada (caso especial)
+//  Aumento puntual a colaboradora (caso especial)
 // ════════════════════════════════════════════════════════════════════
 let _aumPuntualConfigs = []; // cache de configs vigentes por empleada
 
@@ -18445,7 +18445,7 @@ async function aumPuntualCargarSelect() {
     return (a.rrhh_empleados.apellido || '').localeCompare(b.rrhh_empleados.apellido || '');
   });
 
-  sel.innerHTML = '<option value="">— Elegir empleada —</option>' +
+  sel.innerHTML = '<option value="">— Elegir colaboradora —</option>' +
     _aumPuntualConfigs.map(c => {
       const e = c.rrhh_empleados;
       const loc = (e.local || '').charAt(0).toUpperCase() + (e.local || '').slice(1);
@@ -18484,7 +18484,7 @@ async function aumPuntualAplicar() {
     .order('vigente_desde', { ascending: false })
     .limit(1).maybeSingle();
   if (eA) { toast('Error: ' + eA.message, 'error'); return; }
-  if (!actual) { toast('La empleada no tiene config vigente', 'error'); return; }
+  if (!actual) { toast('La colaboradora no tiene config vigente', 'error'); return; }
 
   if (fijoNuevo === Number(actual.fijo)) {
     toast('El fijo nuevo es igual al actual', 'warning'); return;
@@ -18528,7 +18528,7 @@ async function aumPuntualAplicar() {
 // ════════════════════════════════════════════════════════════════════
 //  Aumento admin: Viáticos / Premio fichadas / Feriado por día
 //  Solo admin. No pasa por encargadas. Aplica el mismo % a todas las
-//  empleadas activas + a la config de feriado por local.
+//  colaboradoras activas + a la config de feriado por local.
 // ════════════════════════════════════════════════════════════════════
 
 async function aumExtrasPreview() {
@@ -18546,20 +18546,20 @@ async function aumExtrasPreview() {
   const factor = 1 + pct/100;
   const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR');
 
-  // 1) Config empleadas vigentes (la más reciente por empleada hasta vigencia)
-  let empleadas = [];
+  // 1) Config colaboradoras vigentes (la más reciente por colaboradora hasta vigencia)
+  let colaboradoras = [];
   if (aplicaViaticos || aplicaPremio) {
     const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
       .select('empleado_id, fijo, viaticos, premio_fichadas_uniforme, fraccion_comision, modo_prorrateo_comision, activa_en_modulo, vigente_desde, notas, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
       .lte('vigente_desde', vigencia)
       .eq('activa_en_modulo', true)
       .order('vigente_desde', { ascending: true });
-    if (error) { toast('Error empleadas: ' + error.message, 'error'); return; }
+    if (error) { toast('Error colaboradoras: ' + error.message, 'error'); return; }
     const porEmp = {};
     (configs || [])
       .filter(c => c.rrhh_empleados?.estado === 'activo')
       .forEach(c => { porEmp[c.empleado_id] = c; });
-    empleadas = Object.values(porEmp).sort((a,b) => {
+    colaboradoras = Object.values(porEmp).sort((a,b) => {
       const la = a.rrhh_empleados.local || '', lb = b.rrhh_empleados.local || '';
       if (la !== lb) return la.localeCompare(lb);
       return (a.rrhh_empleados.apellido || '').localeCompare(b.rrhh_empleados.apellido || '');
@@ -18639,7 +18639,7 @@ async function aumExtrasPreview() {
           <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;">🏬 ${loc.charAt(0).toUpperCase()+loc.slice(1)} (${lista.length} empleadas)</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead><tr style="background:#fafafa;text-align:left;">
-              <th style="padding:6px 10px;">Empleada</th>
+              <th style="padding:6px 10px;">Colaboradora</th>
               ${aplicaViaticos ? '<th style="padding:6px 10px;text-align:right;">Viáticos actual</th><th style="padding:6px 10px;text-align:right;">Viáticos nuevo</th>' : ''}
               ${aplicaPremio ? '<th style="padding:6px 10px;text-align:right;">Premio actual</th><th style="padding:6px 10px;text-align:right;">Premio nuevo</th>' : ''}
             </tr></thead>
@@ -18672,7 +18672,7 @@ async function aumExtrasAplicar() {
   if (!p) { toast('No hay preview', 'error'); return; }
   const cantEmp = (p.aplicaViaticos || p.aplicaPremio) ? p.empleadas.length : 0;
   const cantLoc = p.aplicaFeriado ? p.localesConfig.length : 0;
-  if (!confirm(`¿Aplicar el aumento del ${p.pct}% a:\n- ${cantEmp} empleadas (viáticos/premio)\n- ${cantLoc} locales (feriado)\n\nVigente desde ${p.vigencia}.\n\nCrea nuevas filas históricas en el sistema.`)) return;
+  if (!confirm(`¿Aplicar el aumento del ${p.pct}% a:\n- ${cantEmp} colaboradoras (viáticos/premio)\n- ${cantLoc} locales (feriado)\n\nVigente desde ${p.vigencia}.\n\nCrea nuevas filas históricas en el sistema.`)) return;
 
   let okEmp = 0, errEmp = 0, okLoc = 0, errLoc = 0;
   if (p.aplicaViaticos || p.aplicaPremio) {
@@ -18711,7 +18711,7 @@ async function aumExtrasAplicar() {
   }
   closeModal();
   if (errEmp === 0 && errLoc === 0) {
-    toast(`✓ Aplicado: ${okEmp} empleadas + ${okLoc} locales`, 'success');
+    toast(`✓ Aplicado: ${okEmp} colaboradoras + ${okLoc} locales`, 'success');
   } else {
     toast(`Aplicado parcial: emp ${okEmp}/${okEmp+errEmp}, locales ${okLoc}/${okLoc+errLoc}. Ver consola.`, 'warning');
   }
@@ -18823,7 +18823,7 @@ async function aumEnvioEditar(id) {
       <h3 style="margin:0 0 8px;">✏️ Editar propuesta de aumento</h3>
       <p style="font-size:12px;color:var(--muted);margin:0 0 14px;">
         Sólo se puede editar mientras esté Pendiente. Las encargadas verán los nuevos valores
-        la próxima vez que abran la app. El detalle por empleada NO se recalcula automáticamente —
+        la próxima vez que abran la app. El detalle por colaboradora NO se recalcula automáticamente —
         si querés rangos individuales nuevos, borrá y volvé a enviar.
       </p>
       <div style="display:grid;gap:10px;">
@@ -18915,12 +18915,12 @@ async function _aumAbrirPedido_DEPRECATED() {
     pedido_id: ped.id, empleado_id: c.empleado_id, fijo_anterior: c.fijo_mensual,
   }));
   if (filas.length === 0) {
-    toast('No hay empleadas activas en ' + local, 'warning');
+    toast('No hay colaboradoras activas en ' + local, 'warning');
   } else {
     const { error: e2 } = await sb.from('rrhh_aumento_pedido_detalle').insert(filas);
     if (e2) { toast('Pedido creado pero falló detalle: ' + e2.message, 'error'); return; }
   }
-  toast(`Pedido #${ped.id} abierto con ${filas.length} empleadas`, 'success');
+  toast(`Pedido #${ped.id} abierto con ${filas.length} colaboradoras`, 'success');
   switchTab('aumentos');
 }
 
@@ -18961,7 +18961,7 @@ async function aumAbrirDetalle(pedidoId) {
 
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;">Empleada</th>
+          <th style="padding:8px;">Colaboradora</th>
           <th style="padding:8px;text-align:right;">Fijo anterior</th>
           <th style="padding:8px;text-align:right;">% propuesto</th>
           <th style="padding:8px;text-align:right;">Fijo nuevo</th>
@@ -19019,7 +19019,7 @@ function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
   tgt.textContent = '$' + Math.round(nuevo).toLocaleString('es-AR');
 }
 
-// ── Encargada: setea el input al MAX autorizado para una empleada (botón en cada fila) ──
+// ── Encargada: setea el input al MAX autorizado para una colaboradora (botón en cada fila) ──
 // Usa event delegation porque los botones se generan dinámicamente con la grilla.
 document.addEventListener('click', (ev) => {
   const btn = ev.target.closest('.aum-ger-max-btn');
@@ -19038,14 +19038,14 @@ document.addEventListener('click', (ev) => {
   setTimeout(() => { inp.style.backgroundColor = ''; }, 400);
 });
 
-// ── Encargada: aplica el MAX a todas las empleadas pendientes de una sola vez ──
+// ── Encargada: aplica el MAX a todas las colaboradoras pendientes de una sola vez ──
 function aumGerenteUsarMaxTodos() {
   const filas = document.querySelectorAll('#aum-ger-tbody tr');
-  if (filas.length === 0) { toast('No hay empleadas en la planilla', 'info'); return; }
+  if (filas.length === 0) { toast('No hay colaboradoras en la planilla', 'info'); return; }
   let pendientes = 0;
   filas.forEach(tr => { if (tr.getAttribute('data-aplicada') !== '1') pendientes++; });
-  if (pendientes === 0) { toast('No quedan empleadas pendientes', 'info'); return; }
-  if (!confirm(`¿Setear el monto MAXIMO autorizado a las ${pendientes} empleadas pendientes?\n\nVas a poder ajustar caso a caso después si querés.`)) return;
+  if (pendientes === 0) { toast('No quedan colaboradoras pendientes', 'info'); return; }
+  if (!confirm(`¿Setear el monto MAXIMO autorizado a las ${pendientes} colaboradoras pendientes?\n\nVas a poder ajustar caso a caso después si querés.`)) return;
   let count = 0;
   filas.forEach(tr => {
     if (tr.getAttribute('data-aplicada') === '1') return;
@@ -19245,7 +19245,7 @@ async function aumPreviewRangos() {
     .sort((a, b) => (a.vigente_desde || '').localeCompare(b.vigente_desde || ''))
     .forEach(c => { porEmp[c.empleado_id] = c; });
 
-  const empleados = Object.values(porEmp).filter(c => Number(c.fijo) > 0);
+  const colaboradores = Object.values(porEmp).filter(c => Number(c.fijo) > 0);
   if (empleados.length === 0) { toast('No hay vendedoras con fijo > 0', 'warning'); return; }
 
   // Redondear hacia el múltiplo más cercano
@@ -19304,7 +19304,7 @@ async function aumPreviewRangos() {
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#fafafa;text-align:left;">
-            <th style="padding:6px 10px;">Empleada</th>
+            <th style="padding:6px 10px;">Colaboradora</th>
             <th style="padding:6px 10px;text-align:right;">Fijo actual</th>
             <th style="padding:6px 10px;text-align:right;">Rango sugerido</th>
           </tr></thead>
@@ -19444,7 +19444,7 @@ async function aumMarcarPropuesto(pedidoId) {
   const { data: det } = await sb.from('rrhh_aumento_pedido_detalle').select('id, pct_propuesto').eq('pedido_id', pedidoId);
   const faltan = (det||[]).filter(d => d.pct_propuesto == null);
   if (faltan.length > 0) {
-    if (!confirm(`Hay ${faltan.length} empleada(s) sin % cargado. ¿Marcar igual como propuesto? Esas empleadas quedarán sin aumento.`)) return;
+    if (!confirm(`Hay ${faltan.length} empleada(s) sin % cargado. ¿Marcar igual como propuesto? Esas colaboradoras quedarán sin aumento.`)) return;
   }
   const { error } = await sb.from('rrhh_aumento_pedido').update({
     estado: 'propuesto', propuesto_at: new Date().toISOString(),
@@ -19694,7 +19694,7 @@ async function _validarTopesPrestamo(empleadoId, capital, cuotas, tasaPctAnual) 
 
   const reglaAntig = _toleranciaPrestamoPorAntig(mesesAntig);
   if (!reglaAntig.permite) {
-    warnings.push(`✗ Antigüedad: ${reglaAntig.etiqueta} → política Adorno NO permite otorgar préstamos a empleadas con menos de 6 meses`);
+    warnings.push(`✗ Antigüedad: ${reglaAntig.etiqueta} → política Adorno NO permite otorgar préstamos a colaboradoras con menos de 6 meses`);
     ok = false;
   }
 
@@ -19747,7 +19747,7 @@ async function renderPrestamosGerente() {
   }
   cont.innerHTML = '<div class="spinner"></div>';
 
-  // Empleadas activas del local
+  // Colaboradoras activas del local
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, nombre_completo, local')
     .eq('estado', 'activo').eq('local', local)
@@ -19848,7 +19848,7 @@ async function renderPrestamosGerente() {
     <div class="card" style="padding:0;overflow:hidden;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f0f9ff;text-align:left;">
-          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
+          <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Colaboradora</th>
           <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Monto</th>
           <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Concepto</th>
           <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Descuento en</th>
@@ -19979,12 +19979,12 @@ async function renderPrestamosGerente() {
     <div class="card" style="padding:0;overflow:hidden;">
       ${(prestamos || []).length === 0 ? `
         <div class="emp-empty" style="padding:40px;">
-          🎉 Ninguna empleada del local tiene préstamos activos.
+          🎉 Ninguna colaboradora del local tiene préstamos activos.
         </div>
       ` : `
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#f9fafb;text-align:left;">
-            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Colaboradora</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;" title="Capital + intereses totales del préstamo">Total préstamo</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Capital</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Cuota</th>
@@ -20098,7 +20098,7 @@ async function renderPrestamos() {
     return;
   }
 
-  // Cargar lista de empleados para el filtro
+  // Cargar lista de colaboradores para el filtro
   const { data: empleadosTodos } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, local').eq('estado', 'activo').order('apellido');
   const localesUnicos = [...new Set((empleadosTodos || []).map(e => e.local).filter(Boolean))].sort();
@@ -20349,7 +20349,7 @@ async function renderPrestamos() {
         <option value="">Todos</option>
         ${localesUnicos.map(l => `<option value="${escapeHtml(l)}" ${prestamoState.local===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
       </select>
-      <input type="search" placeholder="🔍 Buscar empleada…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
+      <input type="search" placeholder="🔍 Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
       ${(prestamoState.q || prestamoState.local) ? `<button class="btn small" onclick="_prestamoSetQ(''); _prestamoSetLocal(''); switchTab('prestamos');">↺ Limpiar</button>` : ''}
     </div>
 
@@ -20358,7 +20358,7 @@ async function renderPrestamos() {
       ${prestamos_view.length === 0 ? `<div style="padding:14px;color:var(--muted);">Sin préstamos para mostrar.</div>` : `
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('empleada')" title="Ordenar por empleada">Empleada${sortBy==='empleada'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('empleada')" title="Ordenar por empleada">Colaboradora${sortBy==='empleada'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;">Local</th>
           <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('fecha')" title="Ordenar por fecha">Otorgado${sortBy==='fecha'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('capital')" title="Ordenar por capital">Capital${sortBy==='capital'?(dir===1?' ▲':' ▼'):''}</th>
@@ -20423,7 +20423,7 @@ async function renderPrestamos() {
       <div class="card" style="padding:0;overflow:hidden;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#f0f9ff;text-align:left;">
-            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Empleada</th>
+            <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Colaboradora</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Local</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-align:right;text-transform:uppercase;letter-spacing:0.05em;">Monto</th>
             <th style="padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Concepto</th>
@@ -20587,7 +20587,7 @@ async function prestamoRefinanciarAdminContinuar(prestamoId, saldoCapital) {
     closeModal();
 
     // Abrir el wizard de nuevo préstamo. Pre-cargar capital = saldo + adicional
-    // y empleado preseleccionado.
+    // y colaborador preseleccionado.
     await prestamoAbrirNuevo({
       empleadoId: data.empleado_id,
       capitalPrecargado: saldoCapital + cap,
@@ -20600,7 +20600,7 @@ async function prestamoRefinanciarAdminContinuar(prestamoId, saldoCapital) {
 }
 
 async function prestamoAbrirNuevo(prefill = {}) {
-  // Lista de empleadas activas para el dropdown
+  // Lista de colaboradoras activas para el dropdown
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, local')
     .eq('estado', 'activo')
@@ -20613,7 +20613,7 @@ async function prestamoAbrirNuevo(prefill = {}) {
   const html = `
     <h3 style="margin:0 0 14px;">➕ Otorgar nuevo préstamo</h3>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:10px;">
-      <div class="form-row"><label>Empleada</label>
+      <div class="form-row"><label>Colaboradora</label>
         <select id="pr-emp"><option value="">— Elegir —</option>${opts}</select>
       </div>
       <div class="form-row"><label>Fecha otorgamiento</label><input type="date" id="pr-fecha" value="${hoy}"></div>
@@ -20632,7 +20632,7 @@ async function prestamoAbrirNuevo(prefill = {}) {
       <input type="checkbox" id="pr-esperar-confirmacion" checked style="width:18px;height:18px;cursor:pointer;">
       <label for="pr-esperar-confirmacion" style="cursor:pointer;font-size:13px;color:#3730a3;line-height:1.4;">
         <strong>Esperar confirmación de la empleada</strong><br>
-        <span style="font-size:11px;color:#6366f1;">Tildado: queda como propuesta y la empleada lo acepta/rechaza desde su app. Destildado: queda activo directo (para préstamos ya acordados verbalmente o históricos).</span>
+        <span style="font-size:11px;color:#6366f1;">Tildado: queda como propuesta y la colaboradora lo acepta/rechaza desde su app. Destildado: queda activo directo (para préstamos ya acordados verbalmente o históricos).</span>
       </label>
     </div>
 
@@ -20641,7 +20641,7 @@ async function prestamoAbrirNuevo(prefill = {}) {
     </div>
 
     <div style="text-align:right;margin-bottom:6px;">
-      <button class="btn small" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="verTopesPrestamo()" title="Calcular topes para esta empleada según su antigüedad y promedio de sueldos">📋 Ver topes para esta empleada</button>
+      <button class="btn small" style="background:#16a34a;color:white;border-color:#16a34a;" onclick="verTopesPrestamo()" title="Calcular topes para esta colaboradora según su antigüedad y promedio de sueldos">📋 Ver topes para esta empleada</button>
     </div>
 
     <div id="pr-preview" style="background:#f9fafb;padding:12px;border-radius:8px;margin:14px 0;display:none;">
@@ -20719,12 +20719,12 @@ async function adelantoAbrirNuevo() {
   const btnCrear = document.querySelector('#global-modal button.btn.primary');
   if (btnCrear) btnCrear.innerHTML = '💾 Otorgar adelanto';
 
-  toast('Cargá empleada y monto. Cuotas=1, CFT=0%, mes actual.', 'info');
+  toast('Cargá colaboradora y monto. Cuotas=1, CFT=0%, mes actual.', 'info');
 }
 
 async function verTopesPrestamo() {
   const empId = parseInt(document.getElementById('pr-emp').value);
-  if (!empId) { toast('Elegí una empleada primero', 'error'); return; }
+  if (!empId) { toast('Elegí una colaboradora primero', 'error'); return; }
   const div = document.getElementById('pr-topes-info');
   div.style.display = 'block';
   div.innerHTML = 'Calculando…';
@@ -20902,7 +20902,7 @@ function prestamoCompararCuotas() {
       </tbody>
     </table>
     <div style="font-size:11px;color:#854d0e;margin-top:6px;">
-      Tocá <strong>↗</strong> en la opción que prefiera la empleada para setearla y ver el plan completo.
+      Tocá <strong>↗</strong> en la opción que prefiera la colaboradora para setearla y ver el plan completo.
     </div>
   `;
 }
@@ -21002,7 +21002,7 @@ async function prestamoCrear() {
     }
   }
 
-  // Lookup del nombre de la empleada para los mensajes (best effort)
+  // Lookup del nombre de la colaboradora para los mensajes (best effort)
   let empNombre = '';
   try {
     const { data: e } = await sb.from('rrhh_empleados').select('nombre').eq('id', empId).single();
@@ -21024,7 +21024,7 @@ async function prestamoCrear() {
   }
   const ajustado = window._prestamoPlanInputs?.ajustado ? ' (con ajuste manual)' : '';
 
-  if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la empleada en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}?\n\nCFT ${tasaPct}% anual (mensual ${(tasa*100).toFixed(2)}%)${ajustado}\n\nEsta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
+  if (!confirm(`¿Otorgar préstamo de ${capital.toLocaleString('es-AR')} a la colaboradora en ${cuotas} cuotas de ${plan.cuota_monto.toLocaleString('es-AR')}?\n\nCFT ${tasaPct}% anual (mensual ${(tasa*100).toFixed(2)}%)${ajustado}\n\nEsta acción se va a aplicar automáticamente en cada liquidación mensual.`)) return;
 
   // ¿Estamos editando una propuesta existente?
   const editandoId = window._prestamoEditandoId || null;
@@ -21097,7 +21097,7 @@ async function prestamoCrear() {
 
   // Si es refinanciación, vincular con la solicitud (sea propuesta o activo directo).
   // La RPC rrhh_refinanciar_directo se encarga de: si el nuevo está activo, refinancia
-  // inmediatamente el viejo. Si está propuesto, espera a que la empleada acepte.
+  // inmediatamente el viejo. Si está propuesto, espera a que la colaboradora acepte.
   if (window._prestamoRefiSolicitudId && !editandoId) {
     try {
       const { data: rRefi, error: eRefi } = await sb.rpc('rrhh_refinanciar_directo', {
@@ -21117,7 +21117,7 @@ async function prestamoCrear() {
   // Limpiar estado de edición
   window._prestamoEditandoId = null;
   window._prestamoRefiSolicitudId = null;
-  // 🔔 Push a la empleada (mensaje según el caso) — solo si NO estamos editando
+  // 🔔 Push a la colaboradora (mensaje según el caso) — solo si NO estamos editando
   const mesIniTxt = (() => {
     const [y, m] = mesIni.split('-').map(Number);
     return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
@@ -21270,7 +21270,7 @@ async function prestamoCancelar(prestamoId) {
   if (e2) { toast('Préstamo cancelado pero falló marcar cuotas: ' + e2.message, 'warning'); return; }
 
   toast('Préstamo cancelado anticipadamente', 'success');
-  // 🔔 Push a la empleada — averiguar el empleado_id
+  // 🔔 Push a la colaboradora — averiguar el empleado_id
   const { data: prest } = await sb.from('rrhh_prestamo').select('empleado_id').eq('id', prestamoId).single();
   if (prest && prest.empleado_id) {
     enviarPush(
@@ -21304,7 +21304,7 @@ async function prestamoEditarPropuesta(prestamoId) {
   // Precargar valores
   const empSel = document.getElementById('pr-emp');
   if (empSel) empSel.value = String(p.empleado_id);
-  // Bloquear cambio de empleada (al editar la propuesta sigue siendo para la misma)
+  // Bloquear cambio de colaboradora (al editar la propuesta sigue siendo para la misma)
   if (empSel) empSel.disabled = true;
   document.getElementById('pr-fecha').value = p.fecha_otorgamiento;
   document.getElementById('pr-capital').value = fmtMoneyInput(p.capital);
@@ -21340,7 +21340,7 @@ async function prestamoBorrarPropuesta(prestamoId) {
   if (!p) { toast('Propuesta no encontrada', 'error'); return; }
   if (p.estado !== 'propuesto') { toast('Solo se puede borrar una propuesta no aceptada', 'error'); return; }
 
-  if (!confirm(`¿Borrar la propuesta #${prestamoId} (capital $${Number(p.capital).toLocaleString('es-AR')} en ${p.cuotas_totales} cuotas)?\n\nSi la empleada todavía no la vio, no se va a enterar. Si ya la vio en su app, le va a desaparecer.`)) return;
+  if (!confirm(`¿Borrar la propuesta #${prestamoId} (capital $${Number(p.capital).toLocaleString('es-AR')} en ${p.cuotas_totales} cuotas)?\n\nSi la colaboradora todavía no la vio, no se va a enterar. Si ya la vio en su app, le va a desaparecer.`)) return;
 
   // Borrar cuotas primero (FK)
   const { error: e1 } = await sb.from('rrhh_prestamo_cuota').delete().eq('prestamo_id', prestamoId);
@@ -21493,7 +21493,7 @@ async function abrirCrearPropuestasEnBloque(solicitudId) {
   const htmlModal = `
     <h3 style="margin:0 0 8px;">📝 Crear propuestas para ${escapeHtml(s.empleado?.nombre_completo || '')}</h3>
     <div style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;margin-bottom:14px;line-height:1.5;">
-      La empleada pidió <strong>$${Math.round(s.monto_solicitado).toLocaleString('es-AR')}</strong> · opciones: <strong>${opciones.join(' / ')} cuotas</strong>.
+      La colaboradora pidió <strong>$${Math.round(s.monto_solicitado).toLocaleString('es-AR')}</strong> · opciones: <strong>${opciones.join(' / ')} cuotas</strong>.
       ${s.motivo ? `<br>Motivo: "${escapeHtml(s.motivo)}"` : ''}
     </div>
     <div class="form-grid">
@@ -21576,7 +21576,7 @@ function calcularPropuestasBloque() {
       </tbody>
     </table>
     <div style="font-size:11px;color:var(--muted);margin-top:6px;">
-      Cada fila se va a crear como una <strong>propuesta separada</strong>. La empleada elige una y la acepta — las otras quedan rechazadas automáticamente.
+      Cada fila se va a crear como una <strong>propuesta separada</strong>. La colaboradora elige una y la acepta — las otras quedan rechazadas automáticamente.
     </div>
   `;
   btn.style.display = 'inline-block';
@@ -21593,10 +21593,10 @@ async function crearPropuestasEnBloque() {
   const notas = (document.getElementById('pb-notas').value || '').trim() || null;
   if (!mesIni) { toast('Elegí mes del primer descuento', 'error'); return; }
 
-  if (!confirm(`¿Crear ${st.planes.length} propuesta${st.planes.length>1?'s':''} para la empleada?
+  if (!confirm(`¿Crear ${st.planes.length} propuesta${st.planes.length>1?'s':''} para la colaboradora?
 
 Van todas con capital ${capital.toLocaleString('es-AR')} y CFT ${cftPct}% anual.
-La empleada elige una y la acepta.`)) return;
+La colaboradora elige una y la acepta.`)) return;
 
   try {
     const _hoy = new Date().toISOString().slice(0,10);
@@ -21772,7 +21772,7 @@ async function activarPropuestasBulk() {
     `  · ${p.empleado?.nombre_completo || '#' + p.id}: ${fmt(p.capital)} en ${p.cuotas_totales} cuotas`
   ).join('\n');
 
-  if (!confirm(`Hay ${props.length} propuestas pendientes:\n\n${lista}\n\n¿Activarlas todas?\n\n⚠ Se van a marcar como ACTIVAS y empezar a descontar en la próxima liquidación. La empleada NO va a recibir push de "aceptación" (no pasa por su workflow).`)) return;
+  if (!confirm(`Hay ${props.length} propuestas pendientes:\n\n${lista}\n\n¿Activarlas todas?\n\n⚠ Se van a marcar como ACTIVAS y empezar a descontar en la próxima liquidación. La colaboradora NO va a recibir push de "aceptación" (no pasa por su workflow).`)) return;
 
   // 1) Activar préstamos
   const ids = props.map(p => p.id);
@@ -21818,7 +21818,7 @@ async function exportarAdelantosGalicia() {
     XLSX.writeFile(wb, nombre);
     const sinCbu = rows.filter(r => !r.cbu || String(r.cbu).length < 22);
     if (sinCbu.length > 0) {
-      toast(`⚠ ${sinCbu.length} empleadas sin CBU válido — revisalas en su legajo`, 'warning');
+      toast(`⚠ ${sinCbu.length} colaboradoras sin CBU válido — revisalas en su legajo`, 'warning');
     } else {
       toast(`Excel descargado ✓ · ${rows.length} adelantos`, 'success');
     }
@@ -21830,7 +21830,7 @@ async function exportarAdelantosGalicia() {
 // ─────────────────────────────────────────────────────────────────────
 // Admin: crear propuesta de refinanciación
 // Abre el form de nuevo préstamo precargado con (saldo viejo + capital adicional)
-// y al guardarlo, lo vincula con la solicitud para que cuando la empleada lo
+// y al guardarlo, lo vincula con la solicitud para que cuando la colaboradora lo
 // acepte, el viejo automáticamente se refinancie.
 // ─────────────────────────────────────────────────────────────────────
 async function abrirCrearPropuestaRefinanciacion(solicitudId) {
@@ -22321,14 +22321,14 @@ async function descargarTodosRecibosCombinados(local, periodo) {
 
 async function liqVerPrestamoEmp(empleadoId) {
   const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
-  // Traer préstamo(s) activos del empleado + cuotas del mes
+  // Traer préstamo(s) activos del colaborador + cuotas del mes
   const { data: emp } = await sb.from('rrhh_empleados')
     .select('id, nombre_completo, local, cbu, cuil').eq('id', empleadoId).single();
   const { data: prestamos } = await sb.from('rrhh_prestamo')
     .select('id, capital, cuotas_totales, tasa_mensual, fecha_otorgamiento, estado, notas')
     .eq('empleado_id', empleadoId).eq('estado','activo').order('fecha_otorgamiento');
   if (!prestamos || prestamos.length === 0) {
-    openModal('<div style="padding:24px;">Esta empleada no tiene préstamos activos.</div>', '500px');
+    openModal('<div style="padding:24px;">Esta colaboradora no tiene préstamos activos.</div>', '500px');
     return;
   }
   const ids = prestamos.map(p => p.id);
@@ -22562,10 +22562,10 @@ const _lsdFechaAAAAMMDD = (d) => {
 };
 
 async function generarLSDTxtAuto(periodo, localFilter) {
-  // Genera UN solo archivo con TODOS los empleados (sin separar por jurisdicción).
+  // Genera UN solo archivo con TODOS los colaboradores (sin separar por jurisdicción).
   // Razón: Adorno SRL tiene solo Buenos Aires declarada en Simplificación Registral
   // → ARCA rechaza cargar liquidaciones para otras jurisdicciones (ej: CABA).
-  // Cada empleado mantiene su código de localidad individual dentro del registro 04.
+  // Cada colaborador mantiene su código de localidad individual dentro del registro 04.
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   await generarLSDTxt(periodo, null, 1);
 }
@@ -22580,7 +22580,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
     const periodoFull = periodo + '-01';
     const periodoAAMM = periodo.replace('-','');  // AAAAMM
 
-    // 1) Liquidaciones del período + empleados + conceptos
+    // 1) Liquidaciones del período + colaboradores + conceptos
     //    EXCLUYE monotributistas (no van al LSD ARCA — son terceras, facturan)
     let { data: liqs, error } = await sb.from('rrhh_liquidacion')
       .select('*, empleado:rrhh_empleados(*), conceptos:rrhh_liquidacion_concepto(*)')
@@ -22595,7 +22595,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
     if (jurisdiccionFiltro) {
       liqs = liqs.filter(l => (l.empleado?.jurisdiccion || 'NACION') === jurisdiccionFiltro);
       if (liqs.length === 0) {
-        toast('No hay empleados con jurisdicción ' + jurisdiccionFiltro + ' en este período', 'warning');
+        toast('No hay colaboradores con jurisdicción ' + jurisdiccionFiltro + ' en este período', 'warning');
         return;
       }
     }
@@ -22722,7 +22722,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       // Base 9 (contribución empleador) = bruto total
       // Base 6, 7, 10 = 0
 
-      // Código localidad real per empleado (01 CABA, 02 BsAs)
+      // Código localidad real per colaborador (01 CABA, 02 BsAs)
       const locCodigo = String(emp.localidad_codigo || '02').padStart(2, '0').slice(-2);
 
       const reg04 = ''
@@ -22799,7 +22799,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       });
     } catch (_) {}
 
-    let msg = '✓ LSD generado: ' + empleadosOK + ' empleados · ' + lineas.length + ' líneas';
+    let msg = '✓ LSD generado: ' + empleadosOK + ' colaboradores · ' + lineas.length + ' líneas';
     if (empleadosErr.length) msg += ' · ⚠ ' + empleadosErr.length + ' con errores';
     toast(msg, empleadosErr.length ? 'error' : 'success');
     if (empleadosErr.length) console.warn('LSD errores:', empleadosErr);
@@ -22854,7 +22854,7 @@ const salaryWorkflow = (() => {
     return data?.[0] || null;
   }
 
-  // Lee la config vigente de la empleada al período
+  // Lee la config vigente de la colaboradora al período
   async function cargarConfigEmpleada(empleadoId, periodo) {
     const periodoFull = periodo + '-01';
     const { data } = await sb.from('rrhh_sueldo_empleada_config')
@@ -22872,7 +22872,7 @@ const salaryWorkflow = (() => {
     return data?.[0] || null;
   }
 
-  // Lee el empleado completo + su categoría CCT vigente
+  // Lee el colaborador completo + su categoría CCT vigente
   async function cargarEmpleadoCompleto(empleadoId, periodo) {
     const periodoFull = periodo + '-01';
     const { data: emp } = await sb.from('rrhh_empleados')
@@ -22929,7 +22929,7 @@ const salaryWorkflow = (() => {
     const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
     // IMPORTANTE: traemos error_salvado para NO descontar sueldo cuando la
     // encargada "salvó" la ausencia (ej. reloj Anviz que no fichó pero la
-    // empleada sí vino a trabajar). El día queda como 'ausente' visualmente
+    // colaboradora sí vino a trabajar). El día queda como 'ausente' visualmente
     // pero con error_salvado=true → no debe restar del sueldo.
     const { data: dias } = await sb.from('rrhh_asistencias_detalle')
       .select('fecha, estado, error_salvado').eq('empleado_id', empleadoId)
@@ -22988,7 +22988,7 @@ const salaryWorkflow = (() => {
     for (const d of dias) {
       if (fechasCompensadas.has(d.fecha)) continue;  // Compensado con banco/vacaciones → no descontar fijo
       // Ausencia SALVADA por la encargada (ej. reloj Anviz no fichó pero la
-      // empleada sí trabajó) → NO descontar sueldo. Se sigue viendo como
+      // colaboradora sí trabajó) → NO descontar sueldo. Se sigue viendo como
       // ausente visualmente pero no impacta la liquidación.
       if (d.estado === 'ausente' && d.error_salvado) continue;
       if (d.estado === 'ausente') count++;
@@ -23003,16 +23003,16 @@ const salaryWorkflow = (() => {
     return cargarDiasNoPagos(empleadoId, periodo);
   }
 
-  // Cuenta cuántas empleadas activas hay en el local en ese período (para reparto 'dividido_activos')
+  // Cuenta cuántas colaboradoras activas hay en el local en ese período (para reparto 'dividido_activos')
   async function contarActivasLocal(local, periodoFull) {
     const { data } = await sb.from('rrhh_sueldo_empleada_config')
       .select('empleado_id, fraccion_comision, rrhh_empleados!inner(local, estado)')
       .lte('vigente_desde', periodoFull)
       .eq('activa_en_modulo', true);
-    // Deduplicar por empleado_id: cada empleado puede tener varias configs vigentes
+    // Deduplicar por empleado_id: cada colaborador puede tener varias configs vigentes
     // (la del aumento previo + la actual). Si no deduplicamos, contamos doble y la
-    // comisión por empleada queda dividida incorrectamente.
-    // Además, excluimos empleadas con fraccion_comision = 0 (administrativos puros)
+    // comisión por colaboradora queda dividida incorrectamente.
+    // Además, excluimos colaboradoras con fraccion_comision = 0 (administrativos puros)
     // del divisor de comisión.
     const ids = new Set();
     (data || []).forEach(d => {
@@ -23025,7 +23025,7 @@ const salaryWorkflow = (() => {
   }
 
   /**
-   * Liquida una empleada para un período. Inputs opcionales del usuario:
+   * Liquida una colaboradora para un período. Inputs opcionales del usuario:
    *   { dias_trabajados, mercaderia, ajuste, uniforme_ok, extras, otros_remunerativos, observaciones }
    * Si no se pasan, se infieren (días = 30 - dias_no_trabajados, uniforme_ok = true, etc.)
    */
@@ -23038,7 +23038,7 @@ const salaryWorkflow = (() => {
       cargarConfigEmpleada(empleadoId, periodo),
       _cache.paritaria ? Promise.resolve(_cache.paritaria) : cargarParitaria(periodo),
     ]);
-    if (!emp) throw new Error('Empleado no encontrado');
+    if (!emp) throw new Error('Colaborador no encontrado');
 
     // ══════════════════════════════════════════════════════════════════════
     //  Cierre del mes de Asistencias del local — flag transversal
@@ -23157,7 +23157,7 @@ const salaryWorkflow = (() => {
     const diasMes = diasDelMes(periodo);
     let diasTrabajadosInferidos = Math.max(0, 30 - diasNoTrab);
 
-    // Para empleadas con dias_prorrateo_modo='dias_local' (caso Escasany):
+    // Para colaboradoras con dias_prorrateo_modo='dias_local' (caso Escasany):
     // contar los días que EFECTIVAMENTE trabajó (no 30 - ausentes).
     // Una franquera viene solo unos días, así que el resto NO son 'ausente',
     // simplemente no estaba agendada. Acá los descartamos correctamente.
@@ -23291,12 +23291,12 @@ const salaryWorkflow = (() => {
 
     // ── NEGRO ──
     const puntos_mes = await calcularPuntosMes(empleadoId, periodo);
-    // Tolerancia de errores: override por empleada si existe (Escasany=2), si no, el del local
+    // Tolerancia de errores: override por colaboradora si existe (Escasany=2), si no, el del local
     const maxErroresEmp = (configEmp.max_errores_premio_override != null && configEmp.max_errores_premio_override !== undefined)
       ? Number(configEmp.max_errores_premio_override)
       : Number(cfgLocal.umbral_premio);
     // ─── Denominador del prorrateo ───
-    // - 'mes_30' (default): siempre /30 → empleadas que trabajan mes completo
+    // - 'mes_30' (default): siempre /30 → colaboradoras que trabajan mes completo
     // - 'dias_local' (Escasany franquera): /promedio dias_trabajados de vendedoras del local
     //   en el mismo periodo. Así si vendedora normal trabajó 26 días y Escasany 8, ratio = 8/26.
     let dias_referencia = 30;
@@ -23382,9 +23382,9 @@ const salaryWorkflow = (() => {
     }
 
     // Fijo:
-    //  - empleadas en mes_30 (vendedoras normales): se prorratea por dias_trabajados/30.
+    //  - colaboradoras en mes_30 (vendedoras normales): se prorratea por dias_trabajados/30.
     //    Si trabajó todo el mes: ratio=1 → cobra full. Con ausencias sin goce: baja.
-    //  - empleadas en dias_local (Escasany franquera): cobra el fijo COMPLETO siempre,
+    //  - colaboradoras en dias_local (Escasany franquera): cobra el fijo COMPLETO siempre,
     //    porque su fijo ya está calibrado al perfil de "trabaja pocos días al mes".
     const fijo = (configEmp.dias_prorrateo_modo === 'dias_local')
       ? Number(configEmp.fijo)
@@ -23395,7 +23395,7 @@ const salaryWorkflow = (() => {
     let viaticos = viaticos_full * ratio;
 
     // Plus por feriado trabajado: solo en locales en shoppings (Alcorta/Unicenter).
-    // Se cuentan los feriados del mes donde el local NO cierra Y la empleada efectivamente
+    // Se cuentan los feriados del mes donde el local NO cierra Y la colaboradora efectivamente
     // estuvo disponible (no de vacaciones / licencia / ausente). Esto evita pagarle plus
     // a alguien que estaba de vacaciones cuando el local trabajó el feriado.
     const [py, pm] = periodo.split('-').map(Number);
@@ -23574,7 +23574,7 @@ const salaryWorkflow = (() => {
     const prestamo_interes = cuotasEmp.reduce((a, c) => a + Number(c.monto_interes || 0), 0);
     // Reparto correcto:
     //   - CAPITAL del préstamo → se descuenta de la TRANSFERENCIA BANCARIA (el recibo legal
-    //     sigue diciendo "neto $X", pero a la empleada le acreditamos $X − capital).
+    //     sigue diciendo "neto $X", pero a la colaboradora le acreditamos $X − capital).
     //     No afecta al cálculo de efectivo.
     //   - INTERÉS → se descuenta del EFECTIVO (no figura en el recibo blanco).
     if (configEmp.modo_liquidacion !== 'doble_blanco') {
@@ -23585,7 +23585,7 @@ const salaryWorkflow = (() => {
       // solver inverso para que neto_recibo = Total Adorno COMPLETO (sin restar nada).
       // Mercadería + ajuste + intereses se descuentan después en la columna 'A acreditar
       // banco' (junto con préstamo capital), no del recibo. Así el recibo refleja el
-      // verdadero total cobrado por la empleada (legal: ARCA / LSD ve el total).
+      // verdadero total cobrado por la colaboradora (legal: ARCA / LSD ve el total).
       //
       // CRUCIAL: aplicar overrides_manuales ANTES de calcular el neto_objetivo, sino
       // el solver apunta al total automático (sin la comisión manual de Escasany, p.ej.)
@@ -23754,7 +23754,7 @@ const salaryWorkflow = (() => {
   }
 
   /**
-   * Liquida todas las empleadas activas del módulo en un local para un período.
+   * Liquida todas las colaboradoras activas del módulo en un local para un período.
    * Devuelve { ok: [...], errores: [{empleado, error}] }
    */
   async function liquidarMes(local, periodo, opts = {}) {
@@ -23764,9 +23764,9 @@ const salaryWorkflow = (() => {
     const descuentosEspeciales = opts.descuentosEspeciales || {};
     const inputsPorEmpleado = opts.inputsPorEmpleado || (Object.keys(opts).some(k => /^\d+$/.test(k)) ? opts : {});
 
-    // ── PRECARGA: datos del mes que son IGUALES para todas las empleadas ──
+    // ── PRECARGA: datos del mes que son IGUALES para todas las colaboradoras ──
     // Se cargan UNA vez antes del for-loop y se pasan en `opts._cache`
-    // a liquidarEmpleada, evitando que cada empleada los vuelva a pedir.
+    // a liquidarEmpleada, evitando que cada colaboradora los vuelva a pedir.
     const [py, pm] = periodo.split('-').map(Number);
     const desdeFer = `${periodo}-01`;
     const hastaFer = `${py}-${String(pm).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
@@ -23784,7 +23784,7 @@ const salaryWorkflow = (() => {
       .lte('vigente_desde', periodoFull)
       .eq('activa_en_modulo', true);
 
-    const empleadas = (configs || [])
+    const colaboradoras = (configs || [])
       .filter(c => c.rrhh_empleados?.local === local && c.rrhh_empleados?.estado === 'activo')
       .map(c => c.rrhh_empleados);
     const uniq = {};
@@ -23798,7 +23798,7 @@ const salaryWorkflow = (() => {
         return txt.includes(_filtroNom);
       });
     }
-    // ── Excluir empleadas cuyas liquidaciones estén cerradas (estado=firmada) ──
+    // ── Excluir colaboradoras cuyas liquidaciones estén cerradas (estado=firmada) ──
     // El admin tiene que reabrir manualmente (click en 🔒) antes de poder recalcular.
     // Esto protege contra pisar valores ajustados al estudio o cualquier corrección manual.
     const _idsDelLote = lista.map(e => e.id);
@@ -23824,8 +23824,8 @@ const salaryWorkflow = (() => {
 
     const ok = [], errores = [];
 
-    // ── Procesar empleadas en paralelo con concurrencia limitada ──
-    // Antes era for-await en serie (cada empleada esperaba la anterior).
+    // ── Procesar colaboradoras en paralelo con concurrencia limitada ──
+    // Antes era for-await en serie (cada colaboradora esperaba la anterior).
     // Ahora corremos hasta CONCURRENCY simultáneas → 5-10x más rápido.
     const CONCURRENCY = 5;
     const queue = lista.slice();
@@ -23840,7 +23840,7 @@ const salaryWorkflow = (() => {
           }
           const r = await liquidarEmpleada(e.id, periodo, empInputs);
           if (r?.skipped) {
-            // empleada fuera del scope del botón usado — ni ok ni error
+            // colaboradora fuera del scope del botón usado — ni ok ni error
           } else {
             ok.push({ empleado: e, resultado: r });
           }
