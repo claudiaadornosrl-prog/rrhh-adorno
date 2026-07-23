@@ -17128,7 +17128,7 @@ async function liqValidarCierreMes(local, periodo) {
         .select('id, apellido, rrhh_sueldo_empleada_config(vigente_desde)')
         .eq('local', loc).eq('estado', 'activo');
       const sinNueva = [];
-      for (const e of (empleadas || [])) {
+      for (const e of (colaboradoras || [])) {
         const cfgs = e.rrhh_sueldo_empleada_config || [];
         const tieneNueva = cfgs.some(c => c.vigente_desde >= periodoIso);
         if (!tieneNueva) sinNueva.push(e.apellido);
@@ -17511,7 +17511,7 @@ async function renderRetirosMercaderia() {
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, apellido, nombre, local').eq('estado','activo');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
   const { data: colaboradoras } = await qEmp.order('apellido');
-  const opcionesEmp = (empleadas||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
+  const opcionesEmp = (colaboradoras||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)}</option>`).join('');
 
   // Retiros del mes (vista enriquecida con info de cuotas + empleada)
   let qRet = sb.from('rrhh_retiros_mercaderia_view').select('*')
@@ -18576,7 +18576,7 @@ async function aumExtrasPreview() {
   }
 
   // Calcular nuevos
-  empleadas.forEach(c => {
+  colaboradoras.forEach(c => {
     c._viaticos_nuevo = aplicaViaticos ? redondear(Number(c.viaticos||0) * factor) : Number(c.viaticos||0);
     c._premio_nuevo = aplicaPremio ? redondear(Number(c.premio_fichadas_uniforme||0) * factor) : Number(c.premio_fichadas_uniforme||0);
   });
@@ -18585,7 +18585,7 @@ async function aumExtrasPreview() {
   });
 
   // Guardar para apply
-  window._aumExtrasPreview = { vigencia, pct, redondeo, aplicaViaticos, aplicaPremio, aplicaFeriado, empleadas, localesConfig };
+  window._aumExtrasPreview = { vigencia, pct, redondeo, aplicaViaticos, aplicaPremio, aplicaFeriado, colaboradoras, localesConfig };
 
   // Render modal
   const conceptos = [aplicaViaticos?'Viáticos':null, aplicaPremio?'Premio':null, aplicaFeriado?'Feriado':null].filter(Boolean).join(' + ');
@@ -18622,9 +18622,9 @@ async function aumExtrasPreview() {
     `;
   }
 
-  if ((aplicaViaticos || aplicaPremio) && empleadas.length > 0) {
+  if ((aplicaViaticos || aplicaPremio) && colaboradoras.length > 0) {
     const porLocal = {};
-    empleadas.forEach(c => {
+    colaboradoras.forEach(c => {
       const loc = c.rrhh_empleados.local;
       if (!porLocal[loc]) porLocal[loc] = [];
       porLocal[loc].push(c);
@@ -18632,7 +18632,7 @@ async function aumExtrasPreview() {
     Object.entries(porLocal).forEach(([loc, lista]) => {
       html += `
         <div style="margin-bottom:18px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-          <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;">🏬 ${loc.charAt(0).toUpperCase()+loc.slice(1)} (${lista.length} empleadas)</div>
+          <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;">🏬 ${loc.charAt(0).toUpperCase()+loc.slice(1)} (${lista.length} colaboradoras)</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead><tr style="background:#fafafa;text-align:left;">
               <th style="padding:6px 10px;">Colaboradora</th>
@@ -18666,13 +18666,13 @@ async function aumExtrasAplicar() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const p = window._aumExtrasPreview;
   if (!p) { toast('No hay preview', 'error'); return; }
-  const cantEmp = (p.aplicaViaticos || p.aplicaPremio) ? p.empleadas.length : 0;
+  const cantEmp = (p.aplicaViaticos || p.aplicaPremio) ? p.colaboradoras.length : 0;
   const cantLoc = p.aplicaFeriado ? p.localesConfig.length : 0;
   if (!confirm(`¿Aplicar el aumento del ${p.pct}% a:\n- ${cantEmp} colaboradoras (viáticos/premio)\n- ${cantLoc} locales (feriado)\n\nVigente desde ${p.vigencia}.\n\nCrea nuevas filas históricas en el sistema.`)) return;
 
   let okEmp = 0, errEmp = 0, okLoc = 0, errLoc = 0;
   if (p.aplicaViaticos || p.aplicaPremio) {
-    for (const c of p.empleadas) {
+    for (const c of p.colaboradoras) {
       // Spread para preservar modo_liquidacion, dias_prorrateo_modo, etc.
       const payload = { ...c };
       delete payload.id;
@@ -23824,7 +23824,7 @@ const salaryWorkflow = (() => {
       .filter(c => c.rrhh_empleados?.local === local && c.rrhh_empleados?.estado === 'activo')
       .map(c => c.rrhh_empleados);
     const uniq = {};
-    empleadas.forEach(e => { uniq[e.id] = e; });
+    colaboradoras.forEach(e => { uniq[e.id] = e; });
     let lista = Object.values(uniq);
     // Filtro opcional por nombre (cuando el admin tiene el filtro de búsqueda activo)
     const _filtroNom = (opts.filtroNombre || '').toString().toLowerCase().trim();
