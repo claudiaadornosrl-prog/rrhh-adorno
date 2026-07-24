@@ -2667,7 +2667,8 @@ async function renderTabVacaciones() {
     .select('*').eq('empleado_id', empModalState.empleadoId).order('año', { ascending: false });
 
   const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
-    .select('*').eq('empleado_id', empModalState.empleadoId).order('fecha_desde', { ascending: false }).limit(50);
+    .select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen')
+    .eq('empleado_id', empModalState.empleadoId).order('fecha_desde', { ascending: false }).limit(50);
 
   const saldoActual = (saldos || []).find(s => s.año === new Date().getFullYear()) || (saldos || [])[0];
 
@@ -2687,15 +2688,34 @@ async function renderTabVacaciones() {
     <div class="section-title">Historial de movimientos</div>
     ${(movs || []).length === 0 ? '<div class="emp-empty">Sin movimientos.</div>' : `
       <ul class="simple-list">
-        ${movs.map(m => `
+        ${movs.map(m => {
+          // Chip de firma: link a OneDrive si está firmado y tiene URL
+          const url = m.documento_firmado_path || '';
+          const esUrl = /^https?:\/\//i.test(url);
+          let firmaChip = '';
+          if (m.documento_firmado_at) {
+            const f = new Date(m.documento_firmado_at).toLocaleDateString('es-AR');
+            if (esUrl) {
+              firmaChip = `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;text-decoration:none;margin-left:6px;" title="Abrir PDF firmado en OneDrive">✓ Firmado ${f}</a>`;
+            } else {
+              firmaChip = `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:6px;" title="Firmado — archivo antiguo sin link directo">✓ Firmado ${f}</span>`;
+            }
+          } else if (['aprobada','tomada','pagada'].includes(m.estado)) {
+            firmaChip = `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:6px;" title="Pendiente de firmar">⏳ Falta firmar</span>`;
+          }
+          return `
           <li>
             <div>
               <strong>${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}</strong>
               <div class="meta">${m.dias} días · ${m.estado}</div>
             </div>
-            <span class="emp-tag ${m.estado === 'solicitada' ? 'estado-licencia' : ''}">${m.estado}</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span class="emp-tag ${m.estado === 'solicitada' ? 'estado-licencia' : ''}">${m.estado}</span>
+              ${firmaChip}
+            </div>
           </li>
-        `).join('')}
+        `;
+        }).join('')}
       </ul>
     `}
 
@@ -5535,7 +5555,7 @@ async function subirMiFoto(inputEl) {
 async function renderMisRecibos() {
   // Liquidaciones DEFINITIVAS (las únicas firmables) de la colaboradora — últimas 12
   const { data: liqs, error } = await sb.from('rrhh_liquidacion')
-    .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_enviado_at, calculado_at, total_negro, sac_recibo_neto, sac_pdf_firmado_at')
+    .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_firmado_path, pdf_url_firmado, pdf_enviado_at, calculado_at, total_negro, sac_recibo_neto, sac_pdf_firmado_at, sac_pdf_firmado_path')
     .eq('empleado_id', session.empleado_id)
     .eq('tipo', 'definitivo')
     .order('periodo', { ascending: false })
@@ -5582,6 +5602,18 @@ async function renderMisRecibos() {
           </tr></thead>
           <tbody>
             ${liqs.flatMap(l => {
+              // Helper para armar el chip: si es firmado con URL OneDrive → link, sino botón que descarga PDF
+              const _chip = (label, bg, fg, url, tipoDesc) => {
+                const esUrl = /^https?:\/\//i.test(url || '');
+                if (esUrl) {
+                  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener"
+                          title="Tocá para abrir el PDF firmado en OneDrive"
+                          style="background:${bg};color:${fg};padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;line-height:1.3;display:inline-block;">${label}</a>`;
+                }
+                return `<button type="button" onclick="generarPDFRecibo(${l.id}${tipoDesc||''})"
+                          title="Tocá para descargar el PDF"
+                          style="background:${bg};color:${fg};padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;border:none;cursor:pointer;line-height:1.3;">${label}</button>`;
+              };
               // Determina estado del recibo mensual
               let estado, bgEs, fgEs;
               if (l.pdf_firmado_at) {
@@ -5595,14 +5627,13 @@ async function renderMisRecibos() {
                 estado = '📄 Listo para descargar';
                 bgEs = '#dbeafe'; fgEs = '#1e40af';
               }
-              // El chip AHORA es el botón — al tocarlo descarga el PDF
+              // URL del OneDrive si existe
+              const urlRecibo = l.pdf_url_firmado || l.pdf_firmado_path || '';
               const filaMensual = `<tr style="border-top:1px solid var(--border);">
                 <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">${labelMes(l.periodo)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(l.recibo_neto)}</td>
                 <td style="padding:10px 14px;text-align:center;">
-                  <button type="button" onclick="generarPDFRecibo(${l.id})"
-                          title="Tocá para descargar el PDF"
-                          style="background:${bgEs};color:${fgEs};padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;border:none;cursor:pointer;line-height:1.3;">${estado}</button>
+                  ${_chip(estado, bgEs, fgEs, l.pdf_firmado_at ? urlRecibo : null, '')}
                 </td>
               </tr>`;
               // Fila del SAC — solo en junio/diciembre y si tiene SAC neto cargado
@@ -5619,13 +5650,12 @@ async function renderMisRecibos() {
                 estadoSac = '📄 Listo para descargar';
                 bgSac = '#dbeafe'; fgSac = '#1e40af';
               }
+              const urlSac = l.sac_pdf_firmado_path || '';
               const filaSac = `<tr style="border-top:1px solid var(--border);background:#fefce8;">
                 <td style="padding:10px 14px;font-weight:500;text-transform:capitalize;">🎁 1er SAC ${labelMes(l.periodo)}</td>
                 <td style="padding:10px 14px;text-align:right;font-family:monospace;font-weight:600;">${fmt(_sacNeto)}</td>
                 <td style="padding:10px 14px;text-align:center;">
-                  <button type="button" onclick="generarPDFRecibo(${l.id}, {esSAC:true})"
-                          title="Tocá para descargar el PDF del SAC"
-                          style="background:${bgSac};color:${fgSac};padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;border:none;cursor:pointer;line-height:1.3;">${estadoSac}</button>
+                  ${_chip(estadoSac, bgSac, fgSac, l.sac_pdf_firmado_at ? urlSac : null, ', {esSAC:true}')}
                 </td>
               </tr>`;
               return [filaMensual, filaSac];
@@ -5670,7 +5700,8 @@ async function renderMisVacaciones() {
   const { data: todosSaldos } = await sb.from('rrhh_vacaciones')
     .select('*').eq('empleado_id', session.empleado_id).order('año', { ascending: true });
   const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
-    .select('*').eq('empleado_id', session.empleado_id).order('fecha_desde', { ascending: false }).limit(20);
+    .select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen')
+    .eq('empleado_id', session.empleado_id).order('fecha_desde', { ascending: false }).limit(20);
 
   // Totales sumados de todos los años
   const totalPendientes = (todosSaldos||[]).reduce((s,r) => s + (r.dias_pendientes||0), 0);
@@ -5764,7 +5795,20 @@ async function renderMisVacaciones() {
                   </div>
                 ` : ''}
               </div>
-              <span class="emp-tag ${colorEstado}">${m.estado}</span>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                <span class="emp-tag ${colorEstado}">${m.estado}</span>
+                ${(() => {
+                  // Chip de firma clickeable si hay URL de OneDrive
+                  if (!m.documento_firmado_at) return '';
+                  const f = new Date(m.documento_firmado_at).toLocaleDateString('es-AR');
+                  const url = m.documento_firmado_path || '';
+                  const esUrl = /^https?:\/\//i.test(url);
+                  if (esUrl) {
+                    return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;text-decoration:none;" title="Abrir PDF firmado en OneDrive">✓ Firmado ${f}</a>`;
+                  }
+                  return `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;">✓ Firmado ${f}</span>`;
+                })()}
+              </div>
             </li>
           `;
         }).join('')}
