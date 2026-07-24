@@ -7039,7 +7039,7 @@ async function renderSueldoContent() {
   const sueldoMap = {};
   (sueldos || []).forEach(s => { sueldoMap[s.empleado_id] = s; });
 
-  const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+  const lista = (colaboradores || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
   const total_cargados = lista.filter(e => sueldoMap[e.id]).length;
   const total_validados = lista.filter(e => sueldoMap[e.id]?.validado).length;
   const total_con_errores = lista.filter(e => sueldoMap[e.id]?.errores_detectados?.length > 0).length;
@@ -7336,7 +7336,7 @@ async function renderCalendarioGrid() {
   let qEmp = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, foto_url').eq('estado', 'activo').order('local').order('apellido');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
   const { data: colaboradores } = await qEmp;
-  const empIds = (empleados || []).map(e => e.id);
+  const empIds = (colaboradores || []).map(e => e.id);
   const desdeISO = fechaDesde.toISOString().split('T')[0];
   const hastaISO = fechaHasta.toISOString().split('T')[0];
 
@@ -7728,7 +7728,7 @@ async function generarMesDesdeDefault() {
   // Defaults
   const { data: defaults } = await sb.from('rrhh_turnos_default')
     .select('*, template:rrhh_templates_turno(*)')
-    .in('empleado_id', (empleados||[]).map(e => e.id));
+    .in('empleado_id', (colaboradores||[]).map(e => e.id));
   // Map (emp_id × dia_semana) → default
   const defMap = {};
   (defaults || []).forEach(d => { defMap[`${d.empleado_id}_${d.dia_semana}`] = d; });
@@ -7738,12 +7738,12 @@ async function generarMesDesdeDefault() {
     .select('empleado_id, fecha')
     .gte('fecha', fechaDesde.toISOString().split('T')[0])
     .lte('fecha', fechaHasta.toISOString().split('T')[0])
-    .in('empleado_id', (empleados||[]).map(e => e.id));
+    .in('empleado_id', (colaboradores||[]).map(e => e.id));
   const yaSet = new Set((ya || []).map(t => `${t.empleado_id}_${t.fecha}`));
 
   // Generar
   const inserts = [];
-  for (const e of (empleados || [])) {
+  for (const e of (colaboradores || [])) {
     for (let d = 1; d <= diasMes; d++) {
       const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       if (yaSet.has(`${e.id}_${fecha}`)) continue;
@@ -8043,7 +8043,7 @@ async function cerrarMes(periodo, local) {
   // Cargar colaboradores del local
   const { data: colaboradores } = await sb.from('rrhh_empleados')
     .select('id').eq('local', local).eq('estado','activo').eq('ficha', true);
-  const empIds = (empleados || []).map(e => e.id);
+  const empIds = (colaboradores || []).map(e => e.id);
   if (empIds.length === 0) throw new Error('Sin colaboradores para procesar');
 
   // Cargar detalles del mes con minutos_banco
@@ -8221,7 +8221,7 @@ async function reabrirMesUI() {
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
   const { data: colaboradores } = await sb.from('rrhh_empleados')
     .select('id').eq('local', localFiltro).eq('estado','activo').eq('ficha', true);
-  const empIds = (empleados || []).map(e => e.id);
+  const empIds = (colaboradores || []).map(e => e.id);
 
   // Borrar los movimientos del banco asociados a este mes/local
   await sb.from('rrhh_banco_minutos').delete()
@@ -8505,11 +8505,11 @@ async function procesarMes(periodo, local = null) {
   let qEmp = sb.from('rrhh_empleados').select('id, local, fecha_ingreso, lactancia_desde, lactancia_hasta, lactancia_reduccion_diaria_min, lactancia_reduccion_finde_min').eq('estado', 'activo').eq('ficha', true);
   if (local) qEmp = qEmp.eq('local', local);
   const { data: colaboradores } = await qEmp;
-  if (!empleados || empleados.length === 0) throw new Error('Sin colaboradores para procesar');
+  if (!colaboradores || colaboradores.length === 0) throw new Error('Sin colaboradores para procesar');
 
-  const empIds = empleados.map(e => e.id);
+  const empIds = colaboradores.map(e => e.id);
   const empByLocal = {};
-  empleados.forEach(e => { empByLocal[e.id] = e.local; });
+  colaboradores.forEach(e => { empByLocal[e.id] = e.local; });
 
   // 2) Turnos planificados
   const { data: turnos } = await sb.from('rrhh_turnos')
@@ -10035,7 +10035,7 @@ async function abrirNuevoPermisoAdmin() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="perm-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
-              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+              ${(colaboradores||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
             </select>
           </div>
           <div>
@@ -10967,7 +10967,7 @@ async function abrirAsignarVacacion() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="asg-emp" onchange="actualizarCalcAsignVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
-              ${(empleados||[]).map(e => `<option value="${e.id}" data-local="${e.local}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+              ${(colaboradores||[]).map(e => `<option value="${e.id}" data-local="${e.local}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
             </select>
           </div>
           <div id="asg-saldo-box" style="display:none;background:#f0f9ff;padding:10px 12px;border-radius:8px;border-left:3px solid var(--accent2);font-size:12px;"></div>
@@ -11260,7 +11260,7 @@ async function abrirPagarVacaciones() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="pag-emp" onchange="actualizarSaldoPagVac()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
-              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+              ${(colaboradores||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
             </select>
           </div>
           <div id="pag-saldo-box" style="display:none;font-size:12px;"></div>
@@ -12122,7 +12122,7 @@ async function abrirNuevoExtraAdmin() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="ext-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
-              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+              ${(colaboradores||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
             </select>
           </div>
           <div>
@@ -12384,7 +12384,7 @@ async function abrirAjusteBancoAdmin() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
             <select id="ajus-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
-              ${(empleados||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
+              ${(colaboradores||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
             </select>
           </div>
           <div>
