@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v232-fix-empleados-colateral-full';
+const CACHE_VERSION = 'rrhh-v233-fix-empleados-final';
 const ASSETS = [
   './',
   './index.html',

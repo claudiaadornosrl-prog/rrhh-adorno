@@ -7425,7 +7425,7 @@ async function renderCalendarioGrid() {
     if (f.hora) fichMap[k].push(f.hora.substring(0,5));
   });
 
-  if (!empleados || empleados.length === 0) {
+  if (!colaboradores || colaboradores.length === 0) {
     cont.innerHTML = '<div class="emp-empty">Sin colaboradores para mostrar.</div>';
     return;
   }
@@ -7449,7 +7449,7 @@ async function renderCalendarioGrid() {
     </div>`;
   }).join('');
 
-  const rows = empleados.map(e => {
+  const rows = colaboradores.map(e => {
     const cells = dias.map(d => {
       const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const turno = turnoMap[`${e.id}_${fecha}`];
@@ -8348,7 +8348,7 @@ async function renderResumenContent() {
     return maxErrPorLocal[emp.local] || 4;
   };
 
-  const lista = (empleados || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+  const lista = (colaboradores || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
 
   if (lista.length === 0 || Object.keys(porEmp).length === 0) {
     cont.innerHTML = `
@@ -8639,7 +8639,7 @@ async function procesarMes(periodo, local = null) {
     return hh*60 + mm;
   };
 
-  for (const emp of empleados) {
+  for (const emp of colaboradores) {
     const tol = tols[emp.local] || { minutos_tarde: 20, minutos_temprano: 5, buffer_entrada: 15 };
     for (let d = 1; d <= diasMes; d++) {
       const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -8824,7 +8824,7 @@ async function procesarMes(periodo, local = null) {
   //       Si total ≤ umbral → no descuenta nada
   //       (los días salvados ya están excluidos del acumulado)
   const fechaMesUltimo = fechaHasta;
-  for (const emp of empleados) {
+  for (const emp of colaboradores) {
     const tol = tols[emp.local] || { umbral_mensual_tardanzas: 60 };
     const umbral = tol.umbral_mensual_tardanzas || 60;
     const acum = tardanzaAcum[emp.id] || 0;
@@ -14468,7 +14468,7 @@ async function exportarPlanillaCompleta() {
         .select('id, empleado_id, cuotas_totales, tasa_mensual').in('estado', ['activo','pagado']),
     ]);
 
-    const colaboradores = empRes.data || [];
+    const empleados = empRes.data || [];
     const catMap = {}; (catRes.data||[]).forEach(c => catMap[c.id] = c);
     const paritaria = parRes.data?.[0] || null;
     const pagosMap = {}; (pagRes.data||[]).forEach(p => pagosMap[p.empleado_id] = p);
@@ -19282,7 +19282,7 @@ async function aumPreviewRangos() {
     .forEach(c => { porEmp[c.empleado_id] = c; });
 
   const colaboradores = Object.values(porEmp).filter(c => Number(c.fijo) > 0);
-  if (empleados.length === 0) { toast('No hay vendedoras con fijo > 0', 'warning'); return; }
+  if (colaboradores.length === 0) { toast('No hay vendedoras con fijo > 0', 'warning'); return; }
 
   // Redondear hacia el múltiplo más cercano
   const redondear = (n) => Math.round(n / redondeo) * redondeo;
@@ -19298,7 +19298,7 @@ async function aumPreviewRangos() {
   };
 
   const porLocal = {};
-  empleados.forEach(c => {
+  colaboradores.forEach(c => {
     const loc = c.rrhh_empleados.local;
     if (!porLocal[loc]) porLocal[loc] = [];
     const fijo = Number(c.fijo);
