@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v234-firmado-clickeable-todo-sistema';
+const CACHE_VERSION = 'rrhh-v235-bloqueo-pago-vacaciones';
 const ASSETS = [
   './',
   './index.html',

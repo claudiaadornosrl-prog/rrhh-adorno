@@ -11347,7 +11347,7 @@ async function _disponibilidadParaPago(empId) {
   const tipoTxt    = esOficina ? 'hábiles' : 'corridos';
 
   const { data: saldos } = await sb.from('rrhh_vacaciones')
-    .select('id, año, dias_correspondientes, dias_pendientes, dias_tomados')
+    .select('id, año, dias_correspondientes, dias_pendientes, dias_tomados, bloqueo_pago')
     .eq('empleado_id', empId).order('año', { ascending: true });
 
   if (!saldos || saldos.length === 0) return { saldos: [], esOficina, minCorresp, maxPagAño, tipoTxt };
@@ -11364,7 +11364,9 @@ async function _disponibilidadParaPago(empId) {
     const yaPagados = pagPorVac[s.id] || 0;
     let disp = 0;
     let motivo = null;
-    if (s.dias_correspondientes < minCorresp) {
+    if (s.bloqueo_pago) {
+      motivo = '🔒 bloqueado por decisión administrativa (ver notas del legajo)';
+    } else if (s.dias_correspondientes < minCorresp) {
       motivo = `corresp=${s.dias_correspondientes}${tipoTxt[0]} (< ${minCorresp} mínimo, 3 semanas)`;
     } else if (yaPagados >= maxPagAño) {
       motivo = `ya se pagaron ${yaPagados}${tipoTxt[0]} este año (máx ${maxPagAño})`;
@@ -11376,7 +11378,7 @@ async function _disponibilidadParaPago(empId) {
     return {
       vacId: s.id, año: s.año, corresp: s.dias_correspondientes,
       pendientes: s.dias_pendientes, ya_pagados: yaPagados,
-      disponible_pago: disp, motivo,
+      disponible_pago: disp, motivo, bloqueado: !!s.bloqueo_pago,
     };
   });
 
