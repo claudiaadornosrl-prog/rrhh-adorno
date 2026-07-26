@@ -7205,6 +7205,7 @@ async function renderAsistenciasAdmin() {
       <button class="modal-tab ${asisState.tab==='extras'?'active':''}"     data-asistab="extras"     style="border-bottom:2px solid transparent;padding:12px 14px;">⏰ Extras</button>
       <button class="modal-tab ${asisState.tab==='reportes'?'active':''}"   data-asistab="reportes"   style="border-bottom:2px solid transparent;padding:12px 14px;">🚩 Reportes</button>
       <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas</button>
+      <button class="modal-tab ${asisState.tab==='horarios'?'active':''}"   data-asistab="horarios"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕰️ Horarios</button>
     </div>
 
     <div id="asis-content" style="margin-top:20px;"><div class="spinner"></div></div>
@@ -7316,6 +7317,7 @@ async function renderAsisTab() {
   else if (asisState.tab === 'reportes')   await renderReportesTurno(cont);
   else if (asisState.tab === 'extras')     await renderExtrasAdmin(cont);
   else if (asisState.tab === 'banco')      await renderBancoAdmin(cont);
+  else if (asisState.tab === 'horarios')   await renderHorariosAdmin(cont);
   // Actualizar badge de pendientes
   actualizarBadgePermisos();
 }
@@ -12155,6 +12157,236 @@ async function listarExtras(fechaDesde, fechaHasta) {
       </table>
     </div>
   `;
+}
+
+// ════════════════════════════════════════════════════════════
+//  HORARIOS (templates de turno) — CRUD
+//  Admin: ve/crea horarios para cualquier local.
+//  Encargada: solo su local.
+// ════════════════════════════════════════════════════════════
+async function renderHorariosAdmin(cont) {
+  const isAdmin = session.rol === 'admin';
+  const localGerente = session.local_gerencia;
+
+  let q = sb.from('rrhh_templates_turno').select('*').order('local').order('orden');
+  if (!isAdmin && localGerente) q = q.eq('local', localGerente);
+  const { data: templates, error } = await q;
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
+
+  // Agrupar por local
+  const porLocal = {};
+  (templates || []).forEach(t => { (porLocal[t.local] = porLocal[t.local] || []).push(t); });
+
+  const fmtHora = (h) => h ? h.substring(0, 5) : '—';
+
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;color:var(--muted);">
+        Los horarios se usan al asignar turnos en el calendario. ${isAdmin ? 'Como admin podés crear para cualquier local.' : 'Podés crear horarios para tu local.'}
+      </div>
+      <button class="btn primary" onclick="abrirNuevoHorario()">+ Nuevo horario</button>
+    </div>
+    ${Object.keys(porLocal).sort().map(loc => `
+      <div class="card" style="margin-bottom:14px;padding:0;overflow:hidden;">
+        <div style="background:#f3f4f6;padding:10px 14px;font-weight:600;">🏬 ${escapeHtml(LOCALES[loc]?.nombre || loc)}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#fafafa;text-align:left;">
+            <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;">Horario</th>
+            <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;text-align:center;">Inicio</th>
+            <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;text-align:center;">Fin</th>
+            <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;text-align:center;">Color</th>
+            <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;text-align:center;">Estado</th>
+            <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;text-align:right;">Acciones</th>
+          </tr></thead>
+          <tbody>
+            ${porLocal[loc].map(t => `
+              <tr style="border-top:1px solid var(--border);${!t.activo ? 'opacity:0.45;' : ''}">
+                <td style="padding:8px 12px;">
+                  <span style="font-size:16px;margin-right:6px;">${t.icono || '🕐'}</span>
+                  <strong>${escapeHtml(t.nombre)}</strong>
+                  ${t.es_franco ? '<span style="background:#f3f4f6;color:#6b7280;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:6px;">FRANCO</span>' : ''}
+                </td>
+                <td style="padding:8px 12px;text-align:center;font-family:monospace;">${fmtHora(t.hora_inicio)}</td>
+                <td style="padding:8px 12px;text-align:center;font-family:monospace;">${fmtHora(t.hora_fin)}</td>
+                <td style="padding:8px 12px;text-align:center;">
+                  <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:${t.color || '#6366f1'};vertical-align:middle;"></span>
+                </td>
+                <td style="padding:8px 12px;text-align:center;">
+                  ${t.activo
+                    ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;">Activo</span>'
+                    : '<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:4px;font-size:11px;">Inactivo</span>'}
+                </td>
+                <td style="padding:8px 12px;text-align:right;white-space:nowrap;">
+                  ${t.es_franco ? '' : `
+                    <button class="btn small" onclick="abrirEditarHorario(${t.id})" title="Editar">✏️</button>
+                    <button class="btn small" onclick="toggleHorarioActivo(${t.id}, ${!t.activo})" title="${t.activo ? 'Desactivar (no aparece más al asignar turnos)' : 'Reactivar'}">${t.activo ? '🚫' : '✅'}</button>
+                  `}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('')}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+      💡 Desactivar un horario lo saca del selector al asignar turnos, pero los turnos ya asignados con ese horario no cambian.
+    </div>
+  `;
+}
+
+async function abrirNuevoHorario(idEditar) {
+  const isAdmin = session.rol === 'admin';
+  const localGerente = session.local_gerencia;
+
+  // Si es edición, cargar datos
+  let t = null;
+  if (idEditar) {
+    const { data } = await sb.from('rrhh_templates_turno').select('*').eq('id', idEditar).single();
+    t = data;
+    if (!t) { toast('No se encontró el horario', 'error'); return; }
+  }
+
+  const locales = isAdmin
+    ? [['alcorta','Alcorta'],['unicenter','Unicenter'],['oficina','Oficina']]
+    : [[localGerente, LOCALES[localGerente]?.nombre || localGerente]];
+
+  const COLORES = ['#f59e0b','#6366f1','#10b981','#dc2626','#06b6d4','#0ea5e9','#14b8a6','#a855f7','#ec4899','#84cc16'];
+  const ICONOS = ['🕐','🌅','🌆','🌞','📅','🏢','⭐','💼','🌙','⚡'];
+
+  const html = `
+    <div class="modal-bg" id="horario-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 16px;">${idEditar ? '✏️ Editar horario' : '🕰️ Nuevo horario'}</h3>
+        <div style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Local *</label>
+            <select id="hor-local" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;" ${idEditar ? 'disabled' : ''}>
+              ${locales.map(([v, l]) => `<option value="${v}" ${t?.local === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Nombre * <span style="font-weight:400;">(ej: "Tarde 14:45-21")</span></label>
+            <input type="text" id="hor-nombre" value="${escapeHtml(t?.nombre || '')}" placeholder="Tarde 14:45-21" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hora inicio *</label>
+              <input type="time" id="hor-inicio" value="${t?.hora_inicio ? t.hora_inicio.substring(0,5) : ''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hora fin *</label>
+              <input type="time" id="hor-fin" value="${t?.hora_fin ? t.hora_fin.substring(0,5) : ''}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Color</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              ${COLORES.map(c => `
+                <label style="cursor:pointer;">
+                  <input type="radio" name="hor-color" value="${c}" ${t?.color === c || (!t && c === '#6366f1') ? 'checked' : ''} style="display:none;">
+                  <span class="hor-color-chip" data-color="${c}" style="display:inline-block;width:32px;height:32px;border-radius:6px;background:${c};border:3px solid ${t?.color === c || (!t && c === '#6366f1') ? '#1e293b' : 'transparent'};"></span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Ícono</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              ${ICONOS.map(i => `
+                <label style="cursor:pointer;">
+                  <input type="radio" name="hor-icono" value="${i}" ${t?.icono === i || (!t && i === '🕐') ? 'checked' : ''} style="display:none;">
+                  <span class="hor-icono-chip" data-icono="${i}" style="display:inline-block;width:36px;height:36px;font-size:20px;text-align:center;line-height:34px;border-radius:6px;border:2px solid ${t?.icono === i || (!t && i === '🕐') ? 'var(--accent2)' : 'var(--border)'};background:#fafafa;">${i}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+          <button class="btn" onclick="document.getElementById('horario-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarHorario(${idEditar || 'null'})">${idEditar ? 'Guardar cambios' : 'Crear horario'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  // Feedback visual de selección de color/ícono
+  document.querySelectorAll('#horario-modal .hor-color-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('#horario-modal .hor-color-chip').forEach(c => c.style.border = '3px solid transparent');
+      chip.style.border = '3px solid #1e293b';
+    });
+  });
+  document.querySelectorAll('#horario-modal .hor-icono-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('#horario-modal .hor-icono-chip').forEach(c => c.style.border = '2px solid var(--border)');
+      chip.style.border = '2px solid var(--accent2)';
+    });
+  });
+}
+
+function abrirEditarHorario(id) { abrirNuevoHorario(id); }
+
+async function guardarHorario(idEditar) {
+  const local = document.getElementById('hor-local').value;
+  const nombre = document.getElementById('hor-nombre').value.trim();
+  const horaInicio = document.getElementById('hor-inicio').value;
+  const horaFin = document.getElementById('hor-fin').value;
+  const color = document.querySelector('#horario-modal input[name="hor-color"]:checked')?.value || '#6366f1';
+  const icono = document.querySelector('#horario-modal input[name="hor-icono"]:checked')?.value || '🕐';
+
+  if (!local) { toast('Falta el local', 'error'); return; }
+  if (!nombre) { toast('Falta el nombre', 'error'); return; }
+  if (!horaInicio || !horaFin) { toast('Faltan las horas', 'error'); return; }
+  if (horaInicio >= horaFin) { toast('La hora de fin debe ser mayor a la de inicio', 'error'); return; }
+
+  // Chequeo permiso: encargada solo puede en su local
+  if (session.rol !== 'admin' && local !== session.local_gerencia) {
+    toast('Solo podés crear horarios para tu local', 'error'); return;
+  }
+
+  if (idEditar) {
+    const { error } = await sb.from('rrhh_templates_turno').update({
+      nombre, hora_inicio: horaInicio, hora_fin: horaFin, color, icono,
+    }).eq('id', idEditar);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    await auditLog('editar_horario', 'rrhh_templates_turno', idEditar, null, null, `${nombre} ${horaInicio}-${horaFin}`);
+    toast('Horario actualizado ✓', 'success');
+  } else {
+    // Generar código único a partir del nombre
+    const codigo = nombre.toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      .substring(0, 30) + '_' + Date.now().toString(36).slice(-4);
+    // Orden: máximo actual del local + 1 (sin contar franco=99)
+    const { data: maxOrden } = await sb.from('rrhh_templates_turno')
+      .select('orden').eq('local', local).neq('orden', 99)
+      .order('orden', { ascending: false }).limit(1);
+    const orden = ((maxOrden?.[0]?.orden) || 0) + 1;
+
+    const { data, error } = await sb.from('rrhh_templates_turno').insert({
+      local, codigo, nombre,
+      hora_inicio: horaInicio, hora_fin: horaFin,
+      es_franco: false, color, icono, orden, activo: true,
+    }).select().single();
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    await auditLog('crear_horario', 'rrhh_templates_turno', data.id, null, null, `${local}: ${nombre} ${horaInicio}-${horaFin}`);
+    toast('Horario creado ✓', 'success');
+  }
+
+  document.getElementById('horario-modal').remove();
+  // Refrescar el tab
+  const cont = document.getElementById('asis-content');
+  if (cont) renderHorariosAdmin(cont);
+}
+
+async function toggleHorarioActivo(id, nuevoEstado) {
+  const { error } = await sb.from('rrhh_templates_turno').update({ activo: nuevoEstado }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog(nuevoEstado ? 'activar_horario' : 'desactivar_horario', 'rrhh_templates_turno', id, null, null, null);
+  toast(nuevoEstado ? 'Horario reactivado ✓' : 'Horario desactivado', 'success');
+  const cont = document.getElementById('asis-content');
+  if (cont) renderHorariosAdmin(cont);
 }
 
 function inferirTipoExtra(motivo) {
