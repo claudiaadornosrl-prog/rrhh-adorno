@@ -2663,14 +2663,18 @@ async function renderTabVacaciones() {
   document.getElementById('emp-modal-save').style.display = 'none';
   document.getElementById('emp-modal-footer-left').innerHTML = '';
 
-  const { data: saldos } = await sb.from('rrhh_vacaciones')
+  const { data: saldosRaw } = await sb.from('rrhh_vacaciones')
     .select('*').eq('empleado_id', empModalState.empleadoId).order('año', { ascending: false });
+  // SOLO años ya devengados (año < año actual). El año en curso aparece recién el 1/1 del siguiente.
+  const _añoHoy = new Date().getFullYear();
+  const saldos = (saldosRaw || []).filter(s => s.año < _añoHoy);
 
   const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
     .select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen')
     .eq('empleado_id', empModalState.empleadoId).order('fecha_desde', { ascending: false }).limit(50);
 
-  const saldoActual = (saldos || []).find(s => s.año === new Date().getFullYear()) || (saldos || [])[0];
+  // "saldo actual" = el más reciente entre los ya devengados
+  const saldoActual = saldos[0];
 
   body.innerHTML = `
     ${saldoActual ? `
@@ -3825,14 +3829,17 @@ async function renderVacContent() {
         `).join('') + '</ul>';
 
   } else if (vacState.tab === 'saldos') {
-    // Traer TODOS los saldos (todos los años) y agregarlos por empleado
+    // Traer TODOS los saldos y filtrar solo años devengados (año < año actual).
+    // El año en curso aparece recién el 1/1 del año siguiente.
+    const _añoHoy = new Date().getFullYear();
     let q = sb.from('rrhh_vacaciones')
       .select(`*, empleado:rrhh_empleados!inner(id, nombre_completo, local, estado, fecha_ingreso)`)
-      .eq('empleado.estado', 'activo');
+      .eq('empleado.estado', 'activo')
+      .lt('año', _añoHoy);
     const { data } = await q;
     const rows = (data || []).filter(s => !localFiltro || s.empleado?.local === localFiltro);
 
-    // Agrupar por empleado_id sumando los saldos de todos los años
+    // Agrupar por empleado_id sumando los saldos de todos los años devengados
     const porEmp = {};
     for (const r of rows) {
       const eid = r.empleado?.id;
@@ -4474,10 +4481,13 @@ async function abrirDetalleVacEmpleada(empId, año) {
         </tr>`;
       }).join('');
 
-  // Render filas saldos
-  const filasSaldos = (saldos || []).length === 0
-    ? `<tr><td colspan="4" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin saldos cargados.</td></tr>`
-    : (saldos || []).map(s => `
+  // Render filas saldos — SOLO años ya devengados (año < año actual).
+  // Ej: en 2026 mostrar hasta 2025. El saldo 2026 aparece recién el 1/1/2027.
+  const añoHoy = new Date().getFullYear();
+  const saldosDevengados = (saldos || []).filter(s => s.año < añoHoy);
+  const filasSaldos = saldosDevengados.length === 0
+    ? `<tr><td colspan="4" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin saldos devengados todavía.</td></tr>`
+    : saldosDevengados.map(s => `
         <tr style="border-top:1px solid var(--border);${s.año===año?'background:#fef3c7;':''}">
           <td style="padding:8px;font-weight:${s.año===año?'600':'400'};">${s.año}${s.año===año?' <span style="font-size:10px;color:#92400e;">actual</span>':''}</td>
           <td style="padding:8px;text-align:center;">${s.dias_correspondientes}</td>
@@ -5697,13 +5707,16 @@ async function descargarRecibo(path) {
 async function renderMisVacaciones() {
   const añoActual = new Date().getFullYear();
   // Traer TODOS los saldos del colaborador (no solo del año actual) para soportar arrastre multi-año
-  const { data: todosSaldos } = await sb.from('rrhh_vacaciones')
+  const { data: todosSaldosRaw } = await sb.from('rrhh_vacaciones')
     .select('*').eq('empleado_id', session.empleado_id).order('año', { ascending: true });
+  // FILTRO: solo mostrar saldos de años YA DEVENGADOS (año < año actual).
+  // El saldo del año en curso aparece recién el 1/1 del año siguiente.
+  const todosSaldos = (todosSaldosRaw || []).filter(s => s.año < añoActual);
   const { data: movs } = await sb.from('rrhh_vacaciones_movimientos')
     .select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen')
     .eq('empleado_id', session.empleado_id).order('fecha_desde', { ascending: false }).limit(20);
 
-  // Totales sumados de todos los años
+  // Totales sumados de todos los años ya devengados
   const totalPendientes = (todosSaldos||[]).reduce((s,r) => s + (r.dias_pendientes||0), 0);
   const totalCorresp    = (todosSaldos||[]).reduce((s,r) => s + (r.dias_correspondientes||0), 0);
   const totalTomados    = (todosSaldos||[]).reduce((s,r) => s + (r.dias_tomados||0), 0);
