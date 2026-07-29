@@ -13341,6 +13341,14 @@ async function generarPDFRecibo(liqId, opts = {}) {
       .eq('id', liqId).single();
     if (e1 || !liq) { toast('No se pudo cargar la liquidación: ' + (e1?.message || 'no encontrada'), 'error'); return; }
 
+    // (jul 2026) Monotributistas NO llevan recibo de haberes: facturan por su
+    // monotributo. La liquidación existe igual (calcula el efectivo a pagar),
+    // pero el PDF de recibo CCT no corresponde emitirlo.
+    if (liq.empleado?.monotributista) {
+      toast(`${liq.empleado.nombre_completo || 'Esta colaboradora'} es monotributista: factura por su cuenta, no lleva recibo de haberes.`, 'error');
+      return;
+    }
+
     const _tablaConceptos = esSAC ? 'rrhh_liquidacion_sac_concepto' : 'rrhh_liquidacion_concepto';
     const { data: conceptos } = await sb.from(_tablaConceptos)
       .select('*').eq('liquidacion_id', liqId).order('orden');
@@ -24186,4 +24194,3 @@ const salaryWorkflow = (() => {
 </script>
 </body>
 </html>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        

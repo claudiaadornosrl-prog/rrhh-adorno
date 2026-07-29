@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v237-tab-horarios';
+const CACHE_VERSION = 'rrhh-v238-monotributista-sin-recibo';
 const ASSETS = [
   './',
   './index.html',
