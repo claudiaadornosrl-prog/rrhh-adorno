@@ -8348,18 +8348,38 @@ async function procesarMes(periodo, local = null) {
     return hh*60 + mm;
   };
 
+  // Días FUTUROS no se procesan: nadie puede estar "ausente" en un día que
+  // todavía no pasó (bug 30-jul: el 31 aparecía como Ausente ×2 el día 30).
+  const _hoyLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+    .toISOString().split('T')[0];
+
   for (const emp of colaboradores) {
     const tol = tols[emp.local] || { minutos_tarde: 20, minutos_temprano: 5, buffer_entrada: 15 };
     for (let d = 1; d <= diasMes; d++) {
       const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const k = `${emp.id}_${fecha}`;
+
+      // Skip días futuros (se procesan cuando llegan)
+      if (fecha > _hoyLocal) continue;
       stats.dias_total++;
 
       // Skip si fecha previa al ingreso
       if (emp.fecha_ingreso && fecha < emp.fecha_ingreso) continue;
 
       const turno = turnoMap[k];
-      const fichs = (fichMap[k] || []).sort();
+      // DOBLE RELOJ (Alcorta tiene 2 dispositivos): la misma marcación queda
+      // registrada en ambos equipos con minutos de diferencia. Dos lecturas a
+      // menos de 30 min son UNA fichada lógica, NO una entrada+salida.
+      // (bug 30-jul: un olvido de fichar la salida generaba "turnos" de 3 min)
+      const _crudas = (fichMap[k] || []).sort();
+      const fichs = [];
+      for (const _f of _crudas) {
+        if (fichs.length === 0) { fichs.push(_f); continue; }
+        const _prev = horaToMin(fichs[fichs.length - 1]);
+        const _cur = horaToMin(_f);
+        if (_cur - _prev > 30) fichs.push(_f);
+        // ≤30 min de la anterior → misma marcación duplicada, se descarta
+      }
       const hayFichada = fichs.length > 0;
       const esVac = vacSet.has(k);
       const esLic = licSet.has(k);
@@ -9764,11 +9784,11 @@ async function abrirNuevoPermisoAdmin() {
           <div id="perm-horario-row" style="display:none;grid-template-columns:1fr 1fr;gap:8px;">
             <div>
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Desde</label>
-              <input type="time" id="perm-desde" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <input type="time" id="perm-desde" onchange="permAdminCalcMinutos()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
             </div>
             <div>
               <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Hasta</label>
-              <input type="time" id="perm-hasta" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+              <input type="time" id="perm-hasta" onchange="permAdminCalcMinutos()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
             </div>
           </div>
           <div>
@@ -9782,7 +9802,7 @@ async function abrirNuevoPermisoAdmin() {
             </label>
             <div id="perm-banco-row" style="display:flex;align-items:center;gap:8px;margin-top:6px;margin-left:24px;">
               <span style="font-size:12px;color:var(--muted);">Minutos a descontar:</span>
-              <input type="number" id="perm-minutos" value="0" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+              <input type="number" id="perm-minutos" value="0" oninput="this.dataset.manual='1'" style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
             </div>
             <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;margin-top:10px;">
               <input type="checkbox" id="perm-vacaciones" onchange="permAdminToggleComp()"> Descontar del saldo de <strong>vacaciones</strong>
@@ -9808,6 +9828,20 @@ async function abrirNuevoPermisoAdmin() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Autocalcular los minutos a descontar del banco a partir de Desde/Hasta.
+// Si la encargada los tocó a mano (dataset.manual), se respeta lo suyo.
+function permAdminCalcMinutos() {
+  const inp = document.getElementById('perm-minutos');
+  if (!inp || inp.dataset.manual === '1') return;
+  const d = document.getElementById('perm-desde')?.value;
+  const h = document.getElementById('perm-hasta')?.value;
+  if (!d || !h) return;
+  const [dh, dm] = d.split(':').map(Number);
+  const [hh, hm] = h.split(':').map(Number);
+  const dif = (hh * 60 + hm) - (dh * 60 + dm);
+  if (dif > 0) inp.value = dif;
 }
 
 // Helper para modal admin: toggle de "descontar vacaciones"
