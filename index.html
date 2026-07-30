@@ -11230,7 +11230,7 @@ async function _loadLogoFont(doc) {
 
   try {
     // Intentar bajar el TTF desde jsdelivr (CDN allowlisted)
-    const url = 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/architectsdaughter/ArchitectsDaughter-Regular.ttf';
+    const url = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/architectsdaughter/ArchitectsDaughter-Regular.ttf';
     const res = await fetch(url);
     if (!res.ok) throw new Error('fetch failed');
     const buf = await res.arrayBuffer();
@@ -22944,6 +22944,6 @@ const salaryWorkflow = (() => {
 })();
 
 </script>
-<script src="recibos-pdf.js?v=1"></script>
+<script src="recibos-pdf.js?v=2"></script>
 </body>
 </html>

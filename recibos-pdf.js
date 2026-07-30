@@ -17,7 +17,7 @@ async function _loadForumFont(doc) {
     if (doc.getFontList && doc.getFontList()[_forumFontName]) return true;
   } catch(_) {}
   try {
-    const url = 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/forum/Forum-Regular.ttf';
+    const url = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/forum/Forum-Regular.ttf';
     const res = await fetch(url);
     if (!res.ok) throw new Error('fetch failed');
     const buf = await res.arrayBuffer();
