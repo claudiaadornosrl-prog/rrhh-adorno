@@ -4,11 +4,12 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v239-css-externo';
+const CACHE_VERSION = 'rrhh-v240-modulo-recibos-pdf';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './recibos-pdf.js',
   './manifest.json',
 ];
 
