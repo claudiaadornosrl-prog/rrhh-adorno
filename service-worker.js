@@ -4,10 +4,11 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v238-monotributista-sin-recibo';
+const CACHE_VERSION = 'rrhh-v239-css-externo';
 const ASSETS = [
   './',
   './index.html',
+  './styles.css',
   './manifest.json',
 ];
 
