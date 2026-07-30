@@ -4,12 +4,14 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v241-fix-fuentes-pdf';
+const CACHE_VERSION = 'rrhh-v242-fuentes-locales';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './recibos-pdf.js',
+  './fonts/Forum-Regular.ttf',
+  './fonts/ArchitectsDaughter-Regular.ttf',
   './manifest.json',
 ];
 

@@ -17,9 +17,19 @@ async function _loadForumFont(doc) {
     if (doc.getFontList && doc.getFontList()[_forumFontName]) return true;
   } catch(_) {}
   try {
-    const url = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/forum/Forum-Regular.ttf';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('fetch failed');
+    // La fuente vive en nuestro repo (fonts/) para no depender de una CDN
+    // ajena: en jul-2026 Google reorganizó su repositorio y la URL de
+    // jsdelivr empezó a dar 404, así que los PDFs salían con la tipografía
+    // de fallback sin que nadie se enterara. La CDN queda como plan B.
+    const urls = [
+      './fonts/Forum-Regular.ttf',
+      'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/forum/Forum-Regular.ttf',
+    ];
+    let res = null;
+    for (const u of urls) {
+      try { const r = await fetch(u); if (r.ok) { res = r; break; } } catch (_) {}
+    }
+    if (!res) throw new Error('fetch failed');
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
     let bin = '';
