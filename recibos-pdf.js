@@ -10,7 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 let _forumFontLoaded = false;
-const _forumFontName = 'Forum';
+const _forumFontName = 'AdornoTitulo';   // URW Gothic — clon libre de Avant Garde
 
 async function _loadForumFont(doc) {
   try {
@@ -22,7 +22,8 @@ async function _loadForumFont(doc) {
     // jsdelivr empezó a dar 404, así que los PDFs salían con la tipografía
     // de fallback sin que nadie se enterara. La CDN queda como plan B.
     const urls = [
-      './fonts/Forum-Regular.ttf',
+      './fonts/URWGothic-Book.ttf',   // tipografía institucional (Avant Garde)
+      './fonts/Forum-Regular.ttf',    // la que se usaba antes
       'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/forum/Forum-Regular.ttf',
     ];
     let res = null;
@@ -35,8 +36,8 @@ async function _loadForumFont(doc) {
     let bin = '';
     for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
     const b64 = btoa(bin);
-    doc.addFileToVFS('Forum-Regular.ttf', b64);
-    doc.addFont('Forum-Regular.ttf', _forumFontName, 'normal');
+    doc.addFileToVFS('AdornoTitulo.ttf', b64);
+    doc.addFont('AdornoTitulo.ttf', _forumFontName, 'normal');
     _forumFontLoaded = true;
     return true;
   } catch (e) {
