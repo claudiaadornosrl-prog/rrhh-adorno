@@ -5218,6 +5218,9 @@ async function renderMisRecibos() {
     .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_firmado_path, pdf_url_firmado, pdf_enviado_at, calculado_at, total_negro, sac_recibo_neto, sac_pdf_firmado_at, sac_pdf_firmado_path')
     .eq('empleado_id', session.empleado_id)
     .eq('tipo', 'definitivo')
+    // Los borradores del mes en curso NO se muestran: la colaboradora ve su
+    // recibo recién cuando se emite el definitivo (igual que en Documentos).
+    .neq('estado', 'borrador')
     .order('periodo', { ascending: false })
     .limit(12);
   if (error) {
