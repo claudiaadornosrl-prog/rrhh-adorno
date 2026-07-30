@@ -4,12 +4,15 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v243-urw-gothic';
+const CACHE_VERSION = 'rrhh-v245-modulos-fase2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './recibos-pdf.js',
+  './vacaciones-pdf.js',
+  './manuales.js',
+  './exportaciones.js',
   './fonts/URWGothic-Book.ttf',
   './fonts/Forum-Regular.ttf',
   './fonts/ArchitectsDaughter-Regular.ttf',
