@@ -502,13 +502,21 @@ async function generarPDFRecibo(liqId, opts = {}) {
     const _tortaTopY = y + 6;
     let _colDerBottom = _tortaTopY;               // se actualiza al dibujar la torta
     {
-      const _netoSlice = Math.max(0, _costoTotal - (_ssEmpleador + _jubTrab) - _contribOS - _inssjpEmp);
+      // (31-jul) Torta EXACTA: cada aporte del trabajador va a su porción
+      // (OS/PAMI/sindical), no mezclado en "Sueldo neto" como hace MEMOSOFT.
+      // Así el neto de la torta coincide con el neto real (~68%, no 74%).
+      const _l19Trab    = Number(_ccAll.find(c => c.codigo === '1002')?.importe || 0);
+      const _osTrab     = Number(_ccAll.find(c => c.codigo === '1031')?.importe || 0);
+      const _secTrab    = Number(_ccAll.find(c => c.codigo === '1011')?.importe || 0);
+      const _faecysTrab = Number(_ccAll.find(c => c.codigo === '1012')?.importe || 0);
+      const _netoReal   = _brutoT - (_jubTrab + _l19Trab + _osTrab + _secTrab + _faecysTrab);
       const _slices = [
-        { label: 'Sueldo neto',      v: _netoSlice,               color: COLOR_GREEN },
-        { label: 'Seguridad social', v: _ssEmpleador + _jubTrab,  color: [83, 74, 183] },
-        { label: 'Obra social',      v: _contribOS,               color: [255, 107, 0] },
-        { label: 'INSSJP',           v: _inssjpEmp,               color: [245, 166, 35] },
-        { label: 'Sindical · ART · SCVO', v: 0,                   color: [160, 158, 150] },
+        { label: 'Sueldo neto',      v: Math.max(0, _netoReal),           color: COLOR_GREEN },
+        { label: 'Seguridad social', v: _ssEmpleador + _jubTrab,          color: [83, 74, 183] },
+        { label: 'Obra social',      v: _contribOS + _osTrab,             color: [255, 107, 0] },
+        { label: 'INSSJP',           v: _inssjpEmp + _l19Trab,            color: [245, 166, 35] },
+        { label: 'Sindical',         v: _secTrab + _faecysTrab,           color: [160, 158, 150] },
+        { label: 'ART · SCVO',       v: 0,                                color: [200, 198, 190] },
       ];
       const _tot = _slices.reduce((s, x) => s + x.v, 0) || 1;
       let ty = _tortaTopY;
@@ -553,15 +561,25 @@ async function generarPDFRecibo(liqId, opts = {}) {
         doc.setTextColor(...COLOR_TEXT);  doc.text(fmt(val), W - margen, dy, { align: 'right' });
         dy += 3.8;
       };
+      const _sub = (emp, trab) => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.3);
+        doc.setTextColor(...COLOR_MUTED);
+        doc.text(`    Empleador ${fmt(emp)} · Trabajador ${fmt(trab)}`, colDerX, dy);
+        doc.setFontSize(7.2);
+        dy += 3.4;
+      };
       doc.setFont('helvetica', 'bold');
-      _fila('Total seguridad social', _ssEmpleador + _jubTrab);
-      doc.setFont('helvetica', 'normal');
-      _fila('    Empleador', _ssEmpleador);
-      _fila('    Trabajador', _jubTrab);
+      _fila('Total seguridad social', _slices[1].v);
+      _sub(_ssEmpleador, _jubTrab);
       doc.setFont('helvetica', 'bold');
-      _fila('Total obra social (empleador)', _contribOS);
-      _fila('Total INSSJP (empleador)', _inssjpEmp);
-      _fila('Costo sindical · ART · SCVO', 0);
+      _fila('Total obra social', _slices[2].v);
+      _sub(_contribOS, _slices[2].v - _contribOS);
+      doc.setFont('helvetica', 'bold');
+      _fila('Total INSSJP', _slices[3].v);
+      _sub(_inssjpEmp, _slices[3].v - _inssjpEmp);
+      doc.setFont('helvetica', 'bold');
+      _fila('Sindical (trabajador) · ART · SCVO', _slices[4].v);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.3);
       doc.setTextColor(...COLOR_MUTED);
