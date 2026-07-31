@@ -36,13 +36,14 @@ async function exportarGaliciaXLSX(local, periodo) {
       const aAcreditar = (+l.recibo_neto || 0) - (+l.prestamo_capital || 0);
       if (aAcreditar <= 0) continue;
       if (!e.cuenta_galicia) { sinCuenta.push(fmtNombre(e)); continue; }
+      const impRedondo = Math.ceil(aAcreditar);  // sin centavos, siempre p/arriba
       filas.push([
         String(e.cuenta_galicia).padStart(14, '0'),
         fmtNombre(e),
-        Math.round(aAcreditar * 100) / 100,
+        impRedondo,
         '01',
       ]);
-      totalImporte += aAcreditar;
+      totalImporte += impRedondo;
     }
 
     if (filas.length === 0) {
@@ -55,6 +56,43 @@ async function exportarGaliciaXLSX(local, periodo) {
     }
 
     const wb = XLSX.utils.book_new();
+
+    // Hoja 1: "Ayuda" — instrucciones del banco, copiadas del template oficial
+    const AYUDA = [
+      ['', 'Ayuda : Planilla Excel Liquidaciones', ''],
+      ['', '1. Completar la hoja de este excel llamada "Template Liquidaciones" según las siguientes definiciones de campos', '.'],
+      ['', '2. Guardar y Enviar por GO (Menú: Haberes/Acreditaciones/Archivos/Envío Archivo de Acreditaciones). ', ''],
+      ['', '', ''],
+      ['', '', ''],
+      ['CUENTA', 'El campo cuenta debe contener 12 digitos sin guiones. La misma debe comenzar con 0 (si es Cuenta Corriente) ó 4 (si es Caja de Ahorro). Formato de Celda: NÚMERO - Posiciones Decimales: 0.', ''],
+      ['', '', ''],
+      ['NOMBRE', 'Debe introducirse en el siguiente orden: Apellido y Nombre.  Sin comas.  No hay limite de caracteres. Formato de Celda: TEXTO', ''],
+      ['', '', ''],
+      ['IMPORTE', 'El campo importe admite un máximo de 14 caracteres. Sin signo monetario. Con coma decimal, incluyendo dos decimales. Formato de Celda: NÚMERO - Posiciones Decimales: 2.', ''],
+      ['', '', ''],
+      ['CONCEPTO', 'Se deberá colocar el Código que figura en la "Tabla de Conceptos" de acuerdo con la descripción que se quiera mostrar para cada monto a acreditar.  El campo requiere un mínimo de 2 caracteres. Formato de Celda: TEXTO. CAMPO OPCIONAL. Por default aparecerá siempre el Código 01, significa Acreditamiento de Haberes.', ''],
+      ['', '', ''],
+      ['', '', ''],
+      ['Tabla de Conceptos', '', ''],
+      ['', '', ''],
+      ['Código', 'Descripción', ''],
+      ['01', 'ACREDITAMIENTO DE HABERES', ''],
+      ['02', 'HORAS EXTRAS', ''],
+      ['03', 'REINTEGRO POR VIATICOS', ''],
+      ['04', 'SUELDO ANUAL COMPLEMENTARIO', ''],
+      ['05', 'SUBSIDIO VACACIONAL', ''],
+      ['06', 'GASTOS DE REPRESENTACION', ''],
+      ['07', 'HONORARIOS DE PROFESIONALES', ''],
+      ['08', 'ASIGNACION PERSONAL CONTRATADO', ''],
+      ['09', 'ASIGNACION BECAS/PASANTIAS', ''],
+      [10, 'PREMIO POR PRODUCTIVIDAD/CALIDAD', ''],
+      [11, 'REEMBOLSO GASTOS', ''],
+      [12, 'INDEMNIZACION/LIQUIDACION FINAL', ''],
+    ];
+    const wsAyuda = XLSX.utils.aoa_to_sheet(AYUDA);
+    wsAyuda['!cols'] = [{ wch: 18 }, { wch: 110 }, { wch: 4 }];
+    XLSX.utils.book_append_sheet(wb, wsAyuda, 'Ayuda');
+
     const ws = XLSX.utils.aoa_to_sheet([
       ['Cuenta', 'Nombre', 'Importe', 'Concepto'],
       ...filas,
@@ -63,7 +101,7 @@ async function exportarGaliciaXLSX(local, periodo) {
     for (let r = 1; r <= filas.length; r++) {
       const cCta = ws['A' + (r + 1)]; if (cCta) cCta.t = 's';
       const cCon = ws['D' + (r + 1)]; if (cCon) cCon.t = 's';
-      const cImp = ws['C' + (r + 1)]; if (cImp) { cImp.t = 'n'; cImp.z = '0.00'; }
+      const cImp = ws['C' + (r + 1)]; if (cImp) { cImp.t = 'n'; cImp.z = '0'; }
     }
     ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 14 }, { wch: 10 }];
     XLSX.utils.book_append_sheet(wb, ws, 'Template Liquidaciones');
