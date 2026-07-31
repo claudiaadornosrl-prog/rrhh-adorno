@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v262-torta-exacta';
+const CACHE_VERSION = 'rrhh-v265-planilla-prestamos-activos';
 const ASSETS = [
   './',
   './index.html',

@@ -108,15 +108,18 @@ async function exportarPlanillaBlancaLiq(local, periodo) {
     const empIds = [...new Set(liqs.map(l => l.empleado_id))];
     const adelMap = {}, presMap = {};
     if (empIds.length > 0) {
+      // (31-jul) SOLO préstamos ACTIVOS y cuotas NO canceladas — igual que la
+      // grilla. Sin estos filtros el Excel sumaba cuotas de préstamos
+      // refinanciados/cancelados (Bianchi +$657.500, Noguera +$214.286).
       const { data: pAct } = await sb.from('rrhh_prestamo')
         .select('id, empleado_id, estado, cuotas_totales, tasa_mensual')
-        .in('empleado_id', empIds);
+        .in('empleado_id', empIds).eq('estado', 'activo');
       const pById = {}; (pAct || []).forEach(p => { pById[p.id] = p; });
       const idsP = (pAct || []).map(p => p.id);
       if (idsP.length > 0) {
         const { data: cs } = await sb.from('rrhh_prestamo_cuota')
           .select('prestamo_id, monto_capital, mes_descuento')
-          .eq('mes_descuento', periodo + '-01').in('prestamo_id', idsP);
+          .eq('mes_descuento', periodo + '-01').neq('estado', 'cancelada').in('prestamo_id', idsP);
         (cs || []).forEach(c => {
           const pr = pById[c.prestamo_id]; if (!pr) return;
           const cap = Number(c.monto_capital || 0);

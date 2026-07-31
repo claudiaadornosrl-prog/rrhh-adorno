@@ -693,7 +693,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
         // zona de firmas, caption centrada debajo — ya no pisa "Recibí conforme".
         const qrSize = 20;
         const qrX = W / 2 - 10;   // columna del medio: no pisa ninguna firma
-        const qrY = H - 59;
+        const qrY = H - 55;       // más despegado del banner del neto
         doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
