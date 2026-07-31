@@ -438,6 +438,7 @@ let liqState = { periodo: null, local: null, busqueda: '', estado: 'todos', cate
 
 // Cambiar sub-tab (💰 Sueldo | 🏦 Banco) sin recargar toda la data
 function liqSwitchSubTab(tab) {
+  if (session?.soloBanco && tab !== 'banco') return;
   if (tab !== 'sueldo' && tab !== 'banco') return;
   liqState.subTab = tab;
   switchTab('liquidaciones');
@@ -689,6 +690,10 @@ async function onLoggedIn(user) {
     empleadoData = emp;
   }
 
+  // (31-jul) Usuarios "solo Banco": administración/estudio ven únicamente la
+  // sub-tab Banco de Liquidación (parte en blanco). Mismo par de emails que
+  // rrhh_es_solo_banco() en la DB — mantener sincronizado.
+  const RRHH_SOLO_BANCO_EMAILS = ['administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
   session = {
     user,
     rol: usuarioRow.rol,
@@ -696,6 +701,7 @@ async function onLoggedIn(user) {
     empleado_id: usuarioRow.empleado_id,
     empleadoData,
     email: usuarioRow.email,
+    soloBanco: RRHH_SOLO_BANCO_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
   };
   console.log('[LOGIN] session set:', session);
 
@@ -717,6 +723,7 @@ async function onLoggedIn(user) {
   renderSidebar();
   // Tab inicial según rol — directora no tiene NAV items así que forzamos liquidaciones
   let firstTab;
+  if (session.soloBanco) liqState.subTab = 'banco';
   if (session.rol === 'directora') firstTab = 'liquidaciones';
   else firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
   // Si es colaboradora y le faltan datos críticos, arrancar en Mi legajo
@@ -768,6 +775,8 @@ function renderSidebar() {
 // TABS / PÁGINAS
 // ════════════════════════════════════════════════════════════
 function switchTab(tabId) {
+  // Usuarios solo-Banco: no salen de Liquidación
+  if (session?.soloBanco && tabId !== 'liquidaciones') tabId = 'liquidaciones';
   // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
   if (session && session.rol === 'empleado' && tabId !== 'mi-legajo') {
     // Chequeo async: si está incompleto, redirigir
@@ -13052,6 +13061,8 @@ async function renderLiquidaciones() {
   const isAdmin     = session.rol === 'admin';
   const isGerente   = session.rol === 'gerente';
   const isDirectora = session.rol === 'directora';
+  const soloBanco   = !!session.soloBanco;
+  if (soloBanco) liqState.subTab = 'banco';
   // Directora ve TODOS los locales por default (no puede cambiar)
   if (!liqState.local) liqState.local = (isAdmin || isDirectora) ? 'todos' : (session.empleadoData?.local || 'alcorta');
   if (isDirectora) liqState.local = 'todos';
@@ -13126,7 +13137,8 @@ async function renderLiquidaciones() {
     periodos.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
   }
   // Para directora: filtrar solo meses cerrados — early return si no hay ninguno
-  if (isDirectora) {
+  // (los usuarios solo-Banco de administración SÍ ven el mes en curso)
+  if (isDirectora && !soloBanco) {
     const { data: cerrados } = await sb.from('rrhh_meses_cerrados_sueldos')
       .select('periodo').order('periodo', { ascending: false });
     const setCerrados = new Set((cerrados || []).map(r => r.periodo.substring(0,7)));
@@ -13481,7 +13493,7 @@ async function renderLiquidaciones() {
     <div class="cal-toolbar" style="align-items:center;">
       <!-- Sub-tabs -->
       <div style="display:flex;gap:2px;">
-        <button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>
+        ${session.soloBanco ? '' : `<button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>`}
         <button onclick="liqSwitchSubTab('banco')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
       </div>
       <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:8px;"></span>
