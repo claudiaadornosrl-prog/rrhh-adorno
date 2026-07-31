@@ -464,7 +464,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     const _contribTot  = _contribSS + _contribOS;
     const _costoTotal  = _brutoT + _contribTot;
 
-    y = 111;
+    y = 109;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
@@ -473,13 +473,13 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
     doc.line(margen, y + 1.5, W - margen, y + 1.5);
-    y += 6.5;
+    y += 5.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(...COLOR_TEXT);
     doc.text('Costo laboral total del empleador', margen, y);
     doc.text(fmt(_costoTotal), W - margen, y, { align: 'right' });
-    y += 5.5;
+    y += 5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.text('Cont. Seguridad Social (SIPA · FNE · Asig. Familiares · INSSJP)', margen, y);
@@ -499,7 +499,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     const colDerX = margen + 112;                 // arranque columna derecha
     const colIzqAmt = margen + 96;                // importes tablas izquierda
     const colIzqFlag = margen + 104;              // flag R/NR
-    const _tortaTopY = y + 8;
+    const _tortaTopY = y + 6;
     let _colDerBottom = _tortaTopY;               // se actualiza al dibujar la torta
     {
       const _netoSlice = Math.max(0, _costoTotal - (_ssEmpleador + _jubTrab) - _contribOS - _inssjpEmp);
@@ -602,7 +602,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
       doc.text(flagRem, colIzqFlag + 4, y, { align: 'right' });
       doc.setTextColor(...COLOR_TEXT);
       doc.setFontSize(9);
-      y += 4.5;
+      y += 4.1;
       if (y > H - 80) { doc.addPage(); y = 22; }
     }
     // Total bruto
@@ -616,7 +616,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text(fmt(totalBruto), colIzqAmt, y, { align: 'right' });
 
     // 8. TABLA DESCUENTOS
-    y += 9;
+    y += 7;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
@@ -636,7 +636,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
       totalDesc += importe;
       doc.text(String(desc + pct).slice(0, 42), margen, y);
       doc.text(fmtNeg(importe), colIzqAmt, y, { align: 'right' });
-      y += 4.5;
+      y += 4.1;
       if (y > H - 60) { doc.addPage(); y = 22; }
     }
     doc.line(margen, y, colIzqFlag + 4, y);
@@ -647,8 +647,9 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text(fmtNeg(totalDesc), colIzqAmt, y, { align: 'right' });
 
     // 9. BANNER NETO A COBRAR (debajo de ambas columnas)
-    y = Math.max(y + 9, _colDerBottom + 5);
-    if (y > H - 72) y = H - 72;  // no pisar QR/firmas
+    // (31-jul) sin clamp hacia arriba: el clamp viejo pisaba "Total descuentos"
+    // cuando la tabla era larga. Ahora solo se achica el margen inferior.
+    y = Math.max(y + 7, _colDerBottom + 4);
     doc.setFillColor(...COLOR_GREEN_LT);
     doc.setDrawColor(...COLOR_GREEN);
     doc.setLineWidth(0.4);
