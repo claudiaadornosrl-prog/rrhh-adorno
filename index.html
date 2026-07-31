@@ -20506,7 +20506,10 @@ const salaryEngine = (() => {
     // OS: base AFIP depende de la OS. Para OSECAC = bruto. Para otras = total_rem.
     // Esto coincide con cómo el estudio carga los conceptos: OSECAC usa códigos NR que
     // imputan a OS (0490/0492/0493/0496), las demás usan códigos que NO imputan (0491/0494/0495/0497).
-    const baseOS = (obra_social_codigo === 'osecac') ? bruto : total_rem;
+    // (31-jul) comparación case-insensitive: Nicola tenía 'Osecac' cargado
+    // a mano y el === estricto la dejaba con base rem (diferencia de $5.136
+    // vs el estudio). Cualquier variante de OSECAC usa base bruto.
+    const baseOS = (String(obra_social_codigo || '').trim().toLowerCase() === 'osecac') ? bruto : total_rem;
     const os         = baseOS * PCT.OS;
     const sec        = fuera_convenio ? 0 : bruto * PCT.SEC;
     const faecys     = fuera_convenio ? 0 : bruto * PCT.FAECYS;
