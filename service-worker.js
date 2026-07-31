@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v249-mis-recibos-sin-borrador';
+const CACHE_VERSION = 'rrhh-v250-recibo-decreto-407';
 const ASSETS = [
   './',
   './index.html',

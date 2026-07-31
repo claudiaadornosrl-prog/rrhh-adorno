@@ -399,16 +399,147 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text(String(_osTxt).slice(0, 18), colX2, y + 38);
     doc.text(`${_diasTrab}/${_diasMes}`, colX3, y + 38);
 
-    // 7. TABLA DEVENGADO
-    y = 113;
+    // 6b. COSTO LABORAL + CONTRIBUCIONES EMPLEADOR (Decreto 407/2026, Anexo III)
+    // El recibo nuevo arranca del costo laboral total y baja hasta el neto.
+    // Tasas verificadas contra los recibos del estudio contable (jul-2026):
+    //   Cont. Seg. Social = 18% × (remunerativo − detracción Dec.814) →
+    //     se abre en 16,41% seg. social (SIPA/FNE/AAFF) + 1,59% INSSJP.
+    //   Contribución OS = 6% sobre la MISMA base que el 3% del trabajador
+    //   (OSECAC = bruto, otras = remunerativo — igual que el descuento).
+    const DETRACCION_814 = 7003.68; // detracción vigente jul-2026 (según estudio)
+    const _ccAll = conceptos || [];
+    const _remT  = _ccAll.filter(c => !c.es_descuento && c.remunerativo).reduce((s,c)=>s+Number(c.importe||0),0);
+    const _nrT   = _ccAll.filter(c => !c.es_descuento && !c.remunerativo).reduce((s,c)=>s+Number(c.importe||0),0);
+    const _brutoT = _remT + _nrT;
+    const _jubTrab = Number(_ccAll.find(c => c.codigo === '1001')?.importe || 0);
+    const _osC = _ccAll.find(c => c.codigo === '1031');
+    const _baseOS = (_osC && Number(_osC.porcentaje) > 0)
+      ? Number(_osC.importe || 0) / (Number(_osC.porcentaje) / 100)
+      : _remT;
+    const _baseContrib = Math.max(0, _remT - DETRACCION_814);
+    const _contribSS   = _baseContrib * 0.18;
+    const _ssEmpleador = _baseContrib * 0.1641;
+    const _inssjpEmp   = _baseContrib * 0.0159;
+    const _contribOS   = _baseOS * 0.06;
+    const _contribTot  = _contribSS + _contribOS;
+    const _costoTotal  = _brutoT + _contribTot;
+
+    y = 111;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text('COSTO LABORAL · CONTRIBUCIONES DEL EMPLEADOR', margen, y);
+    doc.text('Decreto 407/2026 · Anexo III', W - margen, y, { align: 'right' });
+    doc.setDrawColor(...COLOR_BORDER);
+    doc.setLineWidth(0.3);
+    doc.line(margen, y + 1.5, W - margen, y + 1.5);
+    y += 6.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...COLOR_TEXT);
+    doc.text('Costo laboral total del empleador', margen, y);
+    doc.text(fmt(_costoTotal), W - margen, y, { align: 'right' });
+    y += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text('Cont. Seguridad Social (SIPA · FNE · Asig. Familiares · INSSJP)', margen, y);
+    doc.text(fmt(_contribSS), W - margen, y, { align: 'right' });
+    y += 4.5;
+    doc.text('Contribución Obra Social (6%)', margen, y);
+    doc.text(fmt(_contribOS), W - margen, y, { align: 'right' });
+    y += 2.5;
+    doc.line(margen, y, W - margen, y);
+    y += 4;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('Subtotal contribuciones del empleador', margen, y);
+    doc.text(fmt(_contribTot), W - margen, y, { align: 'right' });
+
+    // ── Columna derecha: COMPOSICIÓN DEL COSTO LABORAL (torta) ──
+    const colDerX = margen + 112;                 // arranque columna derecha
+    const colIzqAmt = margen + 96;                // importes tablas izquierda
+    const colIzqFlag = margen + 104;              // flag R/NR
+    const _tortaTopY = y + 8;
+    let _colDerBottom = _tortaTopY;               // se actualiza al dibujar la torta
+    {
+      const _netoSlice = Math.max(0, _costoTotal - (_ssEmpleador + _jubTrab) - _contribOS - _inssjpEmp);
+      const _slices = [
+        { label: 'Sueldo neto',      v: _netoSlice,               color: COLOR_GREEN },
+        { label: 'Seguridad social', v: _ssEmpleador + _jubTrab,  color: [83, 74, 183] },
+        { label: 'Obra social',      v: _contribOS,               color: [255, 107, 0] },
+        { label: 'INSSJP',           v: _inssjpEmp,               color: [245, 166, 35] },
+        { label: 'Sindical · ART · SCVO', v: 0,                   color: [160, 158, 150] },
+      ];
+      const _tot = _slices.reduce((s, x) => s + x.v, 0) || 1;
+      let ty = _tortaTopY;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...COLOR_MUTED);
+      doc.text('COMPOSICIÓN DEL COSTO LABORAL', colDerX, ty);
+      doc.line(colDerX, ty + 1.5, W - margen, ty + 1.5);
+      // Torta (abanico de triángulos, jsPDF no tiene arcos con relleno)
+      const cx = colDerX + 20, cyP = ty + 26, r = 17;
+      let ang = -Math.PI / 2;
+      for (const s of _slices) {
+        const frac = s.v / _tot;
+        if (frac <= 0) continue;
+        const fin = ang + frac * Math.PI * 2;
+        doc.setFillColor(...s.color);
+        const paso = Math.PI / 60;
+        for (let a = ang; a < fin; a += paso) {
+          const b = Math.min(a + paso, fin);
+          doc.triangle(cx, cyP, cx + r * Math.cos(a), cyP + r * Math.sin(a),
+                       cx + r * Math.cos(b), cyP + r * Math.sin(b), 'F');
+        }
+        ang = fin;
+      }
+      // Leyenda a la derecha de la torta
+      let ly = ty + 12;
+      const lx = cx + r + 6;
+      doc.setFontSize(7.2);
+      for (const s of _slices) {
+        const pct = Math.round((s.v / _tot) * 100);
+        doc.setFillColor(...s.color);
+        doc.rect(lx, ly - 2.2, 2.6, 2.6, 'F');
+        doc.setTextColor(...COLOR_TEXT);
+        doc.text(`${s.label} ${pct}%`, lx + 4, ly);
+        ly += 4.4;
+      }
+      // Desglose de totales (estilo "Detalle de la Composición Salarial")
+      let dy = cyP + r + 7;
+      doc.setFontSize(7.2);
+      const _fila = (lbl, val) => {
+        doc.setTextColor(...COLOR_MUTED); doc.text(lbl, colDerX, dy);
+        doc.setTextColor(...COLOR_TEXT);  doc.text(fmt(val), W - margen, dy, { align: 'right' });
+        dy += 3.8;
+      };
+      doc.setFont('helvetica', 'bold');
+      _fila('Total seguridad social', _ssEmpleador + _jubTrab);
+      doc.setFont('helvetica', 'normal');
+      _fila('    Empleador', _ssEmpleador);
+      _fila('    Trabajador', _jubTrab);
+      doc.setFont('helvetica', 'bold');
+      _fila('Total obra social (empleador)', _contribOS);
+      _fila('Total INSSJP (empleador)', _inssjpEmp);
+      _fila('Costo sindical · ART · SCVO', 0);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.3);
+      doc.setTextColor(...COLOR_MUTED);
+      const _nota = doc.splitTextToSize('Nota: la seguridad social del empleador incluye SIPA, Fondo Nacional de Empleo y Asignaciones Familiares.', (W - margen) - colDerX);
+      doc.text(_nota, colDerX, dy + 1);
+      _colDerBottom = dy + 1 + _nota.length * 2.8;
+    }
+
+    // 7. TABLA DEVENGADO (columna izquierda)
+    y = _tortaTopY;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
     doc.text('DEVENGADO', margen, y);
-    doc.text('R = Remunerativo · NR = No remunerativo', W - margen, y, { align: 'right' });
+    doc.text('R/NR', colIzqFlag + 4, y, { align: 'right' });
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
-    doc.line(margen, y + 1.5, W - margen, y + 1.5);
+    doc.line(margen, y + 1.5, colIzqFlag + 4, y + 1.5);
 
     y += 6;
     const conceptosDevengados = (conceptos || []).filter(c => !c.es_descuento);
@@ -424,11 +555,11 @@ async function generarPDFRecibo(liqId, opts = {}) {
       const flagRem = c.remunerativo ? 'R' : 'NR';
       if (c.remunerativo) totalRem += importe; else totalNR += importe;
 
-      doc.text(desc + pct, margen, y);
-      doc.text(fmt(importe), W - margen - 14, y, { align: 'right' });
+      doc.text(String(desc + pct).slice(0, 42), margen, y);
+      doc.text(fmt(importe), colIzqAmt, y, { align: 'right' });
       doc.setTextColor(...COLOR_MUTED);
       doc.setFontSize(8);
-      doc.text(flagRem, W - margen, y, { align: 'right' });
+      doc.text(flagRem, colIzqFlag + 4, y, { align: 'right' });
       doc.setTextColor(...COLOR_TEXT);
       doc.setFontSize(9);
       y += 4.5;
@@ -437,12 +568,12 @@ async function generarPDFRecibo(liqId, opts = {}) {
     // Total bruto
     const totalBruto = totalRem + totalNR;
     doc.setDrawColor(...COLOR_BORDER);
-    doc.line(margen, y, W - margen, y);
+    doc.line(margen, y, colIzqFlag + 4, y);
     y += 4.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('Total bruto', margen, y);
-    doc.text(fmt(totalBruto), W - margen, y, { align: 'right' });
+    doc.text(fmt(totalBruto), colIzqAmt, y, { align: 'right' });
 
     // 8. TABLA DESCUENTOS
     y += 9;
@@ -450,7 +581,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
     doc.text('DESCUENTOS', margen, y);
-    doc.line(margen, y + 1.5, W - margen, y + 1.5);
+    doc.line(margen, y + 1.5, colIzqFlag + 4, y + 1.5);
     y += 6;
 
     const descuentos = (conceptos || []).filter(c => c.es_descuento);
@@ -463,20 +594,21 @@ async function generarPDFRecibo(liqId, opts = {}) {
       const pct  = c.porcentaje != null && c.porcentaje > 0 ? ` (${fmtPct(c.porcentaje)})` : '';
       const importe = Number(c.importe || 0);
       totalDesc += importe;
-      doc.text(desc + pct, margen, y);
-      doc.text(fmtNeg(importe), W - margen, y, { align: 'right' });
+      doc.text(String(desc + pct).slice(0, 42), margen, y);
+      doc.text(fmtNeg(importe), colIzqAmt, y, { align: 'right' });
       y += 4.5;
       if (y > H - 60) { doc.addPage(); y = 22; }
     }
-    doc.line(margen, y, W - margen, y);
+    doc.line(margen, y, colIzqFlag + 4, y);
     y += 4.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('Total descuentos', margen, y);
-    doc.text(fmtNeg(totalDesc), W - margen, y, { align: 'right' });
+    doc.text(fmtNeg(totalDesc), colIzqAmt, y, { align: 'right' });
 
-    // 9. BANNER NETO A COBRAR
-    y += 9;
+    // 9. BANNER NETO A COBRAR (debajo de ambas columnas)
+    y = Math.max(y + 9, _colDerBottom + 5);
+    if (y > H - 72) y = H - 72;  // no pisar QR/firmas
     doc.setFillColor(...COLOR_GREEN_LT);
     doc.setDrawColor(...COLOR_GREEN);
     doc.setLineWidth(0.4);
