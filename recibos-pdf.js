@@ -650,16 +650,17 @@ async function generarPDFRecibo(liqId, opts = {}) {
     // (31-jul) sin clamp hacia arriba: el clamp viejo pisaba "Total descuentos"
     // cuando la tabla era larga. Ahora solo se achica el margen inferior.
     y = Math.max(y + 7, _colDerBottom + 4);
+    const _bannerY = y;   // el cuadro del código se alinea a esta banda
     doc.setFillColor(...COLOR_GREEN_LT);
     doc.setDrawColor(...COLOR_GREEN);
     doc.setLineWidth(0.4);
-    doc.roundedRect(margen, y, ancho, 14, 2, 2, 'FD');
+    doc.roundedRect(margen, y, 108, 16, 2, 2, 'FD');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(...COLOR_GREEN);
-    doc.text('Neto a cobrar', margen + 5, y + 9);
-    doc.setFontSize(16);
-    doc.text(fmt(_netoBanner), W - margen - 5, y + 9.5, { align: 'right' });
+    doc.text('Neto a cobrar', margen + 5, y + 10);
+    doc.setFontSize(15);
+    doc.text(fmt(_netoBanner), margen + 103, y + 10.3, { align: 'right' });
 
     // 10. QR con código identificador REC-XXXXX (mensual) o SAC-XXXXX (aguinaldo)
     // para escaneo bulk de firmados y distinguirlos visualmente
@@ -673,7 +674,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
         // (31-jul) Banda inferior reordenada: QR 20mm arriba-izquierda de la
         // zona de firmas, caption centrada debajo — ya no pisa "Recibí conforme".
         const qrSize = 20;
-        const qrX = margen;
+        const qrX = W / 2 - 10;   // columna del medio: no pisa ninguna firma
         const qrY = H - 59;
         doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
         doc.setFont('helvetica', 'normal');
@@ -688,9 +689,9 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
     const mitad = W / 2;
-    const fIzqX1 = margen + 28, fIzqX2 = mitad - 6;   // corrida: el QR vive a la izquierda
+    const fIzqX1 = margen + 6, fIzqX2 = mitad - 16;   // el QR vive en el medio
     doc.line(fIzqX1, yFirma, fIzqX2, yFirma);
-    doc.line(mitad + 10, yFirma, W - margen - 10, yFirma);
+    doc.line(mitad + 16, yFirma, W - margen - 6, yFirma);
 
     // Embeber firma del admin (JP) automáticamente — encima de la línea derecha.
     // Si el archivo no existe (404), seguimos sin firma — graceful fallback.
@@ -705,7 +706,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
         });
         // Dimensiones: ~35mm de ancho, 18mm de alto, centrada en el bloque derecho de firma
         const firmaW = 32, firmaH = 16;
-        const firmaCenterX = (mitad + 10 + W - margen - 10) / 2;
+        const firmaCenterX = (mitad + 16 + W - margen - 6) / 2;
         doc.addImage(dataUrl, 'PNG', firmaCenterX - firmaW/2, yFirma - firmaH - 1, firmaW, firmaH);
       }
     } catch(e) { console.warn('No se pudo cargar firma_admin.png', e); }
@@ -715,8 +716,8 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setTextColor(...COLOR_MUTED);
     doc.text('Recibí conforme', (fIzqX1 + fIzqX2) / 2, yFirma + 4, { align: 'center' });
     doc.text('Firma empleado/a', (fIzqX1 + fIzqX2) / 2, yFirma + 8, { align: 'center' });
-    doc.text('Por Claudia Adorno SRL', (mitad + 10 + W - margen - 10) / 2, yFirma + 4, { align: 'center' });
-    doc.text('Firma y sello', (mitad + 10 + W - margen - 10) / 2, yFirma + 8, { align: 'center' });
+    doc.text('Por Claudia Adorno SRL', (mitad + 16 + W - margen - 6) / 2, yFirma + 4, { align: 'center' });
+    doc.text('Firma y sello', (mitad + 16 + W - margen - 6) / 2, yFirma + 8, { align: 'center' });
 
     // 12. Bloque CÓDIGO DE SEGUIMIENTO + asunto del mail (estilo vacaciones)
     const codigoSeg = 'REC-' + String(liq.id).padStart(5, '0');
@@ -725,22 +726,22 @@ async function generarPDFRecibo(liqId, opts = {}) {
     // Cuadro destacado a la derecha con el código (encima del QR)
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
-    const segBoxW = 58;
-    const segBoxX = margen + 26;   // a la derecha del QR, lejos de la firma
-    const segBoxY = H - 59;
-    doc.roundedRect(segBoxX, segBoxY, segBoxW, 20, 2, 2, 'S');
+    const segBoxW = 62;
+    const segBoxX = W - margen - segBoxW;   // a la derecha del banner del neto
+    const segBoxY = _bannerY;               // misma banda que el banner
+    doc.roundedRect(segBoxX, segBoxY, segBoxW, 16, 2, 2, 'S');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...COLOR_MUTED);
-    doc.text('CÓDIGO DE SEGUIMIENTO', segBoxX + segBoxW/2, segBoxY + 5.5, { align: 'center' });
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(...COLOR_GREEN);
-    doc.text(codigoSeg, segBoxX + segBoxW/2, segBoxY + 13, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...COLOR_MUTED);
-    doc.text(`Asunto del mail: "RECIBO ${periodoCorto} ${codigoSeg}"`, segBoxX + segBoxW/2, segBoxY + 17.5, { align: 'center' });
+    doc.text('CÓDIGO DE SEGUIMIENTO', segBoxX + segBoxW/2, segBoxY + 4.5, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...COLOR_GREEN);
+    doc.text(codigoSeg, segBoxX + segBoxW/2, segBoxY + 10, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...COLOR_MUTED);
+    doc.text(`Asunto del mail: "RECIBO ${periodoCorto} ${codigoSeg}"`, segBoxX + segBoxW/2, segBoxY + 14, { align: 'center' });
 
     // Frase + mail (estilo vacaciones)
     doc.setDrawColor(...COLOR_BORDER);
