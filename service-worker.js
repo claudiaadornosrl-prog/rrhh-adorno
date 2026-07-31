@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v253-tipo-no-default-definitivo';
+const CACHE_VERSION = 'rrhh-v254-visor-pdf-inline-proforma';
 const ASSETS = [
   './',
   './index.html',

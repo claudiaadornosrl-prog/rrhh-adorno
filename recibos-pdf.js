@@ -189,16 +189,32 @@ async function abrirConfirmacionRecibo(liqId) {
 }
 
 
+// Visor embebido (31-jul): el window.open lo bloqueaban los popup-blockers y
+// parecía que "no pasaba nada". Ahora el PDF se muestra en un modal con iframe.
+function _mostrarPdfInline(doc, titulo) {
+  const url = doc.output('bloburl');
+  const old = document.getElementById('pdf-preview-modal');
+  if (old) old.remove();
+  const html = `
+    <div id="pdf-preview-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;background:#0d9488;color:#fff;">
+        <b style="font-size:14px;">${titulo}</b>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" style="font-size:12px;" onclick="window.open(document.getElementById('pdf-preview-frame').src, '_blank')">⧉ Pestaña</button>
+          <button class="btn" style="font-size:12px;" onclick="document.getElementById('pdf-preview-modal').remove()">✕ Cerrar</button>
+        </div>
+      </div>
+      <iframe id="pdf-preview-frame" src="${url}" style="flex:1;border:0;background:#525659;"></iframe>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
 async function verReciboPDF(liqId) {
   try {
     const doc = await generarPDFRecibo(liqId, { autoSave: false });
     if (!doc) return;
-    // Abrir en ventana nueva como vista previa
-    const url = doc.output('bloburl');
-    const w = window.open(url, '_blank', 'width=900,height=1100');
-    if (!w) {
-      toast('Tu navegador bloqueó la ventana emergente. Permitilas y volvé a intentar.', 'error');
-    }
+    const tit = doc.__tipoLiq === 'proforma' ? '📋 Recibo PROFORMA (preview)' : '📋 Recibo definitivo';
+    _mostrarPdfInline(doc, tit);
   } catch (e) {
     toast('Error abriendo recibo: ' + (e.message || e), 'error');
   }
@@ -210,11 +226,7 @@ async function verSacPDF(liqId) {
   try {
     const doc = await generarPDFRecibo(liqId, { autoSave: false, esSAC: true });
     if (!doc) return;
-    const url = doc.output('bloburl');
-    const w = window.open(url, '_blank', 'width=900,height=1100');
-    if (!w) {
-      toast('Tu navegador bloqueó la ventana emergente. Permitilas y volvé a intentar.', 'error');
-    }
+    _mostrarPdfInline(doc, '🎁 Recibo SAC');
   } catch (e) {
     toast('Error abriendo SAC: ' + (e.message || e), 'error');
   }
@@ -718,6 +730,34 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFontSize(6.5);
     const ahora = new Date().toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
     doc.text(`Generado automáticamente · ${ahora} · Liquidación #${liq.id}`, W/2, H - 9, { align: 'center' });
+
+    // 12b. Marca de agua PROFORMA (31-jul): mientras la liquidación no sea
+    // definitiva, el PDF lo dice bien grande — no es un recibo emitible.
+    doc.__tipoLiq = liq.tipo || 'definitivo';
+    if (!esSAC && liq.tipo === 'proforma') {
+      try {
+        doc.saveGraphicsState();
+        doc.setGState(new doc.GState({ opacity: 0.13 }));
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(72);
+        doc.setTextColor(220, 38, 38);
+        doc.text('PROFORMA', W / 2, H / 2 + 30, { align: 'center', angle: 45 });
+        doc.restoreGraphicsState();
+      } catch (_) {
+        // fallback sin opacidad (jsPDF viejo): gris clarito
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(60);
+        doc.setTextColor(243, 232, 232);
+        doc.text('PROFORMA', W / 2, H / 2 + 30, { align: 'center', angle: 45 });
+        doc.setTextColor(...COLOR_TEXT);
+      }
+      // Aviso chico arriba, al lado del período
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(220, 38, 38);
+      doc.text('PROFORMA — preview, no válido como recibo', W - margen, 40, { align: 'right' });
+      doc.setTextColor(...COLOR_TEXT);
+    }
 
     // 13. Descargar
     const apellido = (emp?.apellido || 'empleada').toUpperCase().replace(/\s+/g, '_');
