@@ -7072,10 +7072,20 @@ async function renderCalendarioGrid() {
     empIds.length ? sb.from('rrhh_asistencias_detalle')
       .select('empleado_id, fecha, estado, minutos_tarde, minutos_banco, error_salvado')
       .in('empleado_id', empIds).gte('fecha', desdeISO).lte('fecha', hastaISO) : Promise.resolve({ data: [] }),
-    empIds.length ? sb.from('rrhh_fichadas_raw')
-      .select('empleado_id, fecha, hora, fecha_hora')
-      .in('empleado_id', empIds).gte('fecha', desdeISO).lte('fecha', hastaISO)
-      .order('fecha_hora', { ascending: true }) : Promise.resolve({ data: [] }),
+    empIds.length ? (async () => {
+      // Paginado (31-jul): mismo límite de 1000 filas que procesarMes
+      let _all = [];
+      for (let _pg = 0; ; _pg++) {
+        const { data: _l } = await sb.from('rrhh_fichadas_raw')
+          .select('empleado_id, fecha, hora, fecha_hora')
+          .in('empleado_id', empIds).gte('fecha', desdeISO).lte('fecha', hastaISO)
+          .order('fecha_hora', { ascending: true })
+          .range(_pg * 1000, _pg * 1000 + 999);
+        _all = _all.concat(_l || []);
+        if (!_l || _l.length < 1000) break;
+      }
+      return { data: _all };
+    })() : Promise.resolve({ data: [] }),
   ]);
   const turnos = turnosRes.data;
   const feriados = feriadosRes.data;
@@ -8230,12 +8240,20 @@ async function procesarMes(periodo, local = null) {
   const turnoMap = {};
   (turnos || []).forEach(t => { turnoMap[`${t.empleado_id}_${t.fecha}`] = t; });
 
-  // 3) Fichadas raw
-  const { data: fichadas } = await sb.from('rrhh_fichadas_raw')
-    .select('empleado_id, fecha, hora, checktype, fecha_hora')
-    .in('empleado_id', empIds)
-    .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
-    .order('fecha_hora', { ascending: true });
+  // 3) Fichadas raw — PAGINADO (31-jul): Supabase corta cada query en 1000
+  // filas y el mes completo ya supera ese límite (jul-2026: 1.217). Sin
+  // paginar, los últimos días del mes quedaban "ausente" con fichadas en DB.
+  let fichadas = [];
+  for (let _pg = 0; ; _pg++) {
+    const { data: _lote } = await sb.from('rrhh_fichadas_raw')
+      .select('empleado_id, fecha, hora, checktype, fecha_hora')
+      .in('empleado_id', empIds)
+      .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
+      .order('fecha_hora', { ascending: true })
+      .range(_pg * 1000, _pg * 1000 + 999);
+    fichadas = fichadas.concat(_lote || []);
+    if (!_lote || _lote.length < 1000) break;
+  }
   // Agrupar por (emp, fecha)
   const fichMap = {};
   (fichadas || []).forEach(f => {
