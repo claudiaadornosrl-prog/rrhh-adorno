@@ -21328,10 +21328,11 @@ const salaryWorkflow = (() => {
     // Ej: si admin editó la comisión a $480.334 manualmente, el recálculo
     // automático no la pisa hasta que el admin "limpie" el override.
     const { data: existingAjuste } = await sb.from('rrhh_liquidacion')
-      .select('ajuste, ajuste_comentario, overrides_manuales, fijo, comision, viaticos, premio_monto, feriado_monto, mercaderia')
+      .select('ajuste, ajuste_comentario, overrides_manuales, fijo, comision, viaticos, premio_monto, feriado_monto, mercaderia, tipo')
       .eq('empleado_id', empleadoId)
       .eq('periodo', periodo + '-01')
       .limit(1);
+    const tipoPrev = existingAjuste?.[0]?.tipo || null;
     const ajustePrev = Number(existingAjuste?.[0]?.ajuste || 0);
     const ajusteComentPrev = existingAjuste?.[0]?.ajuste_comentario || null;
     const overridesPrev = existingAjuste?.[0]?.overrides_manuales || {};
@@ -21794,7 +21795,7 @@ const salaryWorkflow = (() => {
       efectivo, ajuste_blanco,
       calculado_at: new Date().toISOString(),
       overrides_manuales: overridesPrev,
-      tipo: inputs.tipo || 'definitivo',
+      tipo: inputs.tipo || tipoPrev || 'proforma',
     };
 
     // Snapshot/timestamps según tipo
@@ -21890,7 +21891,10 @@ const salaryWorkflow = (() => {
   async function liquidarMes(local, periodo, opts = {}) {
     // opts puede ser: { tipo: 'proforma'|'definitivo', descuentosEspeciales: {empId: {dias_extra, motivo}}, inputsPorEmpleado: {empId: {...}} }
     // Backwards-compat: si opts es {empId: {...}} (formato viejo), tratarlo como inputsPorEmpleado
-    const tipo = opts.tipo || 'definitivo';
+    // (31-jul) tipo ya NO defaultea a 'definitivo': si no viene explícito
+    // (botones Banco → Proforma/Definitivo), se preserva el de la fila o
+    // arranca en 'proforma'. Así el mes nuevo no nace "✓ definitivo".
+    const tipo = opts.tipo || null;
     const descuentosEspeciales = opts.descuentosEspeciales || {};
     const inputsPorEmpleado = opts.inputsPorEmpleado || (Object.keys(opts).some(k => /^\d+$/.test(k)) ? opts : {});
 

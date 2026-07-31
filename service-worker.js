@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v252-badge-3-estados';
+const CACHE_VERSION = 'rrhh-v253-tipo-no-default-definitivo';
 const ASSETS = [
   './',
   './index.html',
