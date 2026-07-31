@@ -13882,9 +13882,9 @@ async function renderLiquidaciones() {
                 }
                 const tip = sacRec > 0
                   ? `${tipBase}\nRecibo blanco total = mensual + SAC:\n  Mensual: $${c.fmt(l.recibo_neto)}\n  SAC:     $${c.fmt(sacRec)}\n  ─────────\n  Total:   $${c.fmt(total)}\n\n(Click derecho = desglose)`
-                  : `${tipBase}\nClick → revisar faltas y confirmar antes de generar PDF. Click derecho = desglose.`;
+                  : `${tipBase}\nClick → ver PDF. Click derecho = desglose.`;
                 const contenido = sinRecibo ? '— pendiente' : `${c.fmt(total)} 👁${badgeTx}`;
-                return `<td style="padding:8px;font-family:monospace;background:${bg};font-weight:600;cursor:pointer;" onclick="abrirConfirmacionRecibo(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${contenido}</td>`;
+                return `<td style="padding:8px;font-family:monospace;background:${bg};font-weight:600;cursor:pointer;" onclick="verReciboPDF(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${contenido}</td>`;
               } },
             { id:'prestamos', label:'Préstamos',  sortKey:'prestamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco. Click para ver detalle.'},
               tdRender:(l,c)=>{ const pres = c.prestamosPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${pres>0?'pointer':'default'};color:${pres>0?'#d97706':'var(--muted)'};" ${pres>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${pres>0?'Capital del/los préstamo(s) descontado del banco — click para ver detalle':'Sin préstamo activo este mes'}">${pres>0?'−'+c.fmt(pres):c.fmt(0)}</td>`; } },
@@ -21994,7 +21994,7 @@ const salaryWorkflow = (() => {
 })();
 
 </script>
-<script src="recibos-pdf.js?v=6"></script>
+<script src="recibos-pdf.js?v=7"></script>
 <script src="vacaciones-pdf.js?v=1"></script>
 <script src="manuales.js?v=1"></script>
 <script src="exportaciones.js?v=2"></script>

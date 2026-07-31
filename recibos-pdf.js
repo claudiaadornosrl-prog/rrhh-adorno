@@ -191,7 +191,7 @@ async function abrirConfirmacionRecibo(liqId) {
 
 // Visor embebido (31-jul): el window.open lo bloqueaban los popup-blockers y
 // parecía que "no pasaba nada". Ahora el PDF se muestra en un modal con iframe.
-function _mostrarPdfInline(doc, titulo) {
+function _mostrarPdfInline(doc, titulo, opts = {}) {
   const url = doc.output('bloburl');
   const old = document.getElementById('pdf-preview-modal');
   if (old) old.remove();
@@ -200,13 +200,38 @@ function _mostrarPdfInline(doc, titulo) {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;background:#0d9488;color:#fff;">
         <b style="font-size:14px;">${titulo}</b>
         <div style="display:flex;gap:8px;">
+          ${opts.extraBtns || ''}
           <button class="btn" style="font-size:12px;" onclick="window.open(document.getElementById('pdf-preview-frame').src, '_blank')">⧉ Pestaña</button>
           <button class="btn" style="font-size:12px;" onclick="document.getElementById('pdf-preview-modal').remove()">✕ Cerrar</button>
         </div>
       </div>
+      <div id="pdf-preview-aviso"></div>
       <iframe id="pdf-preview-frame" src="${url}" style="flex:1;border:0;background:#525659;"></iframe>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Aviso compacto de faltas/tardanzas del mes en el visor (31-jul): reemplaza
+// al modal "Revisión previa" — no frena el flujo, solo informa.
+async function _avisoAsistenciasRecibo(liq) {
+  try {
+    const periodo = (liq.periodo || '').substring(0, 7);
+    const [y, m] = periodo.split('-').map(Number);
+    const desde = `${periodo}-01`;
+    const hasta = new Date(y, m, 0).toISOString().split('T')[0];
+    const { data: det } = await sb.from('rrhh_asistencias_detalle')
+      .select('estado, minutos_tarde, minutos_salida_temp, error_salvado')
+      .eq('empleado_id', liq.empleado_id).gte('fecha', desde).lte('fecha', hasta);
+    const faltas = (det || []).filter(d => d.estado === 'ausente' && !d.error_salvado).length;
+    const mins = (det || []).reduce((s, d) => d.error_salvado ? s : s + (d.minutos_tarde || 0) + (d.minutos_salida_temp || 0), 0);
+    if (!faltas && !mins) return;
+    const cont = document.getElementById('pdf-preview-aviso');
+    if (!cont) return;
+    const partes = [];
+    if (faltas) partes.push(`${faltas} falta(s) sin compensar`);
+    if (mins) partes.push(`${mins} min de tardanzas/salidas tempranas`);
+    cont.innerHTML = `<div style="background:#fef3c7;color:#92400e;font-size:12px;padding:5px 14px;border-bottom:1px solid #d97706;">⚠️ ${partes.join(' · ')} — ver Asistencias</div>`;
+  } catch (_) {}
 }
 
 async function verReciboPDF(liqId) {
@@ -214,7 +239,10 @@ async function verReciboPDF(liqId) {
     const doc = await generarPDFRecibo(liqId, { autoSave: false });
     if (!doc) return;
     const tit = doc.__tipoLiq === 'proforma' ? '📋 Recibo PROFORMA (preview)' : '📋 Recibo definitivo';
-    _mostrarPdfInline(doc, tit);
+    const extraBtns = doc.__sacDisponible
+      ? `<button class="btn" style="font-size:12px;" onclick="verSacPDF(${liqId})">🎁 PDF SAC</button>` : '';
+    _mostrarPdfInline(doc, tit, { extraBtns });
+    if (doc.__liqInfo) _avisoAsistenciasRecibo(doc.__liqInfo);
   } catch (e) {
     toast('Error abriendo recibo: ' + (e.message || e), 'error');
   }
@@ -734,6 +762,9 @@ async function generarPDFRecibo(liqId, opts = {}) {
     // 12b. Marca de agua PROFORMA (31-jul): mientras la liquidación no sea
     // definitiva, el PDF lo dice bien grande — no es un recibo emitible.
     doc.__tipoLiq = liq.tipo || 'definitivo';
+    doc.__liqInfo = { periodo: (liq.periodo || ''), empleado_id: liq.empleado_id };
+    const _mmPer = Number((liq.periodo || '').split('-')[1] || 0);
+    doc.__sacDisponible = !esSAC && (_mmPer === 6 || _mmPer === 12) && Number(liq.sac_recibo_neto || 0) > 0;
     if (!esSAC && liq.tipo === 'proforma') {
       try {
         doc.saveGraphicsState();

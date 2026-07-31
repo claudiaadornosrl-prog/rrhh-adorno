@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v255-osecac-case-insensitive';
+const CACHE_VERSION = 'rrhh-v256-click-directo-pdf';
 const ASSETS = [
   './',
   './index.html',
