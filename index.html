@@ -13131,9 +13131,11 @@ async function renderLiquidaciones() {
   }
 
   let periodos = [];
+  // (31-jul) anclado al día 1: setMonth() sobre un día 29-31 desborda al mes
+  // siguiente (jun 31 → 1-jul) y duplicaba meses en el selector a fin de mes.
+  const _hoyP = new Date();
   for (let i = 0; i < 12; i++) {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
+    const d = new Date(_hoyP.getFullYear(), _hoyP.getMonth() - i, 1);
     periodos.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
   }
   // Para directora: filtrar solo meses cerrados — early return si no hay ninguno
