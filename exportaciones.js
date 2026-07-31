@@ -6,80 +6,73 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 async function exportarGaliciaXLSX(local, periodo) {
+  // (31-jul) Formato EXACTO del template del banco Galicia (GO → Haberes →
+  // Acreditaciones): hoja "Template Liquidaciones" con columnas
+  // Cuenta (texto, 14 dígitos con ceros a la izquierda — NO es el CBU, se
+  // guarda en rrhh_empleados.cuenta_galicia) · Nombre (APELLIDO, NOMBRE) ·
+  // Importe (número, 2 decimales) · Concepto ("01" = haberes).
   try {
     if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
 
-    // Cargar liquidaciones del período + datos de colaboradora (incluido cbu)
     let q = sb.from('rrhh_liquidacion')
-      .select('id, periodo, recibo_neto, prestamo_capital, local, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, cuil, cbu)')
+      .select('id, periodo, recibo_neto, prestamo_capital, local, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, cuil, cuenta_galicia)')
       .eq('periodo', periodo + '-01');
     if (local && local !== 'todos') q = q.eq('local', local);
     const { data: liqs, error } = await q;
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'warning'); return; }
 
-    // Armar filas
     const fmtNombre = (e) => {
       if (!e) return '';
-      const ape = (e.apellido || '').toUpperCase();
-      const nom = (e.nombre   || '').toUpperCase();
-      return `${ape}, ${nom}`.trim();
+      return `${(e.apellido || '').toUpperCase()}, ${(e.nombre || '').toUpperCase()}`.trim();
     };
-    // Fecha de acreditación: último día hábil del mes del período, ajustable en el portal si hace falta
-    const [py, pm] = periodo.split('-').map(Number);
-    const ultDia = new Date(py, pm, 0); // día 0 del mes siguiente = último día del mes
-    const fechaAcred = `${String(ultDia.getDate()).padStart(2,'0')}/${String(ultDia.getMonth()+1).padStart(2,'0')}/${ultDia.getFullYear()}`;
 
     const filas = [];
     const sinCuenta = [];
     let totalImporte = 0;
-    for (const l of liqs) {
+    for (const l of liqs.sort((a,b) => (a.empleado?.apellido||'').localeCompare(b.empleado?.apellido||''))) {
       const e = l.empleado;
       if (!e) continue;
       const aAcreditar = (+l.recibo_neto || 0) - (+l.prestamo_capital || 0);
       if (aAcreditar <= 0) continue;
-      if (!e.cbu) { sinCuenta.push(fmtNombre(e)); continue; }
-      filas.push({
-        'Nombre': fmtNombre(e),
-        'NroCuenta | CBU': e.cbu,
-        'Fecha de Acred.': fechaAcred,
-        'Importe': Math.round(aAcreditar),
-        'Estado': '',
-        'Email': '',
-        'Observaciones': '',
-      });
+      if (!e.cuenta_galicia) { sinCuenta.push(fmtNombre(e)); continue; }
+      filas.push([
+        String(e.cuenta_galicia).padStart(14, '0'),
+        fmtNombre(e),
+        Math.round(aAcreditar * 100) / 100,
+        '01',
+      ]);
       totalImporte += aAcreditar;
     }
 
     if (filas.length === 0) {
-      toast('Ninguna colaboradora con CBU cargado y monto > 0', 'error');
+      toast('Ninguna colaboradora con cuenta Galicia cargada y monto > 0', 'error');
       return;
     }
-
-    // Avisar las que quedan afuera (sin CBU)
     if (sinCuenta.length > 0) {
       const lista = sinCuenta.join('\n  • ');
-      if (!confirm(`⚠ ${sinCuenta.length} empleada(s) sin CBU/cuenta cargada quedan fuera del archivo:\n\n  • ${lista}\n\nCargalas en su legajo (campo CBU) o continuá igual.\n\n¿Generar el archivo con las ${filas.length} restantes?`)) return;
+      if (!confirm(`⚠ ${sinCuenta.length} empleada(s) sin cuenta Galicia cargada quedan fuera del archivo:\n\n  • ${lista}\n\n¿Generar el archivo con las ${filas.length} restantes?`)) return;
     }
 
-    // Armar el workbook
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(filas, {
-      header: ['Nombre','NroCuenta | CBU','Fecha de Acred.','Importe','Estado','Email','Observaciones']
-    });
-    // Anchos de columna razonables
-    ws['!cols'] = [
-      { wch: 32 }, { wch: 22 }, { wch: 14 }, { wch: 14 },
-      { wch: 12 }, { wch: 18 }, { wch: 30 },
-    ];
-    XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Cuenta', 'Nombre', 'Importe', 'Concepto'],
+      ...filas,
+    ]);
+    // Cuenta y Concepto como TEXTO (preservar ceros a la izquierda)
+    for (let r = 1; r <= filas.length; r++) {
+      const cCta = ws['A' + (r + 1)]; if (cCta) cCta.t = 's';
+      const cCon = ws['D' + (r + 1)]; if (cCon) cCon.t = 's';
+      const cImp = ws['C' + (r + 1)]; if (cImp) { cImp.t = 'n'; cImp.z = '0.00'; }
+    }
+    ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 14 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Template Liquidaciones');
 
-    // Nombre del archivo
-    const localTxt = (local && local !== 'todos') ? local : 'Adorno';
-    const fileName = `Pagos ${localTxt} ${periodo}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    const localTxt = (local && local !== 'todos') ? local.toUpperCase() : 'TODOS';
+    const [py, pm] = periodo.split('-');
+    XLSX.writeFile(wb, `SUELDOS ${Number(pm)}-${py} - ${localTxt}.xls`, { bookType: 'biff8' });
 
-    toast(`✓ ${filas.length} pagos exportados — total ${'$' + Math.round(totalImporte).toLocaleString('es-AR')}`, 'success');
+    toast(`✓ ${filas.length} acreditaciones — total ${'$' + Math.round(totalImporte).toLocaleString('es-AR')}`, 'success');
   } catch(e) {
     console.error(e);
     toast('Error al exportar: ' + e.message, 'error');
