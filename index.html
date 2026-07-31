@@ -359,6 +359,7 @@ async function enviarPush(empleadoId, title, body, opts = {}) {
         body,
         url: opts.url || './',
         tag: opts.tag || 'rrhh-default',
+        app: 'rrhh',
       }
     });
     if (error) { console.warn('[push] error invoke', error); return { ok: false, msg: error.message }; }
@@ -5184,7 +5185,7 @@ window.cambiarMiPassword = async function() {
 async function probarMiPush() {
   try {
     const { data, error } = await sb.functions.invoke('enviar-push', {
-      body: { empleado_id: session.empleado_id, title: 'Prueba ✓', body: 'Si ves esto, tus notificaciones funcionan.' }
+      body: { empleado_id: session.empleado_id, title: 'Prueba ✓', body: 'Si ves esto, tus notificaciones funcionan.', app: 'rrhh' }
     });
     if (error) throw error;
     toast('Push enviado. Si no te llegó en 10s, revisá los permisos del browser.', 'success');
