@@ -53,43 +53,22 @@ async function _proximoDiaReintegro(ymd, local) {
   return d.toISOString().split('T')[0];  // fallback (no debería pasar)
 }
 
-// Cache para la fuente del logo (se carga una sola vez)
-let _logoFontLoaded = false;
-let _logoFontName = 'ArchitectsDaughter';
+// Fuente del logo (31-jul): unificada con el recibo — URW Gothic institucional.
+// Antes era Architects Daughter (manuscrita) y las PCs sin el TTF caían al
+// fallback, imprimiendo distinto según la máquina. Ahora delega en
+// _loadForumFont de recibos-pdf.js (fonts/URWGothic-Book.ttf, local).
+let _logoFontName = 'AdornoTitulo';
 
 async function _loadLogoFont(doc) {
-  // Si ya está cargada en este doc, no hacemos nada
   try {
-    // Intentar usar la fuente — si ya está, no tira error
-    if (doc.getFontList && doc.getFontList()[_logoFontName]) return true;
-  } catch(_) {}
-
-  try {
-    // Intentar bajar el TTF desde jsdelivr (CDN allowlisted)
-    // Fuente servida desde nuestro repo (fonts/), CDN como plan B — ver
-    // comentario en recibos-pdf.js: la URL de jsdelivr empezó a dar 404.
-    const urls = [
-      './fonts/ArchitectsDaughter-Regular.ttf',
-      'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/architectsdaughter/ArchitectsDaughter-Regular.ttf',
-    ];
-    let res = null;
-    for (const u of urls) {
-      try { const r = await fetch(u); if (r.ok) { res = r; break; } } catch (_) {}
+    if (typeof _loadForumFont === 'function') {
+      const ok = await _loadForumFont(doc);
+      if (ok) { _logoFontName = _forumFontName; return true; }
     }
-    if (!res) throw new Error('fetch failed');
-    const buf = await res.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let bin = '';
-    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-    const b64 = btoa(bin);
-    doc.addFileToVFS('ArchitectsDaughter-Regular.ttf', b64);
-    doc.addFont('ArchitectsDaughter-Regular.ttf', _logoFontName, 'normal');
-    _logoFontLoaded = true;
-    return true;
   } catch (e) {
-    console.warn('[PDF] No se pudo cargar Architects Daughter, fallback a helvetica:', e);
-    return false;
+    console.warn('[PDF] No se pudo cargar URW Gothic para vacaciones, fallback:', e);
   }
+  return false;
 }
 
 // Helper para escribir texto con letter-spacing (tracking) — emula Avant Garde
@@ -153,11 +132,11 @@ async function generarNotificacionVacaciones(movId) {
   const margen = 22;
   const ancho = W - margen * 2;
 
-  // Cargar fuente Architects Daughter para el logo (de Google Fonts vía jsdelivr)
+  // Cargar la URW Gothic institucional para el logo (misma que el recibo)
   const logoFontOk = await _loadLogoFont(doc);
 
   // ═══ HEADER ═══
-  // Logo "Claudia Adorno" en Architects Daughter (si cargó OK) o helvetica (fallback)
+  // Logo "Claudia Adorno" en URW Gothic (si cargó OK) o helvetica (fallback)
   doc.setTextColor(...COLOR_TEXT);
   if (logoFontOk) {
     doc.setFont(_logoFontName, 'normal');
