@@ -670,25 +670,26 @@ async function generarPDFRecibo(liqId, opts = {}) {
         qr.addData(codigoQR);
         qr.make();
         const qrDataUrl = qr.createDataURL(4, 0);  // celdas de 4px, sin margen
-        // 22mm × 22mm en esquina inferior izquierda (debajo del bloque de firmas)
-        const qrSize = 22;
+        // (31-jul) Banda inferior reordenada: QR 20mm arriba-izquierda de la
+        // zona de firmas, caption centrada debajo — ya no pisa "Recibí conforme".
+        const qrSize = 20;
         const qrX = margen;
-        const qrY = H - qrSize - 32;  // espacio extra para el nuevo footer alineado con vacaciones
+        const qrY = H - 59;
         doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
-        // Caption chica al lado
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
         doc.setTextColor(...COLOR_MUTED);
-        doc.text(codigoQR, qrX + qrSize + 2, qrY + qrSize - 1);
+        doc.text(codigoQR, qrX + qrSize / 2, qrY + qrSize + 3, { align: 'center' });
       }
     } catch (e) { console.warn('No se pudo generar QR:', e); }
 
     // 11. FIRMAS (al pie de la página, no flotante)
-    const yFirma = Math.min(H - 35, y + 35);
+    const yFirma = H - 35;
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
     const mitad = W / 2;
-    doc.line(margen + 10, yFirma, mitad - 10, yFirma);
+    const fIzqX1 = margen + 28, fIzqX2 = mitad - 6;   // corrida: el QR vive a la izquierda
+    doc.line(fIzqX1, yFirma, fIzqX2, yFirma);
     doc.line(mitad + 10, yFirma, W - margen - 10, yFirma);
 
     // Embeber firma del admin (JP) automáticamente — encima de la línea derecha.
@@ -703,7 +704,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
           r.readAsDataURL(blob);
         });
         // Dimensiones: ~35mm de ancho, 18mm de alto, centrada en el bloque derecho de firma
-        const firmaW = 35, firmaH = 18;
+        const firmaW = 32, firmaH = 16;
         const firmaCenterX = (mitad + 10 + W - margen - 10) / 2;
         doc.addImage(dataUrl, 'PNG', firmaCenterX - firmaW/2, yFirma - firmaH - 1, firmaW, firmaH);
       }
@@ -712,8 +713,8 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
-    doc.text('Recibí conforme', (margen + 10 + mitad - 10) / 2, yFirma + 4, { align: 'center' });
-    doc.text('Firma empleado/a', (margen + 10 + mitad - 10) / 2, yFirma + 8, { align: 'center' });
+    doc.text('Recibí conforme', (fIzqX1 + fIzqX2) / 2, yFirma + 4, { align: 'center' });
+    doc.text('Firma empleado/a', (fIzqX1 + fIzqX2) / 2, yFirma + 8, { align: 'center' });
     doc.text('Por Claudia Adorno SRL', (mitad + 10 + W - margen - 10) / 2, yFirma + 4, { align: 'center' });
     doc.text('Firma y sello', (mitad + 10 + W - margen - 10) / 2, yFirma + 8, { align: 'center' });
 
@@ -724,22 +725,22 @@ async function generarPDFRecibo(liqId, opts = {}) {
     // Cuadro destacado a la derecha con el código (encima del QR)
     doc.setDrawColor(...COLOR_BORDER);
     doc.setLineWidth(0.3);
-    const segBoxW = 60;
-    const segBoxX = W - margen - segBoxW;
-    const segBoxY = H - 50;
-    doc.roundedRect(segBoxX, segBoxY, segBoxW, 22, 2, 2, 'S');
+    const segBoxW = 58;
+    const segBoxX = margen + 26;   // a la derecha del QR, lejos de la firma
+    const segBoxY = H - 59;
+    doc.roundedRect(segBoxX, segBoxY, segBoxW, 20, 2, 2, 'S');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...COLOR_MUTED);
-    doc.text('CÓDIGO DE SEGUIMIENTO', segBoxX + segBoxW/2, segBoxY + 6, { align: 'center' });
+    doc.text('CÓDIGO DE SEGUIMIENTO', segBoxX + segBoxW/2, segBoxY + 5.5, { align: 'center' });
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
     doc.setTextColor(...COLOR_GREEN);
-    doc.text(codigoSeg, segBoxX + segBoxW/2, segBoxY + 15, { align: 'center' });
+    doc.text(codigoSeg, segBoxX + segBoxW/2, segBoxY + 13, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...COLOR_MUTED);
-    doc.text(`Asunto del mail: "RECIBO ${periodoCorto} ${codigoSeg}"`, segBoxX + segBoxW/2, segBoxY + 20, { align: 'center' });
+    doc.text(`Asunto del mail: "RECIBO ${periodoCorto} ${codigoSeg}"`, segBoxX + segBoxW/2, segBoxY + 17.5, { align: 'center' });
 
     // Frase + mail (estilo vacaciones)
     doc.setDrawColor(...COLOR_BORDER);
