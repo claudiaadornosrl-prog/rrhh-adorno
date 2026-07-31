@@ -13847,7 +13847,7 @@ async function renderLiquidaciones() {
               } },
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
-            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{title:'Neto del recibo blanco (mensual + SAC en junio/diciembre). Ámbar P = proforma · Azul D = definitivo calculado sin emitir · Verde ✓ = PDF emitido · Verde ✍ = firmado. Click descarga el PDF firmable.'},
+            { id:'recibo',    label:'Recibo',     sortKey:'recibo', thOpts:{title:'Neto del recibo blanco (mensual + SAC en junio/diciembre). Ámbar P = proforma · Verde ✓ = definitivo · Verde ✍ = firmado y archivado. Click descarga el PDF firmable.'},
               tdRender:(l,c)=>{
                 const sacRec = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
                 const total = Number(l.recibo_neto || 0) + sacRec;
@@ -13863,8 +13863,9 @@ async function renderLiquidaciones() {
                 const esDefinitivo = (l.tipo === 'definitivo');
                 const sinRecibo    = total === 0;
                 const _firmado = !!l.pdf_firmado_at;
-                const _emitido = !!(l.pdf_generado_at || l.pdf_enviado_at);
                 const _badge = (color, txt, tit) => `<span style="background:${color};color:white;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px;vertical-align:middle;" title="${tit}">${txt}</span>`;
+                // 3 estados (pedido JP 31-jul): P proforma · ✓ definitivo ·
+                // ✍ firmado y archivado en OneDrive. Sin estados intermedios.
                 let bg, badgeTx, tipBase;
                 if (sinRecibo) {
                   bg = '#f3f4f6'; badgeTx = '';
@@ -13872,12 +13873,9 @@ async function renderLiquidaciones() {
                 } else if (_firmado) {
                   bg = '#dcfce7'; badgeTx = _badge('#10b981', '✍', 'Recibo firmado y archivado');
                   tipBase = 'Recibo FIRMADO y archivado en OneDrive. ';
-                } else if (_emitido) {
-                  bg = '#dcfce7'; badgeTx = _badge('#10b981', '✓', 'PDF emitido — falta la firma');
-                  tipBase = 'Recibo definitivo EMITIDO (PDF generado/enviado) — falta que vuelva firmado. ';
                 } else if (esDefinitivo) {
-                  bg = '#dbeafe'; badgeTx = _badge('#3b82f6', 'D', 'Definitivo calculado — sin emitir');
-                  tipBase = 'Definitivo CALCULADO — todavía NO emitiste el PDF. ';
+                  bg = '#dcfce7'; badgeTx = _badge('#10b981', '✓', 'Recibo definitivo');
+                  tipBase = 'Recibo DEFINITIVO — listo para firmar. ';
                 } else {
                   bg = '#fef3c7'; badgeTx = _badge('#f59e0b', 'P', 'Proforma — preview, generar Definitivo desde Banco');
                   tipBase = 'Recibo PROFORMA — preview, todavía no es el definitivo. ';
