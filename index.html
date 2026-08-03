@@ -13379,6 +13379,23 @@ async function renderLiquidaciones() {
         .in('local', Array.from(localesSet));
       const ventasPorLocal = {};
       (ventasRows || []).forEach(v => { ventasPorLocal[v.local] = Number(v.monto_ventas || 0); });
+      // (3-ago) Fallback igual al motor: si el local no tiene fila manual,
+      // sumar ventas_diarias del mes (Oficina mostraba $0 en el tooltip
+      // aunque la comisión real se calculaba bien).
+      {
+        const [pyV, pmV] = periodo.split('-').map(Number);
+        const desdeV = periodo + '-01';
+        const hastaV = `${pyV}-${String(pmV).padStart(2,'0')}-${String(new Date(pyV, pmV, 0).getDate()).padStart(2,'0')}`;
+        for (const loc of localesSet) {
+          if (ventasPorLocal[loc]) continue;
+          const { data: vdRows } = await sb.from('ventas_diarias')
+            .select('efectivo, tarjeta, qr, vales, online, fc_oficina, transferencia, cc')
+            .eq('local', loc).gte('fecha', desdeV).lte('fecha', hastaV);
+          ventasPorLocal[loc] = (vdRows || []).reduce((t, v) =>
+            t + Number(v.efectivo||0) + Number(v.tarjeta||0) + Number(v.qr||0) + Number(v.vales||0)
+              + Number(v.online||0) + Number(v.fc_oficina||0) + Number(v.transferencia||0) + Number(v.cc||0), 0);
+        }
+      }
       // 2) Config por local (tasa, modo reparto)
       const { data: cfgLocalesRows } = await sb.from('rrhh_sueldo_local_config')
         .select('local, tasa_comision, modo_reparto')
@@ -13924,25 +13941,25 @@ async function renderLiquidaciones() {
                     desglose = `── Días trabajados (fichados) ──\n`;
                     (det.dias || []).forEach(d => {
                       const [y,m,dd] = d.fecha.split('-');
-                      desglose += `  ${dd}/${m}: $${c.fmt(d.monto)}\n`;
+                      desglose += `  ${dd}/${m}: ${c.fmt(d.monto)}\n`;
                     });
-                    desglose += `\nVentas totales (${(det.dias||[]).length} días): $${c.fmt(det.sumaVentas)}\n`
+                    desglose += `\nVentas totales (${(det.dias||[]).length} días): ${c.fmt(det.sumaVentas)}\n`
                              + `Porcentaje: ${pct}\n`
                              + `Fracción individual: ${det.fraccion}\n\n`
-                             + `Cálculo: $${c.fmt(det.sumaVentas)} × ${pct} × ${det.fraccion}\n`
-                             + `        = $${c.fmt(det.comisionCalc)}`;
+                             + `Cálculo: ${c.fmt(det.sumaVentas)} × ${pct} × ${det.fraccion}\n`
+                             + `        = ${c.fmt(det.comisionCalc)}`;
                   } else {
                     // Vendedora normal (mes_30)
-                    desglose = `Ventas del local (mes): $${c.fmt(det.ventasLocal)}\n`
+                    desglose = `Ventas del local (mes): ${c.fmt(det.ventasLocal)}\n`
                              + `Tasa del local: ${pct}\n`;
                     if (det.activas) desglose += `÷ ${det.activas} vendedoras activas\n`;
                     desglose += `Fracción individual: ${det.fraccion}\n`
                              + `Días trabajados: ${det.diasTrab} / ${det.diasRef}\n`
                              + `Ratio: ${det.ratio.toFixed(4)}\n\n`
-                             + `Cálculo: $${c.fmt(det.ventasLocal)} × ${pct}`
+                             + `Cálculo: ${c.fmt(det.ventasLocal)} × ${pct}`
                              + (det.activas ? ` ÷ ${det.activas}` : '')
                              + ` × ${det.fraccion} × ${det.ratio.toFixed(4)}\n`
-                             + `        = $${c.fmt(det.comisionCalc)}`;
+                             + `        = ${c.fmt(det.comisionCalc)}`;
                   }
                 }
                 if (ov) {
