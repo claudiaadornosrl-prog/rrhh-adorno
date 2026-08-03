@@ -14068,7 +14068,16 @@ async function renderLiquidaciones() {
                 }
                 const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'extras', 'Extras', ${+l.extras})"` : '';
                 const cursor = c.isAdmin ? 'cursor:pointer;' : '';
-                return `<td style="padding:8px;font-family:monospace;${cursor}" ${click} ${c.isAdmin?'title="Click para editar manualmente"':''}>${c.fmt(l.extras)}</td>`;
+                // (3-ago) El pago de vacaciones se MUESTRA dentro de Extras con
+                // nota al pasar el mouse (pedido JP). El click edita solo extras.
+                const vacP = Number(l.vacaciones_pago || 0);
+                const montoCelda = (+l.extras || 0) + vacP;
+                let tipEx = c.isAdmin ? 'Click para editar manualmente (edita SOLO extras)' : '';
+                if (vacP > 0) {
+                  tipEx = `🌴 Incluye pago de vacaciones: $${Math.round(vacP).toLocaleString('es-AR')}\nExtras propiamente dichos: $${Math.round(+l.extras||0).toLocaleString('es-AR')}` + (c.isAdmin ? '\n\nClick edita SOLO los extras (el pago de vacaciones se gestiona desde Vacaciones).' : '');
+                }
+                const estiloVac = vacP > 0 ? 'background:#f0fdfa;border-left:3px solid #0d9488;' : '';
+                return `<td style="padding:8px;font-family:monospace;${estiloVac}${cursor}" ${click} title="${c.escapeHtml(tipEx)}">${vacP>0?'🌴 ':''}${c.fmt(montoCelda)}</td>`;
               } },
             { id:'total',     label:'Total',      sortKey:'total', thOpts:{bg:'#eef2ff',title:'Fijo + Comisión + Premios + Viáticos + Feriado + Extras'},
               tdRender:(l,c)=>{ const sac = c.sacPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;">${c.fmt((+l.total_negro || 0) + sac)}</td>`; } },
@@ -21781,6 +21790,14 @@ const salaryWorkflow = (() => {
       if (noDisponiblePorFecha.has(f.fecha)) return;
       feriado_dias += 1;
     });
+
+    // (3-ago) Viáticos: descontar los días de VACACIONES del mes. Las vacaciones
+    // no restan dias_trabajados (el fijo es pago), pero el viático es por
+    // viajar al local — de vacaciones no se viaja. Caso Benitez jul-2026.
+    const _vacDiasMes = (detalleEmp || []).filter(d => d.estado === 'vacaciones').length;
+    if (_vacDiasMes > 0 && viaticos > 0) {
+      viaticos = viaticos_full * Math.max(0, dias_trabajados - _vacDiasMes) / 30;
+    }
     const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
     // Multiplicador especial: para Escasany x2 porque al ser franquera el feriado le pesa más
     const feriadoMul = Number(configEmp.feriado_multiplicador || 1.0);

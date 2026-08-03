@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v276-cierre-espera-carga';
+const CACHE_VERSION = 'rrhh-v277-viaticos-vac-extras';
 const ASSETS = [
   './',
   './index.html',
