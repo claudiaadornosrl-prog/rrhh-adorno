@@ -7895,9 +7895,13 @@ async function cerrarMes(periodo, local) {
   //  Fase 2C: al cerrar Asistencias, cargar premio/viáticos/feriado del mes.
   //  NO toca fijo, comisión, extras, mercadería ni ajustes (esos siguen
   //  como los tenía la liq). Sólo agrega los 3 conceptos y recalcula
-  //  total_negro y efectivo. Corre en background sin bloquear el UI.
+  //  total_negro y efectivo.
+  //  (3-ago) Ahora se ESPERA con toast: antes corría en background y si la
+  //  encargada cerraba la app al toque, moría a mitad (Unicenter julio quedó
+  //  sin premios/viáticos por eso).
   // ═══════════════════════════════════════════════════════════════════════
-  (async () => {
+  toast('⏳ Cargando premios, viáticos y feriados en la liquidación… no cierres la app', '');
+  await (async () => {
     try {
       // Solo carga premio/viáticos/feriado + recalcula total_negro y efectivo.
       // NO toca fijo, comisión, extras, mercadería ni el recibo blanco.
@@ -7914,7 +7918,7 @@ async function cerrarMes(periodo, local) {
         _liqAutoRefreshDone.delete(`${local}::${periodo}`);
         _liqAutoRefreshDone.delete(`todos::${periodo}`);
       }
-      if (_ok > 0 && session.rol === 'admin') {
+      if (_ok > 0) {
         toast(`✓ Premios, viáticos y feriados cargados en ${_ok} liquidaciones de ${LOCALES[local]?.nombre || local}`, 'success');
       }
     } catch (e) {
