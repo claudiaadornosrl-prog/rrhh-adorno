@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v274-tooltip-comision-oficina';
+const CACHE_VERSION = 'rrhh-v275-permiso-1h-anticipacion';
 const ASSETS = [
   './',
   './index.html',

@@ -10764,6 +10764,24 @@ async function enviarPermisoEmpleado() {
   // Calcular minutos pedidos automáticamente (aplicando el buffer del local)
   const turno = await obtenerTurnoVendedoraDia(fecha);
   const buffer = await obtenerBufferEmpleado();
+
+  // ── Anticipación mínima: 60 minutos (3-ago, pedido JP) ──
+  // Evita el truco de pedir el permiso en el colectivo, minutos antes de
+  // llegar tarde, para que el día no compute como tardanza.
+  if (fecha === hoy) {
+    const _ahora = new Date();
+    const ahoraMin = _ahora.getHours() * 60 + _ahora.getMinutes();
+    let refMin = null;      // minuto del día en que empieza a regir el permiso
+    if (tipo === 'llegar_tarde' || tipo === 'dia_completo') {
+      refMin = (turno && turno.hora_inicio) ? _horaAMin(turno.hora_inicio) : null;
+    } else if (hora_desde) {
+      refMin = _horaAMin(hora_desde);
+    }
+    if (refMin != null && (refMin - ahoraMin) < 60) {
+      toast('Los permisos se piden con al menos 1 hora de anticipación. Si te surgió algo de último momento, avisale directo a la encargada.', 'error');
+      return;
+    }
+  }
   let minutosCalc = 0;
   if (turno && !turno.es_franco && turno.hora_inicio && turno.hora_fin) {
     const inicioReal = _horaAMin(turno.hora_inicio) + buffer;
