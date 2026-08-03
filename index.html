@@ -8659,8 +8659,10 @@ async function procesarMes(periodo, local = null) {
 // ─────────────────────────────────────────────────────────────
 // Dropdown detalle día×día por colaborador en Resumen mensual
 // ─────────────────────────────────────────────────────────────
-// ── WhatsApp con el resumen individual de fichadas (3-ago, pedido JP) ──
-function waResumenAsistencia(empId) {
+// ── PDF de fichadas día-por-día + WhatsApp (3-ago, pedido JP) ──
+// El botón 📱 genera el PDF (diseño aprobado) y abre el chat con un mensaje
+// corto SIN emojis (WhatsApp Desktop en Windows los rompía con "�").
+async function waResumenAsistencia(empId) {
   const snap = window._resumenAsis;
   if (!snap) { toast('Recargá el resumen primero', 'error'); return; }
   const e = (snap.lista || []).find(x => x.id === empId);
@@ -8668,34 +8670,140 @@ function waResumenAsistencia(empId) {
   if (!e) { toast('No encontré la colaboradora', 'error'); return; }
   const tel = String(e.telefono || '').replace(/\D/g, '');
   if (!tel) { toast(`${e.nombre_completo} no tiene teléfono cargado en el legajo`, 'error'); return; }
+
+  const mes = snap.mes; // 'YYYY-MM'
+  const [yy, mm] = mes.split('-').map(Number);
+  const desde = `${mes}-01`;
+  const hasta = `${mes}-${String(new Date(yy, mm, 0).getDate()).padStart(2,'0')}`;
+  toast('Generando PDF…', '');
+
+  try {
+    const [{ data: det }, { data: tol }, { data: turnos }] = await Promise.all([
+      sb.from('rrhh_asistencias_detalle').select('fecha, entrada, salida, estado, minutos_tarde, minutos_extra, error_salvado')
+        .eq('empleado_id', empId).gte('fecha', desde).lte('fecha', hasta).order('fecha'),
+      sb.from('rrhh_config_tolerancias').select('buffer_entrada').eq('local', e.local).maybeSingle(),
+      sb.from('rrhh_turnos').select('hora_inicio, hora_fin, es_franco').eq('empleado_id', empId).gte('fecha', desde).lte('fecha', hasta),
+    ]);
+
+    // Turno habitual = el (inicio,fin) más frecuente del mes
+    const freq = {};
+    (turnos || []).forEach(t => {
+      if (t.es_franco || !t.hora_inicio) return;
+      const k = `${(t.hora_inicio||'').substring(0,5)} a ${(t.hora_fin||'').substring(0,5)}`;
+      freq[k] = (freq[k] || 0) + 1;
+    });
+    const turnoHab = Object.entries(freq).sort((a,b) => b[1]-a[1])[0]?.[0] || null;
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, margen = 18, ancho = W - margen*2;
+    const TXT=[26,26,26], MUT=[120,119,115], BORDER=[225,223,215], TEAL=[15,110,86];
+    const COLS_EST = { puntual:[22,163,74], tarde:[217,119,6], franco:[148,163,184],
+      feriado:[217,119,87], ausente:[220,38,38], falta_fichada:[220,38,38],
+      vacaciones:[13,148,136], licencia:[59,130,246], justificada:[59,130,246] };
+    const MESES_L = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const DIAS_S = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+    // Header con la tipografía institucional (URW Gothic, misma del recibo)
+    const fontOk = await _loadForumFont(doc);
+    doc.setTextColor(...TXT);
+    if (fontOk) { doc.setFont(_forumFontName, 'normal'); doc.setFontSize(26); }
+    else { doc.setFont('helvetica', 'bold'); doc.setFontSize(22); }
+    doc.text('Claudia Adorno', margen, 22);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUT);
+    doc.text('Resumen de asistencias · uso interno', margen, 27);
+    doc.text('CLAUDIA ADORNO SRL', W-margen, 16, { align: 'right' });
+    doc.text('CUIT 30-70967311-0', W-margen, 20, { align: 'right' });
+    doc.setDrawColor(...TEAL); doc.setLineWidth(0.7); doc.line(margen, 30, W-margen, 30);
+
+    doc.setFontSize(8); doc.setTextColor(...MUT);
+    doc.text('COLABORADOR/A', margen, 36); doc.text('PERÍODO', W-margen, 36, { align: 'right' });
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...TXT);
+    doc.text(e.nombre_completo, margen, 42);
+    doc.text(`${MESES_L[mm-1]} ${yy}`, W-margen, 42, { align: 'right' });
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...MUT);
+    const infoLn = [LOCALES[e.local]?.nombre || e.local, turnoHab ? `Turno habitual ${turnoHab}` : null,
+                    `Tolerancia de entrada: ${tol?.buffer_entrada ?? 20} min`].filter(Boolean).join(' · ');
+    doc.text(infoLn, margen, 47.5);
+
+    // Tabla
+    let y = 54;
+    const cols = [['FECHA',26],['ENTRADA',24],['SALIDA',24],['ESTADO',56],['MIN TARDE',22],['MIN EXTRA',22]];
+    doc.setFillColor(249,250,251); doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
+    doc.rect(margen, y, ancho, 6, 'FD');
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.8); doc.setTextColor(...MUT);
+    { let x = margen; for (const [lbl, w] of cols) { doc.text(lbl, x+1.5, y+4); x += w; } }
+    y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+
+    let totT=0, totE=0, nP=0, nT=0, nA=0, nF=0, nFer=0, nVac=0;
+    for (const d of (det || [])) {
+      const dt = new Date(d.fecha + 'T12:00:00');
+      const fechaTxt = `${String(dt.getDate()).padStart(2,'0')} - ${DIAS_S[dt.getDay()]}`;
+      let est = d.estado || '';
+      if (est === 'tarde' && d.error_salvado) est = 'justificada';
+      const mt = (est === 'tarde') ? (d.minutos_tarde || 0) : 0;
+      const me = d.minutos_extra || 0;
+      const EST_TXT = { puntual:'Puntual', tarde:`Tarde (${mt} min)`, franco:'Franco', feriado:'Feriado',
+        ausente:'Ausente', falta_fichada:'Falta de fichada', vacaciones:'Vacaciones', licencia:'Licencia',
+        justificada:'Justificado (permiso)' };
+      const fill = est === 'tarde' ? [254,243,199] : (['franco','feriado'].includes(est) ? [250,250,249] : [255,255,255]);
+      doc.setFillColor(...fill);
+      doc.rect(margen, y, ancho, 5.4, 'FD');
+      let x = margen;
+      const celdas = [fechaTxt, d.entrada ? d.entrada.substring(0,5) : '—', d.salida ? d.salida.substring(0,5) : '—',
+                      EST_TXT[est] || est, mt ? String(mt) : '—', me ? String(me) : '—'];
+      for (let i = 0; i < cols.length; i++) {
+        if (i === 3) doc.setTextColor(...(COLS_EST[est] || TXT));
+        else if (i === 4) doc.setTextColor(...(mt ? [217,119,6] : MUT));
+        else if (i === 5) doc.setTextColor(...MUT);
+        else doc.setTextColor(...TXT);
+        doc.text(celdas[i], x+1.5, y+3.8);
+        x += cols[i][1];
+      }
+      y += 5.4;
+      if (y > 262) { doc.addPage(); y = 20; }
+      totT += mt; totE += me;
+      if (est==='puntual') nP++; if (est==='tarde') nT++;
+      if (est==='ausente'||est==='falta_fichada') nA++;
+      if (est==='franco') nF++; if (est==='feriado') nFer++; if (est==='vacaciones') nVac++;
+    }
+
+    // Resumen
+    y += 4;
+    doc.setFillColor(240,253,244); doc.setDrawColor(...TEAL); doc.setLineWidth(0.4);
+    doc.rect(margen, y, ancho, 16, 'FD');
+    doc.setTextColor(...TEAL); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Resumen del mes', margen+5, y+6);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.6); doc.setTextColor(...TXT);
+    const fMin2 = (m2) => `${Math.floor(Math.abs(m2)/60)}:${String(Math.abs(m2)%60).padStart(2,'0')}`;
+    const partes = [`${nP} puntuales`, `${nT} tarde (${totT} min)`, `${nA} ausencias`,
+      nVac ? `${nVac} vacaciones` : null, `${nF} francos`, nFer ? `${nFer} feriado(s)` : null,
+      `${totE} min extra`, `Banco del mes: ${(r.min_banco||0) >= 0 ? '+' : '-'}${fMin2(r.min_banco || 0)}`].filter(Boolean);
+    doc.text(partes.join(' · '), margen+5, y+12);
+
+    doc.setFontSize(6.5); doc.setTextColor(...MUT);
+    doc.text(`Generado automáticamente por RRHH Claudia Adorno · ${new Date().toLocaleDateString('es-AR')} · Documento informativo`, W/2, 290, { align: 'center' });
+
+    const ape = (e.nombre_completo || '').split(',')[0].trim().replace(/\s+/g,'_');
+    doc.save(`Fichadas_${ape}_${mes}.pdf`);
+  } catch (err) {
+    console.error(err);
+    toast('Error generando el PDF: ' + (err.message || err), 'error');
+    return;
+  }
+
+  // WhatsApp — texto plano, sin emojis
   let num = tel;
   if (num.startsWith('0')) num = num.slice(1);
   if (num.startsWith('15')) num = num.slice(2);
   if (!num.startsWith('54')) num = '549' + num;
   else if (!num.startsWith('549')) num = '549' + num.slice(2);
-
-  const [yy, mm] = (snap.mes || '').split('-').map(Number);
-  const MESES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  const mesLabel = MESES_L[(mm||1)-1] + ' ' + yy;
-  const fMin = (min) => {
-    const neg = min < 0; const a = Math.abs(Math.round(min||0));
-    return (neg?'-':'') + Math.floor(a/60) + ':' + String(a%60).padStart(2,'0');
-  };
-  const nombre = (e.nombre_completo || '').split(',').pop().trim().split(' ')[0] || e.nombre_completo;
-  // (3-ago) El premio NO va en el mensaje — se maneja fuera del recibo.
-  const lineas = [
-    `Hola ${nombre}! 👋 Te paso el resumen de tus fichadas de *${mesLabel}*:`,
-    ``,
-    `✅ Días puntuales: ${r.puntual || 0}`,
-    `⚠️ Llegadas tarde: ${r.tarde || 0}${(r.min_tarde||0) > 0 ? ` (${fMin(r.min_tarde)} hs en total)` : ''}`,
-    `❌ Ausencias: ${r.ausente || 0}`,
-    `🌴 Vacaciones: ${r.vacaciones || 0}`,
-    `⏱️ Minutos extra: ${fMin(r.min_extra || 0)} hs`,
-    `🏦 Banco de minutos del mes: ${(r.min_banco||0) >= 0 ? '+' : ''}${fMin(r.min_banco || 0)} hs`,
-    ``,
-    `Cualquier duda escribime. Saludos!`,
-  ];
-  window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(lineas.join('\n')), '_blank');
+  const MESES_MIN = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const nombre = (e.nombre_completo || '').split(',').pop().trim().split(' ')[0] || '';
+  const msg = `Hola ${nombre}! Te mando en PDF el detalle de tus fichadas de ${MESES_MIN[mm-1]}. Cualquier duda escribime. Saludos!`;
+  window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(msg), '_blank');
+  toast('PDF descargado — adjuntalo en el chat que se abrió', 'success');
 }
 
 async function toggleDetalleResumen(empId) {
