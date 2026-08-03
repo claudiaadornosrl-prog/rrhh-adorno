@@ -8009,7 +8009,7 @@ async function renderResumenContent() {
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
 
   // Colaboradores + detalle del mes
-  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local, ficha').eq('estado', 'activo');
+  let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local, ficha, telefono').eq('estado', 'activo');
   if (localFiltro) qEmp = qEmp.eq('local', localFiltro);
   const { data: empleadosRaw } = await qEmp;
   const colaboradores = (empleadosRaw || []).filter(e => e.ficha !== false);
@@ -8081,6 +8081,8 @@ async function renderResumenContent() {
   };
 
   const lista = (colaboradores || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+  // Snapshot para el botón WhatsApp del resumen (waResumenAsistencia)
+  window._resumenAsis = { porEmp, lista, mes: asisState.mes, maxErrPorLocal, maxErrPorEmp };
 
   if (lista.length === 0 || Object.keys(porEmp).length === 0) {
     cont.innerHTML = `
@@ -8138,6 +8140,7 @@ async function renderResumenContent() {
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Min extra</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Δ banco</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">🎖 Premio</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">📱</th>
         </tr>
       </thead>
       <tbody>
@@ -8164,9 +8167,12 @@ async function renderResumenContent() {
                 else { bg = '#d1faf1'; color = '#0d9488'; label = `✓ ${err}/${max}`; }
                 return `<span style="background:${bg};color:${color};padding:3px 9px;border-radius:99px;font-weight:600;white-space:nowrap;">${label}</span>`;
               })()}</td>
+              <td style="padding:8px 12px;text-align:center;">
+                <button onclick="event.stopPropagation();waResumenAsistencia(${e.id})" title="Enviar resumen del mes por WhatsApp" style="background:#25d366;color:white;border:none;border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer;">📱</button>
+              </td>
             </tr>
             <tr id="detalle-${e.id}" style="display:none;background:#fafafa;">
-              <td colspan="11" style="padding:0;">
+              <td colspan="12" style="padding:0;">
                 <div id="detalle-cont-${e.id}" style="padding:16px 20px;">
                   <div class="spinner"></div>
                 </div>
@@ -8653,6 +8659,48 @@ async function procesarMes(periodo, local = null) {
 // ─────────────────────────────────────────────────────────────
 // Dropdown detalle día×día por colaborador en Resumen mensual
 // ─────────────────────────────────────────────────────────────
+// ── WhatsApp con el resumen individual de fichadas (3-ago, pedido JP) ──
+function waResumenAsistencia(empId) {
+  const snap = window._resumenAsis;
+  if (!snap) { toast('Recargá el resumen primero', 'error'); return; }
+  const e = (snap.lista || []).find(x => x.id === empId);
+  const r = (snap.porEmp || {})[empId] || {};
+  if (!e) { toast('No encontré la colaboradora', 'error'); return; }
+  const tel = String(e.telefono || '').replace(/\D/g, '');
+  if (!tel) { toast(`${e.nombre_completo} no tiene teléfono cargado en el legajo`, 'error'); return; }
+  let num = tel;
+  if (num.startsWith('0')) num = num.slice(1);
+  if (num.startsWith('15')) num = num.slice(2);
+  if (!num.startsWith('54')) num = '549' + num;
+  else if (!num.startsWith('549')) num = '549' + num.slice(2);
+
+  const [yy, mm] = (snap.mes || '').split('-').map(Number);
+  const MESES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const mesLabel = MESES_L[(mm||1)-1] + ' ' + yy;
+  const fMin = (min) => {
+    const neg = min < 0; const a = Math.abs(Math.round(min||0));
+    return (neg?'-':'') + Math.floor(a/60) + ':' + String(a%60).padStart(2,'0');
+  };
+  const nombre = (e.nombre_completo || '').split(',').pop().trim().split(' ')[0] || e.nombre_completo;
+  const maxErr = (snap.maxErrPorEmp && snap.maxErrPorEmp[empId]) || (snap.maxErrPorLocal && snap.maxErrPorLocal[e.local]) || 3;
+  const err = r.errores || 0;
+  const premio = err > maxErr ? `❌ Perdido (${err}/${maxErr} errores)` : `✅ OK (${err}/${maxErr} errores)`;
+  const lineas = [
+    `Hola ${nombre}! 👋 Te paso el resumen de tus fichadas de *${mesLabel}*:`,
+    ``,
+    `✅ Días puntuales: ${r.puntual || 0}`,
+    `⚠️ Llegadas tarde: ${r.tarde || 0}${(r.min_tarde||0) > 0 ? ` (${fMin(r.min_tarde)} hs en total)` : ''}`,
+    `❌ Ausencias: ${r.ausente || 0}`,
+    `🌴 Vacaciones: ${r.vacaciones || 0}`,
+    `⏱️ Minutos extra: ${fMin(r.min_extra || 0)} hs`,
+    `🏦 Banco de minutos del mes: ${(r.min_banco||0) >= 0 ? '+' : ''}${fMin(r.min_banco || 0)} hs`,
+    `🎖️ Premio fichadas: ${premio}`,
+    ``,
+    `Cualquier duda escribime. Saludos!`,
+  ];
+  window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(lineas.join('\n')), '_blank');
+}
+
 async function toggleDetalleResumen(empId) {
   const row = document.getElementById(`detalle-${empId}`);
   const caret = document.getElementById(`caret-${empId}`);

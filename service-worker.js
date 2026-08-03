@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v270-selector-meses-fix';
+const CACHE_VERSION = 'rrhh-v271-wa-resumen-fichadas';
 const ASSETS = [
   './',
   './index.html',
