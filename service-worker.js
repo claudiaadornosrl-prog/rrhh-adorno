@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v277-viaticos-vac-extras';
+const CACHE_VERSION = 'rrhh-v278-prestamo-cuota-redonda';
 const ASSETS = [
   './',
   './index.html',

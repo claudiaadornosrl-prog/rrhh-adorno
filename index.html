@@ -20177,8 +20177,29 @@ function calcularPropuestasBloque() {
   }
   const tasa = Math.pow(1 + cftPct/100, 1/12) - 1;
   const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
+  const overrides = _propuestasBloqueState.overrides || {};
   const planes = _propuestasBloqueState.opciones.map(n => {
     try {
+      // (3-ago) Cuota REDONDEADA por opción: si el admin fijó un monto a mano,
+      // se mantiene el capital lineal (K/n, banco) y el interés absorbe la
+      // diferencia (efectivo). La última cuota ajusta el redondeo del capital.
+      const cuotaOv = Number(overrides[n] || 0);
+      if (cuotaOv > 0) {
+        const capLineal = Math.round(capital / n * 100) / 100;
+        const intRed = Math.round((cuotaOv - capLineal) * 100) / 100;
+        if (intRed < 0) throw new Error('cuota menor al capital');
+        let saldo = capital;
+        const plan = [];
+        for (let k = 1; k <= n; k++) {
+          const cap_k = (k === n) ? Math.round(saldo * 100) / 100 : capLineal;
+          const tot_k = Math.round((cap_k + intRed) * 100) / 100;
+          saldo = Math.round((saldo - cap_k) * 100) / 100;
+          plan.push({ numero: k, monto_total: tot_k, monto_capital: cap_k, monto_interes: intRed, saldo_post: Math.max(0, saldo) });
+        }
+        const totalInt = plan.reduce((a,c)=>a+c.monto_interes,0);
+        const totalDev = plan.reduce((a,c)=>a+c.monto_total,0);
+        return { n, cuota: cuotaOv, totalInt, totalDev, plan, redondeada: true };
+      }
       const p = prestamoEngine.armarPlan(capital, tasa, n);
       const totalInt = p.plan.reduce((a,c)=>a+c.monto_interes,0);
       const totalDev = p.plan.reduce((a,c)=>a+c.monto_total,0);
@@ -20200,11 +20221,33 @@ function calcularPropuestasBloque() {
       </tr></thead>
       <tbody>
         ${planes.map(f => `
-          <tr style="border-top:1px solid #fde68a;text-align:right;">
-            <td style="padding:6px 10px;text-align:left;font-weight:600;">${f.n} cuota${f.n>1?'s':''}</td>
+          <tr style="border-top:1px solid #fde68a;text-align:right;cursor:pointer;" onclick="pbToggleDetalle(${f.n})" title="Click para ver el plan cuota por cuota y redondear">
+            <td style="padding:6px 10px;text-align:left;font-weight:600;">▸ ${f.n} cuota${f.n>1?'s':''}${f.redondeada ? ' <span style=\"background:#0d9488;color:white;font-size:9px;padding:1px 5px;border-radius:3px;\">redondeada</span>' : ''}</td>
             <td style="padding:6px 10px;font-family:monospace;font-weight:600;color:#0f6e56;">${fmt(f.cuota)}</td>
             <td style="padding:6px 10px;font-family:monospace;color:#d97706;">${fmt(f.totalInt)}</td>
             <td style="padding:6px 10px;font-family:monospace;">${fmt(f.totalDev)}</td>
+          </tr>
+          <tr id="pb-det-${f.n}" style="display:none;background:white;">
+            <td colspan="4" style="padding:10px 14px;">
+              <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+                <label style="font-size:12px;color:var(--muted);">Cuota redondeada:</label>
+                <input type="number" id="pb-red-${f.n}" value="${Math.round(f.cuota)}" step="1000" style="width:130px;padding:6px;border:1px solid var(--border);border-radius:6px;font-family:monospace;" onclick="event.stopPropagation()">
+                <button class="btn small" onclick="event.stopPropagation();pbAplicarRedondeo(${f.n})" style="background:#0d9488;color:white;border-color:#0d9488;">Aplicar</button>
+                ${f.redondeada ? `<button class="btn small" onclick="event.stopPropagation();pbQuitarRedondeo(${f.n})">↩ Volver al cálculo exacto</button>` : ''}
+                <span style="font-size:11px;color:var(--muted);">El capital por cuota no cambia (va al banco) — el interés absorbe la diferencia (efectivo).</span>
+              </div>
+              <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <tr style="color:var(--muted);text-align:right;"><th style="text-align:left;padding:4px;">#</th><th style="padding:4px;">Mes</th><th style="padding:4px;">Capital (banco)</th><th style="padding:4px;">Interés (efvo.)</th><th style="padding:4px;">Cuota</th><th style="padding:4px;">Saldo</th></tr>
+                ${f.plan.map(c => `<tr style="border-top:1px solid #f3f4f6;text-align:right;font-family:monospace;">
+                  <td style="text-align:left;padding:4px;">${c.numero}</td>
+                  <td style="padding:4px;">${(() => { const mi = document.getElementById('pb-mes')?.value; return mi ? prestamoEngine.sumarMeses(mi + '-01', c.numero - 1).slice(0,7) : '—'; })()}</td>
+                  <td style="padding:4px;">${fmt(c.monto_capital)}</td>
+                  <td style="padding:4px;color:#d97706;">${fmt(c.monto_interes)}</td>
+                  <td style="padding:4px;font-weight:600;">${fmt(c.monto_total)}</td>
+                  <td style="padding:4px;color:var(--muted);">${fmt(c.saldo_post)}</td>
+                </tr>`).join('')}
+              </table>
+            </td>
           </tr>
         `).join('')}
       </tbody>
@@ -20214,6 +20257,26 @@ function calcularPropuestasBloque() {
     </div>
   `;
   btn.style.display = 'inline-block';
+}
+
+function pbToggleDetalle(n) {
+  const el = document.getElementById('pb-det-' + n);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+function pbAplicarRedondeo(n) {
+  const v = Number(document.getElementById('pb-red-' + n)?.value || 0);
+  if (!(v > 0)) { toast('Poné un monto de cuota válido', 'error'); return; }
+  _propuestasBloqueState.overrides = _propuestasBloqueState.overrides || {};
+  _propuestasBloqueState.overrides[n] = v;
+  calcularPropuestasBloque();
+  const el = document.getElementById('pb-det-' + n);
+  if (el) el.style.display = '';
+}
+function pbQuitarRedondeo(n) {
+  if (_propuestasBloqueState?.overrides) delete _propuestasBloqueState.overrides[n];
+  calcularPropuestasBloque();
+  const el = document.getElementById('pb-det-' + n);
+  if (el) el.style.display = '';
 }
 
 async function crearPropuestasEnBloque() {
