@@ -6445,6 +6445,16 @@ async function enviarSolicitudPrestamo() {
           { url: './#prestamos', tag: 'solic-prestamo-nuevo-' + data?.solicitud_id }
         );
       }
+      // (3-ago) Aviso informativo a la encargada del local (no requiere acción)
+      if (session.empleadoData?.local) {
+        sb.functions.invoke('enviar-push', { body: {
+          local: session.empleadoData.local,
+          app: 'rrhh',
+          title: 'Solicitud de préstamo 🏦 (info)',
+          body: `${session.empleadoData?.nombre_completo || 'Una colaboradora'} de tu local pidió un préstamo de $${capital.toLocaleString('es-AR')} (${optTxt}). Lo resuelve JP — es solo para que estés al tanto.`,
+          tag: 'solic-prestamo-enc-' + (data?.solicitud_id || ''),
+        }}).catch(() => {});
+      }
     } catch(_) {}
     closeModal();
     switchTab('mis-prestamos');
@@ -20352,6 +20362,19 @@ La colaboradora elige una y la acepta.`)) return;
 
     await auditLog('crear_propuestas_bloque', 'rrhh_prestamo_solicitud', st.solicitudId, null, null, `${idsCreados.length} propuestas: ${idsCreados.join(',')}`);
     toast(`✓ ${idsCreados.length} propuesta${idsCreados.length>1?'s':''} creada${idsCreados.length>1?'s':''}`, 'success');
+    // (3-ago) Aviso informativo a la encargada del local: JP autorizó propuestas
+    try {
+      const { data: _empP } = await sb.from('rrhh_empleados').select('nombre_completo, local').eq('id', st.empleadoId).single();
+      if (_empP?.local) {
+        sb.functions.invoke('enviar-push', { body: {
+          local: _empP.local,
+          app: 'rrhh',
+          title: 'Préstamo autorizado ✓ (info)',
+          body: `JP le autorizó a ${_empP.nombre_completo} un préstamo de $${capital.toLocaleString('es-AR')} en ${st.planes.map(p=>p.n).join('/')} cuotas. Ella elige la opción desde su app — es solo para que estés al tanto.`,
+          tag: 'prestamo-autorizado-' + st.solicitudId,
+        }}).catch(() => {});
+      }
+    } catch(_) {}
     _propuestasBloqueState = null;
     closeModal();
     switchTab('prestamos');

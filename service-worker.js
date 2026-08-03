@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v278-prestamo-cuota-redonda';
+const CACHE_VERSION = 'rrhh-v279-noti-encargadas-prestamos';
 const ASSETS = [
   './',
   './index.html',
