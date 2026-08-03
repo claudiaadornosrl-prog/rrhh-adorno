@@ -8682,9 +8682,7 @@ function waResumenAsistencia(empId) {
     return (neg?'-':'') + Math.floor(a/60) + ':' + String(a%60).padStart(2,'0');
   };
   const nombre = (e.nombre_completo || '').split(',').pop().trim().split(' ')[0] || e.nombre_completo;
-  const maxErr = (snap.maxErrPorEmp && snap.maxErrPorEmp[empId]) || (snap.maxErrPorLocal && snap.maxErrPorLocal[e.local]) || 3;
-  const err = r.errores || 0;
-  const premio = err > maxErr ? `❌ Perdido (${err}/${maxErr} errores)` : `✅ OK (${err}/${maxErr} errores)`;
+  // (3-ago) El premio NO va en el mensaje — se maneja fuera del recibo.
   const lineas = [
     `Hola ${nombre}! 👋 Te paso el resumen de tus fichadas de *${mesLabel}*:`,
     ``,
@@ -8694,7 +8692,6 @@ function waResumenAsistencia(empId) {
     `🌴 Vacaciones: ${r.vacaciones || 0}`,
     `⏱️ Minutos extra: ${fMin(r.min_extra || 0)} hs`,
     `🏦 Banco de minutos del mes: ${(r.min_banco||0) >= 0 ? '+' : ''}${fMin(r.min_banco || 0)} hs`,
-    `🎖️ Premio fichadas: ${premio}`,
     ``,
     `Cualquier duda escribime. Saludos!`,
   ];
