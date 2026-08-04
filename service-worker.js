@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v281-resumen-efimero';
+const CACHE_VERSION = 'rrhh-v282-resumen-sac';
 const ASSETS = [
   './',
   './index.html',
