@@ -16486,12 +16486,10 @@ async function liqEditarGuardar(liqId) {
   const obs     = document.getElementById('ledit-obs').value.trim() || null;
 
   // Pago de vacaciones imputado a este mes (se preserva del cálculo previo)
-  const { data: pagVacRowsLE } = await sb.from('rrhh_vacaciones_movimientos')
-    .select('importe_pagado')
-    .eq('empleado_id', liq.empleado_id)
-    .eq('estado', 'pagada')
-    .eq('periodo_liquidacion', liq.periodo);
-  const vacacionesPagoLE = (pagVacRowsLE || []).reduce((s, r) => s + Number(r.importe_pagado || 0), 0);
+  const { data: vpValLE, error: vpErrLE } = await sb.rpc('rrhh_vacaciones_pago_mes', {
+    p_empleado_id: liq.empleado_id, p_periodo: liq.periodo });
+  if (vpErrLE) console.warn('[ledit:vacPago] error RPC:', vpErrLE);
+  const vacacionesPagoLE = Number(vpValLE || 0);
 
   const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto + vacacionesPagoLE;
 
@@ -22453,12 +22451,12 @@ const salaryWorkflow = (() => {
     // Suma los importe_pagado de movs con estado='pagada' cuyo periodo_liquidacion sea este mes
     let vacacionesPago = 0;
     try {
-      const { data: pagVacRows } = await sb.from('rrhh_vacaciones_movimientos')
-        .select('importe_pagado')
-        .eq('empleado_id', empleadoId)
-        .eq('estado', 'pagada')
-        .eq('periodo_liquidacion', periodo + '-01');
-      vacacionesPago = (pagVacRows || []).reduce((s, r) => s + Number(r.importe_pagado || 0), 0);
+      // (4-ago) Vía RPC SECURITY DEFINER: el SELECT directo devolvía vacío
+      // intermitentemente en el navegador (caso Bianchi julio, 2 veces).
+      const { data: vpVal, error: vpErr } = await sb.rpc('rrhh_vacaciones_pago_mes', {
+        p_empleado_id: empleadoId, p_periodo: periodo + '-01' });
+      if (vpErr) console.warn('[liquidarEmpleada:vacPago] error RPC:', vpErr);
+      vacacionesPago = Number(vpVal || 0);
     } catch (e) { console.warn('[liquidarEmpleada:vacPago]', e); }
 
     const total_negro_esperado = fijo + comision + premio + viaticos + extras + feriado_monto + vacacionesPago;
