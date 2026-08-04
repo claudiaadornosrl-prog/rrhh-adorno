@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v287-cierre-sin-extras-auto';
+const CACHE_VERSION = 'rrhh-v288-validacion-cierre';
 const ASSETS = [
   './',
   './index.html',

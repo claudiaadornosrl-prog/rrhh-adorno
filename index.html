@@ -9968,10 +9968,10 @@ async function generarSugerenciasFichadas() {
 
     // Permisos y extras ya cargados en el mes → no sugerir lo que ya está resuelto
     const [permsRes, extrasRes] = await Promise.all([
-      sb.from('rrhh_permisos_puntuales').select('empleado_id, fecha')
+      sb.from('rrhh_permisos_puntuales').select('id, empleado_id, fecha, tipo, minutos_descontar, descontar_banco, estado')
         .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta)
         .in('estado', ['aprobado', 'pendiente']),
-      sb.from('rrhh_horas_extras').select('empleado_id, fecha')
+      sb.from('rrhh_horas_extras').select('id, empleado_id, fecha, minutos, compensacion')
         .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta),
     ]);
     const permSet  = new Set((permsRes.data  || []).map(p => `${p.empleado_id}_${p.fecha}`));
@@ -9997,6 +9997,51 @@ async function generarSugerenciasFichadas() {
         }
       }
     });
+
+    // ── VALIDACIÓN PERMISO↔FICHADA y EXTRA↔FICHADA (escenarios 4-ago) ──
+    const _hm2min = (t) => { const p = (t || '').toString().split(':'); return p.length >= 2 ? (+p[0]) * 60 + (+p[1]) : null; };
+    const detKey = {};
+    (snap.detalle || []).forEach(d => { detKey[`${d.empleado_id}_${d.fecha}`] = d; });
+    const ESTADOS_SIN_TURNO = ['franco', 'feriado', 'vacaciones', 'licencia', 'ausente'];
+
+    // A) Permiso aprobado con débito: ¿la fichada dice que lo usó?
+    for (const pm of (permsRes.data || [])) {
+      if (pm.estado !== 'aprobado' || !pm.descontar_banco || !(pm.minutos_descontar > 0)) continue;
+      if (!['llegar_tarde', 'retirarse_antes'].includes(pm.tipo)) continue;
+      const d = detKey[`${pm.empleado_id}_${pm.fecha}`];
+      if (!d || d.error_salvado || ESTADOS_SIN_TURNO.includes(d.estado)) continue;
+      const ent = _hm2min(d.entrada_real || d.entrada), sal = _hm2min(d.salida_real || d.salida);
+      const tIni = _hm2min(d.turno_inicio), tFin = _hm2min(d.turno_fin);
+      let usado = null;
+      if (pm.tipo === 'llegar_tarde' && ent != null && tIni != null) usado = Math.max(0, ent - tIni);
+      if (pm.tipo === 'retirarse_antes' && sal != null && tFin != null) usado = Math.max(0, tFin - sal);
+      if (usado == null) continue;
+      if (usado <= 5) {
+        cands.push({ empleado_id: pm.empleado_id, fecha: pm.fecha, tipo: 'permiso_sin_uso',
+          minutos: pm.minutos_descontar, extra_id: null,
+          detalle: `Permiso de ${pm.minutos_descontar} min descontado pero fichó a horario — se le pueden devolver ${pm.minutos_descontar} min` });
+      } else if (usado < pm.minutos_descontar - 15) {
+        cands.push({ empleado_id: pm.empleado_id, fecha: pm.fecha, tipo: 'permiso_parcial',
+          minutos: pm.minutos_descontar - usado, extra_id: null,
+          detalle: `Permiso de ${pm.minutos_descontar} min pero usó ~${usado} min — se le pueden devolver ${pm.minutos_descontar - usado} min` });
+      }
+      // usado > descontado: el excedente ya lo agarra el pool de tardanzas
+    }
+
+    // B) Extra manual al banco: ¿la fichada la respalda?
+    for (const ex of (extrasRes.data || [])) {
+      if (ex.compensacion !== 'banco' || !(ex.minutos > 0)) continue;
+      const d = detKey[`${ex.empleado_id}_${ex.fecha}`];
+      if (!d || d.error_salvado || ESTADOS_SIN_TURNO.includes(d.estado)) continue;
+      const fichadaExtra = d.minutos_extra || 0;
+      if (fichadaExtra < ex.minutos - 15) {
+        cands.push({ empleado_id: ex.empleado_id, fecha: ex.fecha, tipo: 'extra_sin_respaldo',
+          minutos: ex.minutos, extra_id: ex.id,
+          detalle: `Extra de ${ex.minutos} min cargada pero la fichada solo muestra ${fichadaExtra} min de más — revisar o anular` });
+      }
+    }
+    // Normalizar: todas las candidatas con extra_id (insert uniforme)
+    cands.forEach(cn => { if (cn.extra_id === undefined) cn.extra_id = null; });
 
     // Reconciliar contra lo ya guardado:
     //  - nueva detección → insertar
@@ -10045,7 +10090,7 @@ function renderSugFichadasPanel(sugs) {
     const dt = new Date(f + 'T12:00:00');
     return `${DIAS_S[dt.getDay()]} ${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`;
   };
-  const ICONO_SUG = { extra: '⏰', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪' };
+  const ICONO_SUG = { extra: '⏰', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪', permiso_sin_uso: '↩', permiso_parcial: '⚖', extra_sin_respaldo: '🚫' };
   cont.style.display = 'block';
   cont.innerHTML = `
     <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;margin-bottom:16px;overflow:hidden;">
@@ -10062,9 +10107,19 @@ function renderSugFichadasPanel(sugs) {
             <span style="font-family:monospace;color:#92400e;white-space:nowrap;">${fmtF(su.fecha)}</span>
             <strong style="white-space:nowrap;">${escapeHtml(nombreDe(su.empleado_id))}</strong>
             <span style="color:#78716c;flex:1;min-width:180px;">${escapeHtml(su.detalle || '')}</span>
-            ${su.tipo === 'extra'
-              ? `<button class="btn" style="font-size:11px;padding:4px 10px;background:#065f46;color:white;border:none;border-radius:6px;" onclick="sugAplicarExtra(${su.id})">✔ Cargar extra</button>`
-              : `<button class="btn" style="font-size:11px;padding:4px 10px;background:#1e40af;color:white;border:none;border-radius:6px;" onclick="sugCrearPermiso(${su.id})">📝 Crear permiso</button>`}
+            ${(() => {
+              const b = (bg, fn, txt) => `<button class="btn" style="font-size:11px;padding:4px 10px;background:${bg};color:white;border:none;border-radius:6px;" onclick="${fn}(${su.id})">${txt}</button>`;
+              if (su.tipo === 'extra') return b('#065f46', 'sugAplicarExtra', '✔ Cargar extra');
+              // Permisos retroactivos: SOLO admin (regla 4-ago). Encargadas solo
+              // ignoran — el descuento lo hace el pool de tardanzas al cierre.
+              if (su.tipo === 'falta_permiso_tarde' || su.tipo === 'falta_permiso_salida')
+                return session.rol === 'admin' ? b('#1e40af', 'sugCrearPermiso', '📝 Crear permiso') : '';
+              if (su.tipo === 'permiso_sin_uso' || su.tipo === 'permiso_parcial')
+                return b('#0d9488', 'sugDevolverMinutos', `↩ Devolver ${su.minutos} min`);
+              if (su.tipo === 'extra_sin_respaldo')
+                return b('#b91c1c', 'sugAnularExtra', '🗑 Anular extra');
+              return '';
+            })()}
             <button class="btn" style="font-size:11px;padding:4px 10px;border-radius:6px;" onclick="sugIgnorar(${su.id})">✖ Ignorar</button>
           </div>`).join('')}
       </div>
@@ -10148,6 +10203,46 @@ async function sugCrearPermiso(id) {
   if (mot && !mot.value) mot.value = `Desde sugerencias de fichadas: ${su.detalle || ''}`;
   const minInp = document.getElementById('perm-minutos');
   if (minInp && (!minInp.value || minInp.value === '0')) minInp.value = String(su.minutos);
+}
+
+// ↩ Permiso descontado que la fichada no justifica (total o parcial):
+// devolver los minutos al banco. Lo decide la encargada o el admin.
+async function sugDevolverMinutos(id) {
+  const su = (window._sugsFichadas || {})[id];
+  if (!su) return;
+  if (!confirm(`¿Devolver ${su.minutos} min al banco?\n\n${su.detalle || ''}`)) return;
+  const { data: mov, error } = await sb.from('rrhh_banco_minutos').insert({
+    empleado_id: su.empleado_id, fecha: su.fecha, minutos: su.minutos,
+    tipo: 'ajuste', referencia_tipo: 'sugerencia', referencia_id: id,
+    observaciones: `Devolución permiso no usado — ${su.detalle || ''}`,
+    creado_por: session.email,
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('ajuste_banco', 'rrhh_banco_minutos', mov.id, null, null, `+${su.minutos} min — devolución sugerencia #${id}`);
+  await sb.from('rrhh_fichadas_sugerencias').update({
+    estado: 'aplicada', resuelto_por: session.email,
+    resuelto_at: new Date().toISOString(), banco_mov_id: mov.id,
+  }).eq('id', id);
+  toast(`↩ ${su.minutos} min devueltos al banco`, 'success');
+  document.getElementById(`sug-row-${id}`)?.remove();
+  _sugActualizarContador();
+}
+
+// 🗑 Extra cargada que la fichada no respalda: anularla (borra registro + banco)
+async function sugAnularExtra(id) {
+  const su = (window._sugsFichadas || {})[id];
+  if (!su || !su.extra_id) { toast('No encontré la extra vinculada', 'error'); return; }
+  if (!confirm(`¿Anular la extra cargada? Se borra del banco de minutos.\n\n${su.detalle || ''}`)) return;
+  await sb.from('rrhh_banco_minutos').delete().eq('referencia_tipo', 'horas_extras').eq('referencia_id', su.extra_id);
+  const { error } = await sb.from('rrhh_horas_extras').delete().eq('id', su.extra_id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('eliminar_hora_extra', 'rrhh_horas_extras', su.extra_id, null, null, `anulada por sugerencia #${id} (fichada no respalda)`);
+  await sb.from('rrhh_fichadas_sugerencias').update({
+    estado: 'aplicada', resuelto_por: session.email, resuelto_at: new Date().toISOString(),
+  }).eq('id', id);
+  toast('Extra anulada ✓', 'success');
+  document.getElementById(`sug-row-${id}`)?.remove();
+  _sugActualizarContador();
 }
 
 async function sugIgnorar(id) {
@@ -10342,6 +10437,16 @@ async function guardarPermisoAdmin() {
   if (!empleado_id) { toast('Falta empleado', 'error'); return; }
   if (!fecha) { toast('Falta fecha', 'error'); return; }
   if (!tipo) { toast('Falta tipo', 'error'); return; }
+  // 🚨 (4-ago, regla JP): las encargadas NO pueden cargar permisos con fecha
+  // pasada (evita "salvar" fichadas retroactivamente). Solo admin, casos especiales.
+  if (session.rol !== 'admin') {
+    const _dh = new Date();
+    const _hoyLoc = `${_dh.getFullYear()}-${String(_dh.getMonth()+1).padStart(2,'0')}-${String(_dh.getDate()).padStart(2,'0')}`;
+    if (fecha < _hoyLoc) {
+      toast('No se pueden cargar permisos con fecha pasada. Si es un caso especial, pedíselo a JP.', 'error');
+      return;
+    }
+  }
   if (descontar_vacaciones && dias_descontar <= 0) { toast('Si compensás con vacaciones, indicá los días', 'error'); return; }
   if (await _mesAsistCerradoBloquea(empleado_id, fecha)) return;
 
