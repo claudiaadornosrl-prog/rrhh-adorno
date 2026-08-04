@@ -22135,12 +22135,40 @@ const salaryWorkflow = (() => {
     const fuera_convenio = !!emp.fuera_convenio;
     const fraccionNR = (configEmp.fraccion_no_rem != null) ? Number(configEmp.fraccion_no_rem) : null;
 
+    // ── JORNADA PARCIAL (art. 92 ter LCT) — caso franquera Escasany ──
+    // El recibo se prorratea por HORAS reales de turnos del mes contra la
+    // jornada completa de comercio (200 hs/mes = 48 hs/sem). Se traduce a
+    // "días equivalentes" (horas/200 × 30) para reusar la fracción del motor.
+    // El pactado por encima de esta base lo completa el solver 0018.
+    let dias_recibo = dias_trabajados;
+    if (configEmp.jornada_parcial) {
+      try {
+        const [_yJP, _mJP] = periodo.split('-').map(Number);
+        const _finMesJP = `${periodo}-${String(new Date(_yJP, _mJP, 0).getDate()).padStart(2, '0')}`;
+        const { data: turnosJP } = await sb.from('rrhh_turnos')
+          .select('hora_inicio, hora_fin, es_franco')
+          .eq('empleado_id', empleadoId)
+          .gte('fecha', periodo + '-01').lte('fecha', _finMesJP);
+        const _hmJP = (t) => { const p = (t || '').split(':'); return p.length >= 2 ? (+p[0]) * 60 + (+p[1]) : null; };
+        let horasMes = 0;
+        (turnosJP || []).forEach(t => {
+          if (t.es_franco || !t.hora_inicio || !t.hora_fin) return;
+          const a = _hmJP(t.hora_inicio), b = _hmJP(t.hora_fin);
+          if (a != null && b != null && b > a) horasMes += (b - a) / 60;
+        });
+        if (horasMes > 0) {
+          dias_recibo = Math.min(30, Math.round(horasMes / 200 * 30 * 100) / 100);
+          console.log(`[liquidarEmpleada:92ter] emp=${empleadoId}: ${horasMes}hs de turnos → ${dias_recibo}/30 días equivalentes (${Math.round(horasMes/200*1000)/10}% de jornada)`);
+        }
+      } catch (e) { console.warn('[liquidarEmpleada:92ter]', e); }
+    }
+
     // ── RECIBO BLANCO (CCT) ──
     const recibo = salaryEngine.calcularReciboCCT({
       basico_escala: Number(emp.categoria.sueldo_basico),
       fecha_ingreso: emp.fecha_ingreso,
       periodo,
-      dias_trabajados,
+      dias_trabajados: dias_recibo,
       obra_social_codigo: emp.obra_social_codigo || '',
       suma_fija_nr: Number(paritaria.suma_fija_nr),
       recompos_nr: Number(paritaria.recompos_nr),
@@ -22540,7 +22568,7 @@ const salaryWorkflow = (() => {
       reciboFinal = salaryEngine.calcularReciboCCT({
         basico_escala: Number(emp.categoria.sueldo_basico),
         fecha_ingreso: emp.fecha_ingreso,
-        periodo, dias_trabajados,
+        periodo, dias_trabajados: dias_recibo,
         obra_social_codigo: emp.obra_social_codigo || '',
         suma_fija_nr: Number(paritaria.suma_fija_nr),
         recompos_nr: Number(paritaria.recompos_nr),
@@ -22550,7 +22578,7 @@ const salaryWorkflow = (() => {
         otros_rem_concepto: {
           codigo: '0018',
           nombre: 'Comisiones',
-          unidades_pct: dias_trabajados,
+          unidades_pct: dias_recibo,
         },
       });
       efectivo = 0;
