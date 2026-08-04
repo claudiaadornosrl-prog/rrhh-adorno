@@ -693,7 +693,10 @@ async function onLoggedIn(user) {
   // (31-jul) Usuarios "solo Banco": administración/estudio ven únicamente la
   // sub-tab Banco de Liquidación (parte en blanco). Mismo par de emails que
   // rrhh_es_solo_banco() en la DB — mantener sincronizado.
-  const RRHH_SOLO_BANCO_EMAILS = ['administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
+  // (4-ago) claudiaadorno@ perdió el acceso al Banco del liquidador — solo administracion@.
+  const RRHH_SOLO_BANCO_EMAILS = ['administracion@claudiaadorno.com'];
+  // claudiaadorno@ no entra más a RRHH (usa Documentos, sin recibos):
+  const RRHH_BLOQUEADOS = ['claudiaadorno@claudiaadorno.com'];
   session = {
     user,
     rol: usuarioRow.rol,
@@ -703,6 +706,13 @@ async function onLoggedIn(user) {
     email: usuarioRow.email,
     soloBanco: RRHH_SOLO_BANCO_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
   };
+  // (4-ago) Bloqueo de acceso a RRHH para usuarios que solo usan Documentos:
+  if (RRHH_BLOQUEADOS.includes((session.email || '').toLowerCase())) {
+    alert('Este usuario no tiene acceso al módulo RRHH.\nPara ver documentos usá el módulo Documentos.');
+    await sb.auth.signOut();
+    location.reload();
+    return;
+  }
   console.log('[LOGIN] session set:', session);
 
   // Update last_login (best effort, sin bloquear)

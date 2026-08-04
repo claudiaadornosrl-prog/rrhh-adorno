@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v291-vac-qr-centrado';
+const CACHE_VERSION = 'rrhh-v292-banco-solo-administracion';
 const ASSETS = [
   './',
   './index.html',
