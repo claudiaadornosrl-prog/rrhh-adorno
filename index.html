@@ -7968,11 +7968,14 @@ async function reabrirMesUI() {
     .select('id').eq('local', localFiltro).eq('estado','activo').eq('ficha', true);
   const empIds = (colaboradores || []).map(e => e.id);
 
-  // Borrar los movimientos del banco asociados a este mes/local
+  // (4-ago) Borrar por observación "Cierre mes ..." y NO por tipo:
+  // el filtro viejo dejaba vivos los hora_extra/permiso_compensado creados
+  // por el cierre (se duplicaban al re-cerrar) y encima borraba ajustes
+  // manuales que no tenían nada que ver con el cierre.
   await sb.from('rrhh_banco_minutos').delete()
     .in('empleado_id', empIds)
     .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
-    .in('tipo', ['falta','tarde','salida_temprana','ajuste']);
+    .like('observaciones', `Cierre mes ${periodoStr}%`);
 
   await sb.from('rrhh_meses_cerrados').delete().eq('id', cierre.id);
   await auditLog('reabrir_mes', 'rrhh_meses_cerrados', cierre.id, null, null, `${localFiltro} ${periodoStr}`);
