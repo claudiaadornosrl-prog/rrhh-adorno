@@ -22521,12 +22521,45 @@ const salaryWorkflow = (() => {
     let ajuste_blanco = 0;
     let efectivo = 0;
     let reciboFinal = recibo;
+
+    // ── NETO OBJETIVO FIJO POR PERÍODO (4-ago — JP y Claudia, julio) ──
+    // Si la config trae recibo_neto_objetivo para ESTE período, el recibo se
+    // completa con el ítem 'Comisiones 0018' (solver) hasta ese neto exacto.
+    // El desglose del PDF queda consistente con el neto pactado/alineado.
+    // El resto del total sigue yendo por efectivo como siempre.
+    if (configEmp.modo_liquidacion !== 'doble_blanco'
+        && Number(configEmp.recibo_neto_objetivo || 0) > 0
+        && String(configEmp.recibo_neto_objetivo_periodo || '').slice(0, 7) === periodo) {
+      const _objetivoFijo = Number(configEmp.recibo_neto_objetivo);
+      const _comisionObj = salaryEngine.calcularComisionVentaParaNeto({
+        neto_objetivo: _objetivoFijo,
+        neto_recibo_base: recibo.totales.neto,
+        obra_social_codigo: emp.obra_social_codigo || '',
+        fuera_convenio,
+      });
+      if (_comisionObj > 0) {
+        reciboFinal = salaryEngine.calcularReciboCCT({
+          basico_escala: Number(emp.categoria.sueldo_basico),
+          fecha_ingreso: emp.fecha_ingreso,
+          periodo, dias_trabajados: dias_recibo,
+          obra_social_codigo: emp.obra_social_codigo || '',
+          suma_fija_nr: Number(paritaria.suma_fija_nr),
+          recompos_nr: Number(paritaria.recompos_nr),
+          fuera_convenio,
+          otros_remunerativos: (otros_rem || 0) + _comisionObj,
+          fraccion_no_rem_override: fraccionNR,
+          otros_rem_concepto: { codigo: '0018', nombre: 'Comisiones', unidades_pct: dias_recibo },
+        });
+        ajuste_blanco = Number(_comisionObj.toFixed(2));
+        console.log(`[liquidarEmpleada:objetivo] emp=${empleadoId}: neto base ${recibo.totales.neto} → objetivo ${_objetivoFijo} (0018 bruto ${ajuste_blanco})`);
+      }
+    }
     // Cálculo provisorio del efectivo para cct_negro. En doble_blanco se recalcula
     // todo más abajo (después de tener prestamo_interes para descontarlo del recibo).
     if (configEmp.modo_liquidacion !== 'doble_blanco') {
-      efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste);
+      efectivo = Math.max(0, total_negro_esperado - reciboFinal.totales.neto - mercaderia - ajuste);
     }
-    // Usar reciboFinal (con básico ajustado si doble_blanco, sino el original)
+    // Usar reciboFinal (con básico ajustado si doble_blanco/objetivo, sino el original)
 
         // ── Cuotas de préstamo del mes (capital sale del banco, interés del efectivo) ──
     // NOTA: NO filtramos por estado='pendiente'. Si la liquidación se regenera
@@ -22547,7 +22580,7 @@ const salaryWorkflow = (() => {
     //     No afecta al cálculo de efectivo.
     //   - INTERÉS → se descuenta del EFECTIVO (no figura en el recibo blanco).
     if (configEmp.modo_liquidacion !== 'doble_blanco') {
-      efectivo = Math.max(0, total_negro_esperado - recibo.totales.neto - mercaderia - ajuste - prestamo_interes);
+      efectivo = Math.max(0, total_negro_esperado - reciboFinal.totales.neto - mercaderia - ajuste - prestamo_interes);
     } else {
       // ── doble_blanco V2 (junio 2026) ────────────────────────────────────
       // Básico CCT escala pura + concepto 'Comisiones' código 0018 calculado vía
