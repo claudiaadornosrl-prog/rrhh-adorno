@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v283-resumen-sac-fix';
+const CACHE_VERSION = 'rrhh-v285-sug-reconciliacion';
 const ASSETS = [
   './',
   './index.html',

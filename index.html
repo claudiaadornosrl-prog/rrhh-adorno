@@ -9999,11 +9999,29 @@ async function generarSugerenciasFichadas() {
       }
     });
 
-    if (cands.length) {
-      // ignoreDuplicates: si ya existe (pendiente/aplicada/ignorada) NO se pisa
-      await sb.from('rrhh_fichadas_sugerencias')
-        .upsert(cands, { onConflict: 'empleado_id,fecha,tipo', ignoreDuplicates: true });
+    // Reconciliar contra lo ya guardado:
+    //  - nueva detección → insertar
+    //  - pendiente que cambió (ej: corrigieron el turno) → actualizar minutos/detalle
+    //  - pendiente que YA NO aplica (quedó bajo el umbral o apareció permiso/extra) → borrar
+    //  - resueltas (aplicada/ignorada) → no se tocan nunca
+    const { data: existentes } = await sb.from('rrhh_fichadas_sugerencias').select('*')
+      .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta);
+    const exMap = new Map((existentes || []).map(x => [`${x.empleado_id}_${x.fecha}_${x.tipo}`, x]));
+    const nuevas = [];
+    for (const cnd of cands) {
+      const ex = exMap.get(`${cnd.empleado_id}_${cnd.fecha}_${cnd.tipo}`);
+      if (!ex) { nuevas.push(cnd); continue; }
+      if (ex.estado === 'pendiente' && (ex.minutos !== cnd.minutos || ex.detalle !== cnd.detalle)) {
+        await sb.from('rrhh_fichadas_sugerencias')
+          .update({ minutos: cnd.minutos, detalle: cnd.detalle }).eq('id', ex.id);
+      }
     }
+    const candKeys = new Set(cands.map(cn => `${cn.empleado_id}_${cn.fecha}_${cn.tipo}`));
+    const huerfanas = (existentes || [])
+      .filter(x => x.estado === 'pendiente' && !candKeys.has(`${x.empleado_id}_${x.fecha}_${x.tipo}`))
+      .map(x => x.id);
+    if (nuevas.length) await sb.from('rrhh_fichadas_sugerencias').insert(nuevas);
+    if (huerfanas.length) await sb.from('rrhh_fichadas_sugerencias').delete().in('id', huerfanas);
 
     const { data: pend } = await sb.from('rrhh_fichadas_sugerencias').select('*')
       .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta)
@@ -10069,19 +10087,27 @@ function _sugActualizarContador() {
 async function sugAplicarExtra(id) {
   const su = (window._sugsFichadas || {})[id];
   if (!su) return;
-  if (!confirm(`¿Cargar ${su.minutos} min como hora extra al banco de minutos?\n\n${su.detalle || ''}`)) return;
-  const motivoFinal = `[despues_turno] Confirmada desde sugerencias de fichadas — ${su.detalle || ''}`;
+  // Minutos editables: sugerimos lo detectado pero se puede ajustar (ej: redondear)
+  const resp = prompt(
+    `¿Cuántos minutos cargar como hora extra (al banco)?\n\n${su.detalle || ''}\n\nDetectado: ${su.minutos} min — podés ajustarlo:`,
+    String(su.minutos)
+  );
+  if (resp === null) return;  // canceló
+  const minutosFinal = parseInt(resp, 10);
+  if (!minutosFinal || minutosFinal <= 0) { toast('Minutos inválidos', 'error'); return; }
+  const motivoFinal = `[despues_turno] Confirmada desde sugerencias de fichadas — ${su.detalle || ''}`
+    + (minutosFinal !== su.minutos ? ` (ajustado: ${su.minutos} → ${minutosFinal} min)` : '');
   const { data, error } = await sb.from('rrhh_horas_extras').insert({
-    empleado_id: su.empleado_id, fecha: su.fecha, minutos: su.minutos,
+    empleado_id: su.empleado_id, fecha: su.fecha, minutos: minutosFinal,
     motivo: motivoFinal, autorizado_por: session.email, compensacion: 'banco',
   }).select().single();
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   const { data: mov } = await sb.from('rrhh_banco_minutos').insert({
-    empleado_id: su.empleado_id, fecha: su.fecha, minutos: su.minutos,
+    empleado_id: su.empleado_id, fecha: su.fecha, minutos: minutosFinal,
     tipo: 'hora_extra', referencia_tipo: 'horas_extras', referencia_id: data.id,
     observaciones: motivoFinal, creado_por: session.email,
   }).select().single();
-  await auditLog('crear_hora_extra', 'rrhh_horas_extras', data.id, null, null, `${su.minutos} min - sugerencia fichadas #${id}`);
+  await auditLog('crear_hora_extra', 'rrhh_horas_extras', data.id, null, null, `${minutosFinal} min - sugerencia fichadas #${id}`);
   await sb.from('rrhh_fichadas_sugerencias').update({
     estado: 'aplicada', resuelto_por: session.email,
     resuelto_at: new Date().toISOString(), banco_mov_id: mov?.id || null,
