@@ -15696,6 +15696,22 @@ async function ejecutarDefinitivo(local, periodo, descuentosPorEmp, huboProforma
     let msgFin = `✓ ${totalOk} liquidaciones DEFINITIVAS generadas`;
     if (todosErrores.length) msgFin += ` · ⚠ ${todosErrores.length} errores`;
     toast(msgFin, todosErrores.length ? 'error' : 'success');
+    // 🔔 (4-ago) Avisar a las encargadas de cada local que los recibos
+    // definitivos ya están para descargar desde Liquidación.
+    if (totalOk > 0) {
+      for (const loc of locales) {
+        try {
+          sb.functions.invoke('enviar-push', { body: {
+            local: loc,
+            app: 'rrhh',
+            title: '📄 Recibos definitivos listos',
+            body: `Ya están los recibos DEFINITIVOS de ${periodo} — se pueden descargar desde Liquidación para imprimir y firmar.`,
+            url: './#liquidaciones',
+            tag: 'definitivos-' + loc + '-' + periodo,
+          }});
+        } catch (_) {}
+      }
+    }
     if (huboProforma) {
       await liqMostrarDiferenciasProformaDefinitivo(local, periodo);
     } else {

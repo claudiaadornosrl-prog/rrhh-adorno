@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v294-vacpago-rpc';
+const CACHE_VERSION = 'rrhh-v295-notif-definitivos';
 const ASSETS = [
   './',
   './index.html',
