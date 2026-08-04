@@ -270,15 +270,17 @@ async function generarNotificacionVacaciones(movId) {
       qr.addData(codigo);
       qr.make();
       const qrDataUrl = qr.createDataURL(4, 0);
-      // 22mm × 22mm en esquina inferior izquierda
+      // (4-ago) QR centrado entre el bloque de firmas y el código de
+      // seguimiento — antes iba abajo a la izquierda y quedaba pegado a
+      // las líneas de Firma/Aclaración del trabajador.
       const qrSize = 22;
-      const qrX = margen;
-      const qrY = 260;
+      const qrX = W / 2 - qrSize / 2 + 5;
+      const qrY = 233;
       doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(...COLOR_MUTED);
-      doc.text(codigo, qrX + qrSize + 2, qrY + qrSize - 1);
+      doc.text(codigo, qrX + qrSize / 2, qrY + qrSize + 3, { align: 'center' });
     }
   } catch (e) { console.warn('No se pudo generar QR en notif vacaciones:', e); }
 
