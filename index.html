@@ -13446,8 +13446,10 @@ async function liqImagenResumen(liqId) {
   const d = (window._liqResumenData || {})[liqId];
   if (!d) { toast('No encontré los datos de esa fila — recargá la grilla', 'error'); return; }
   const $ = (n) => '$ ' + Math.round(+n || 0).toLocaleString('es-AR');
-  const sacTotal = (d.sac_ef || 0) + (d.sac_rec || 0);
-  const totalMes = d.total + (d.sac_rec || 0);              // negro + SAC completo
+  // El SAC del mes ya está completo en d.sac_ef (el pool del mes); el SAC de
+  // recibo (d.sac_rec) es la parte de ESE pool que sale por recibo blanco.
+  // NO se suma encima — igual que la columna Total de la grilla.
+  const totalMes = d.total;                                  // = total_negro + SAC
   const banco    = Math.max(0, d.recibo + (d.sac_rec || 0) - d.prestamos - d.adelantos);
   // Misma fórmula que la grilla: subtotal efectivo = (total + SAC ef.) − recibo mensual − SAC recibo
   const subtotal = Math.max(0, d.total - d.recibo - (d.sac_rec || 0));
@@ -13463,7 +13465,7 @@ async function liqImagenResumen(liqId) {
   if (d.viaticos > 0) filas.push(['Viáticos', d.viaticos, 'linea']);
   if (d.feriado > 0)  filas.push(['Feriado', d.feriado, 'linea']);
   if (d.extras > 0)   filas.push(['Extras', d.extras, 'linea']);
-  if (sacTotal > 0)   filas.push(['SAC', sacTotal, 'linea']);
+  if (d.sac_ef > 0)   filas.push(['SAC', d.sac_ef, 'linea']);
   filas.push(['TOTAL DEL MES', totalMes, 'total']);
   filas.push(['POR BANCO', null, 'seccion']);
   filas.push(['Recibo sueldo (neto)', d.recibo, 'linea']);
