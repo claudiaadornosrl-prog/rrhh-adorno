@@ -8096,7 +8096,8 @@ async function renderResumenContent() {
 
   const lista = (colaboradores || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
   // Snapshot para el botón WhatsApp del resumen (waResumenAsistencia)
-  window._resumenAsis = { porEmp, lista, mes: asisState.mes, maxErrPorLocal, maxErrPorEmp };
+  window._resumenAsis = { porEmp, lista, mes: asisState.mes, maxErrPorLocal, maxErrPorEmp, detalle };
+  setTimeout(generarSugerenciasFichadas, 300);
 
   if (lista.length === 0 || Object.keys(porEmp).length === 0) {
     cont.innerHTML = `
@@ -8125,6 +8126,7 @@ async function renderResumenContent() {
   };
 
   cont.innerHTML = `
+    <div id="sug-fichadas-panel" style="display:none;"></div>
     <div class="metrics-grid">
       <div class="metric-card accent"><div class="label">Colaboradores procesados</div><div class="value">${Object.keys(porEmp).length}</div></div>
       <div class="metric-card"><div class="label">Días puntuales</div><div class="value">${tot.puntual}</div></div>
@@ -9947,7 +9949,194 @@ async function listarPermisos() {
   `;
 }
 
+// ════════════════════════════════════════════════════════════
+// SUGERENCIAS DE FICHADAS — minutos extra / tarde / salida temprana
+// sin extra ni permiso cargado → propuesta a encargada/admin
+// ════════════════════════════════════════════════════════════
+const SUG_UMBRAL_MIN = 30;
+
+async function generarSugerenciasFichadas() {
+  try {
+    const snap = window._resumenAsis;
+    const cont = document.getElementById('sug-fichadas-panel');
+    if (!snap || !snap.detalle || !cont) return;
+    if (!(session.rol === 'admin' || session.rol === 'gerente')) return;
+    const [yy, mm] = snap.mes.split('-').map(Number);
+    const desde = `${yy}-${String(mm).padStart(2,'0')}-01`;
+    const hasta = new Date(yy, mm, 0).toISOString().split('T')[0];
+    const empIds = (snap.lista || []).map(e => e.id);
+    if (!empIds.length) return;
+
+    // Permisos y extras ya cargados en el mes → no sugerir lo que ya está resuelto
+    const [permsRes, extrasRes] = await Promise.all([
+      sb.from('rrhh_permisos_puntuales').select('empleado_id, fecha')
+        .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta)
+        .in('estado', ['aprobado', 'pendiente']),
+      sb.from('rrhh_horas_extras').select('empleado_id, fecha')
+        .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta),
+    ]);
+    const permSet  = new Set((permsRes.data  || []).map(p => `${p.empleado_id}_${p.fecha}`));
+    const extraSet = new Set((extrasRes.data || []).map(x => `${x.empleado_id}_${x.fecha}`));
+
+    const _hhmm = (t) => (t || '').toString().slice(0, 5) || '?';
+    const cands = [];
+    (snap.detalle || []).forEach(d => {
+      if (!empIds.includes(d.empleado_id) || d.error_salvado) return;
+      const key = `${d.empleado_id}_${d.fecha}`;
+      if ((d.minutos_extra || 0) >= SUG_UMBRAL_MIN && !extraSet.has(key)) {
+        cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'extra', minutos: d.minutos_extra,
+          detalle: `Trabajó ${d.minutos_extra} min de más (salida ${_hhmm(d.salida_real || d.salida)}) sin extra cargada` });
+      }
+      if (!permSet.has(key)) {
+        if ((d.minutos_tarde || 0) >= SUG_UMBRAL_MIN) {
+          cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'falta_permiso_tarde', minutos: d.minutos_tarde,
+            detalle: `Llegó ${d.minutos_tarde} min tarde (entrada ${_hhmm(d.entrada_real || d.entrada)}) sin permiso cargado` });
+        }
+        if ((d.minutos_salida_temp || 0) >= SUG_UMBRAL_MIN) {
+          cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'falta_permiso_salida', minutos: d.minutos_salida_temp,
+            detalle: `Se retiró ${d.minutos_salida_temp} min antes (salida ${_hhmm(d.salida_real || d.salida)}) sin permiso cargado` });
+        }
+      }
+    });
+
+    if (cands.length) {
+      // ignoreDuplicates: si ya existe (pendiente/aplicada/ignorada) NO se pisa
+      await sb.from('rrhh_fichadas_sugerencias')
+        .upsert(cands, { onConflict: 'empleado_id,fecha,tipo', ignoreDuplicates: true });
+    }
+
+    const { data: pend } = await sb.from('rrhh_fichadas_sugerencias').select('*')
+      .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta)
+      .eq('estado', 'pendiente').order('fecha').order('empleado_id');
+    renderSugFichadasPanel(pend || []);
+  } catch (e) { console.warn('[sugerenciasFichadas]', e); }
+}
+
+function renderSugFichadasPanel(sugs) {
+  const cont = document.getElementById('sug-fichadas-panel');
+  if (!cont) return;
+  window._sugsFichadas = {};
+  (sugs || []).forEach(su => { window._sugsFichadas[su.id] = su; });
+  if (!sugs || !sugs.length) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+  const snap = window._resumenAsis || {};
+  const nombreDe = (id) => {
+    const emp = (snap.lista || []).find(e => e.id === id);
+    return emp ? emp.nombre_completo : ('#' + id);
+  };
+  const DIAS_S = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const fmtF = (f) => {
+    const dt = new Date(f + 'T12:00:00');
+    return `${DIAS_S[dt.getDay()]} ${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`;
+  };
+  const ICONO_SUG = { extra: '⏰', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪' };
+  cont.style.display = 'block';
+  cont.innerHTML = `
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;margin-bottom:16px;overflow:hidden;">
+      <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap;"
+           onclick="const b=document.getElementById('sug-fichadas-body'); b.style.display = b.style.display==='none' ? 'block' : 'none';">
+        <span style="font-size:15px;">🔔</span>
+        <strong id="sug-fichadas-titulo" style="font-size:13px;color:#92400e;">Sugerencias de fichadas (${sugs.length})</strong>
+        <span style="font-size:11px;color:#b45309;">minutos de más o de menos sin extra/permiso cargado — resolvé cada caso</span>
+      </div>
+      <div id="sug-fichadas-body" style="border-top:1px solid #fde68a;">
+        ${sugs.map(su => `
+          <div id="sug-row-${su.id}" style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid #fef3c7;font-size:12.5px;flex-wrap:wrap;">
+            <span>${ICONO_SUG[su.tipo] || '•'}</span>
+            <span style="font-family:monospace;color:#92400e;white-space:nowrap;">${fmtF(su.fecha)}</span>
+            <strong style="white-space:nowrap;">${escapeHtml(nombreDe(su.empleado_id))}</strong>
+            <span style="color:#78716c;flex:1;min-width:180px;">${escapeHtml(su.detalle || '')}</span>
+            ${su.tipo === 'extra'
+              ? `<button class="btn" style="font-size:11px;padding:4px 10px;background:#065f46;color:white;border:none;border-radius:6px;" onclick="sugAplicarExtra(${su.id})">✔ Cargar extra</button>`
+              : `<button class="btn" style="font-size:11px;padding:4px 10px;background:#1e40af;color:white;border:none;border-radius:6px;" onclick="sugCrearPermiso(${su.id})">📝 Crear permiso</button>`}
+            <button class="btn" style="font-size:11px;padding:4px 10px;border-radius:6px;" onclick="sugIgnorar(${su.id})">✖ Ignorar</button>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function _sugActualizarContador() {
+  const cont = document.getElementById('sug-fichadas-panel');
+  const body = document.getElementById('sug-fichadas-body');
+  if (!cont || !body) return;
+  const n = body.querySelectorAll('[id^="sug-row-"]').length;
+  if (n === 0) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+  const tit = document.getElementById('sug-fichadas-titulo');
+  if (tit) tit.textContent = `Sugerencias de fichadas (${n})`;
+}
+
+// ✔ Extra confirmada → misma carga que hace la encargada:
+// rrhh_horas_extras (compensación banco) + movimiento en rrhh_banco_minutos
+async function sugAplicarExtra(id) {
+  const su = (window._sugsFichadas || {})[id];
+  if (!su) return;
+  if (!confirm(`¿Cargar ${su.minutos} min como hora extra al banco de minutos?\n\n${su.detalle || ''}`)) return;
+  const motivoFinal = `[despues_turno] Confirmada desde sugerencias de fichadas — ${su.detalle || ''}`;
+  const { data, error } = await sb.from('rrhh_horas_extras').insert({
+    empleado_id: su.empleado_id, fecha: su.fecha, minutos: su.minutos,
+    motivo: motivoFinal, autorizado_por: session.email, compensacion: 'banco',
+  }).select().single();
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  const { data: mov } = await sb.from('rrhh_banco_minutos').insert({
+    empleado_id: su.empleado_id, fecha: su.fecha, minutos: su.minutos,
+    tipo: 'hora_extra', referencia_tipo: 'horas_extras', referencia_id: data.id,
+    observaciones: motivoFinal, creado_por: session.email,
+  }).select().single();
+  await auditLog('crear_hora_extra', 'rrhh_horas_extras', data.id, null, null, `${su.minutos} min - sugerencia fichadas #${id}`);
+  await sb.from('rrhh_fichadas_sugerencias').update({
+    estado: 'aplicada', resuelto_por: session.email,
+    resuelto_at: new Date().toISOString(), banco_mov_id: mov?.id || null,
+  }).eq('id', id);
+  toast('Hora extra registrada ✓', 'success');
+  document.getElementById(`sug-row-${id}`)?.remove();
+  _sugActualizarContador();
+}
+
+// 📝 Falta permiso → abre el modal de permiso admin/gerente precargado
+async function sugCrearPermiso(id) {
+  const su = (window._sugsFichadas || {})[id];
+  if (!su) return;
+  await abrirNuevoPermisoAdmin();
+  window._sugPermisoId = id;  // después de abrir (el modal lo resetea al abrir)
+  const setV = (elId, v) => { const el = document.getElementById(elId); if (el && v != null && v !== '') el.value = v; };
+  setV('perm-emp', String(su.empleado_id));
+  setV('perm-fecha', su.fecha);
+  const tipoPerm = su.tipo === 'falta_permiso_tarde' ? 'llegar_tarde' : 'retirarse_antes';
+  setV('perm-tipo', tipoPerm);
+  if (typeof onTipoChange === 'function') try { onTipoChange(); } catch (_) {}
+  try {
+    const { data: dia } = await sb.from('rrhh_asistencias_detalle')
+      .select('entrada, salida, entrada_real, salida_real, turno_inicio, turno_fin')
+      .eq('empleado_id', su.empleado_id).eq('fecha', su.fecha).maybeSingle();
+    const _hm = (t) => (t || '').toString().slice(0, 5);
+    if (dia) {
+      if (tipoPerm === 'llegar_tarde') {
+        setV('perm-desde', _hm(dia.turno_inicio));
+        setV('perm-hasta', _hm(dia.entrada_real || dia.entrada));
+      } else {
+        setV('perm-desde', _hm(dia.salida_real || dia.salida));
+        setV('perm-hasta', _hm(dia.turno_fin));
+      }
+      if (typeof permAdminCalcMinutos === 'function') try { permAdminCalcMinutos(); } catch (_) {}
+    }
+  } catch (_) {}
+  const mot = document.getElementById('perm-motivo');
+  if (mot && !mot.value) mot.value = `Desde sugerencias de fichadas: ${su.detalle || ''}`;
+  const minInp = document.getElementById('perm-minutos');
+  if (minInp && (!minInp.value || minInp.value === '0')) minInp.value = String(su.minutos);
+}
+
+async function sugIgnorar(id) {
+  const { error } = await sb.from('rrhh_fichadas_sugerencias').update({
+    estado: 'ignorada', resuelto_por: session.email, resuelto_at: new Date().toISOString(),
+  }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Sugerencia ignorada', 'info');
+  document.getElementById(`sug-row-${id}`)?.remove();
+  _sugActualizarContador();
+}
+
 async function abrirNuevoPermisoAdmin() {
+  window._sugPermisoId = null;  // se setea DESPUÉS desde sugCrearPermiso si corresponde
   const isAdmin = session.rol === 'admin';
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -10145,6 +10334,17 @@ async function guardarPermisoAdmin() {
 
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   await auditLog('crear_permiso', 'rrhh_permisos_puntuales', data.id, null, null, `${tipo} ${fecha}`);
+  if (window._sugPermisoId) {
+    try {
+      await sb.from('rrhh_fichadas_sugerencias').update({
+        estado: 'aplicada', resuelto_por: session.email,
+        resuelto_at: new Date().toISOString(), permiso_id: data.id,
+      }).eq('id', window._sugPermisoId);
+      document.getElementById(`sug-row-${window._sugPermisoId}`)?.remove();
+      _sugActualizarContador();
+    } catch (_) {}
+    window._sugPermisoId = null;
+  }
   toast('Permiso aprobado ✓', 'success');
   document.getElementById('permiso-modal').remove();
   listarPermisos();
