@@ -7831,22 +7831,21 @@ async function cerrarMes(periodo, local) {
   for (const d of detalle) {
     if (d.error_salvado) continue;  // si el día está salvado, no impacta banco
 
-    // 1) Movimientos diarios al banco (extras autorizadas, permisos compensados)
-    //    Excluye estado='ausente' y 'tarde' — esos NO deben generar movimiento diario.
-    //    Excluye también días que YA tienen un permiso puntual cargado por el
-    //    trigger de la DB (sino duplicaríamos el descuento).
-    if ((d.minutos_banco || 0) !== 0
+    // 1) Movimientos diarios al banco — SOLO negativos (permisos compensados).
+    //    🚨 (4-ago, pedido JP): los minutos EXTRA de las fichadas ya NO viajan
+    //    automáticamente al banco en el cierre. Toda extra tiene que cargarla
+    //    la encargada o el admin (botón de extras o panel de sugerencias), que
+    //    la manda al banco en el momento. Antes el cierre las re-materializaba
+    //    y duplicaba las que ya estaban cargadas a mano (12 casos en julio).
+    if ((d.minutos_banco || 0) < 0
         && d.estado !== 'ausente'
         && d.estado !== 'tarde'
         && !permisosYaCargados.has(`${d.empleado_id}|${d.fecha}`)) {
-      let tipo = 'ajuste';
-      if ((d.minutos_banco || 0) > 0) tipo = 'hora_extra';
-      else tipo = 'permiso_compensado';
       movimientos.push({
         empleado_id: d.empleado_id,
         fecha: d.fecha,
         minutos: d.minutos_banco,
-        tipo,
+        tipo: 'permiso_compensado',
         referencia_tipo: 'asistencia',
         referencia_id: d.id,
         observaciones: `Cierre mes ${periodo} ${local}`,
@@ -20554,16 +20553,19 @@ function calcularPropuestasBloque() {
       // diferencia (efectivo). La última cuota ajusta el redondeo del capital.
       const cuotaOv = Number(overrides[n] || 0);
       if (cuotaOv > 0) {
-        const capLineal = Math.round(capital / n * 100) / 100;
-        const intRed = Math.round((cuotaOv - capLineal) * 100) / 100;
-        if (intRed < 0) throw new Error('cuota menor al capital');
+        // (4-ago) Plan redondeado en ENTEROS: capital y interés sin centavos.
+        // La última cuota ajusta el capital para que la suma dé exacto el
+        // capital prestado; la cuota total es SIEMPRE la redondeada.
+        const capLineal = Math.round(capital / n);
+        if (cuotaOv - capLineal < 0) throw new Error('cuota menor al capital');
         let saldo = capital;
         const plan = [];
         for (let k = 1; k <= n; k++) {
-          const cap_k = (k === n) ? Math.round(saldo * 100) / 100 : capLineal;
-          const tot_k = Math.round((cap_k + intRed) * 100) / 100;
-          saldo = Math.round((saldo - cap_k) * 100) / 100;
-          plan.push({ numero: k, monto_total: tot_k, monto_capital: cap_k, monto_interes: intRed, saldo_post: Math.max(0, saldo) });
+          const cap_k = (k === n) ? Math.round(saldo) : capLineal;
+          const int_k = Math.round(cuotaOv - cap_k);
+          const tot_k = cap_k + int_k;
+          saldo = Math.round(saldo - cap_k);
+          plan.push({ numero: k, monto_total: tot_k, monto_capital: cap_k, monto_interes: int_k, saldo_post: Math.max(0, saldo) });
         }
         const totalInt = plan.reduce((a,c)=>a+c.monto_interes,0);
         const totalDev = plan.reduce((a,c)=>a+c.monto_total,0);
