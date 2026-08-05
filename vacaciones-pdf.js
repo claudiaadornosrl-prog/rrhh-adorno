@@ -266,14 +266,14 @@ async function generarNotificacionVacaciones(movId) {
   // ═══ QR con código VAC-XXXXX (para escaneo automático cuando llega firmada) ═══
   try {
     if (typeof qrcode === 'function') {
-      const qr = qrcode(0, 'M');  // tipo 0 (auto), corrección media
+      const qr = qrcode(0, 'H');  // (5-ago) corrección ALTA: sobrevive impresión+escaneo malo
       qr.addData(codigo);
       qr.make();
       const qrDataUrl = qr.createDataURL(4, 0);
       // (4-ago) QR centrado entre el bloque de firmas y el código de
       // seguimiento — antes iba abajo a la izquierda y quedaba pegado a
       // las líneas de Firma/Aclaración del trabajador.
-      const qrSize = 22;
+      const qrSize = 26;  // (5-ago) más grande = más tolerante al escaneo
       const qrX = W / 2 - qrSize / 2 + 5;
       const qrY = 233;
       doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);

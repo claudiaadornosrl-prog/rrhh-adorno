@@ -685,14 +685,14 @@ async function generarPDFRecibo(liqId, opts = {}) {
     try {
       if (typeof qrcode === 'function') {
         const codigoQR = (esSAC ? 'SAC-' : 'REC-') + String(liq.id).padStart(5, '0');
-        const qr = qrcode(0, 'M');  // tipo 0 (auto), corrección media
+        const qr = qrcode(0, 'H');  // (5-ago) corrección ALTA: sobrevive impresión+escaneo malo
         qr.addData(codigoQR);
         qr.make();
         const qrDataUrl = qr.createDataURL(4, 0);  // celdas de 4px, sin margen
         // (31-jul) Banda inferior reordenada: QR 20mm arriba-izquierda de la
         // zona de firmas, caption centrada debajo — ya no pisa "Recibí conforme".
-        const qrSize = 20;
-        const qrX = W / 2 - 10;   // columna del medio: no pisa ninguna firma
+        const qrSize = 24;  // (5-ago) más grande = más tolerante al escaneo
+        const qrX = W / 2 - 12;   // columna del medio: no pisa ninguna firma
         const qrY = H - 55;       // más despegado del banner del neto
         doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
         doc.setFont('helvetica', 'normal');
