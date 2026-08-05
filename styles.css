@@ -399,3 +399,15 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
    Estos valores son solo el fallback hasta que corre el JS. */
 #liq-scroll-main { max-height: 70dvh; }
 @media (max-width: 768px) { #liq-scroll-main { padding: 10px !important; } }
+
+/* ── Barra de acciones de Liquidación: fija al scrollear ──────────
+   Mantiene visibles Proforma / Definitivo / Exportar / ⋮ (kebab) mientras
+   se recorre la grilla, sobre todo en tablet donde la pantalla es corta. */
+.liq-toolbar-sticky {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--bg); margin: 0 -8px 16px; padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+/* El menú desplegable tiene que quedar por encima de la grilla sticky */
+.liq-toolbar-sticky .liq-kebab-dd,
+.liq-toolbar-sticky .liq-export-dd { z-index: 40; }
