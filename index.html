@@ -13758,7 +13758,7 @@ async function renderLiquidaciones() {
   if (soloBanco) liqState.subTab = 'banco';
   // Directora ve TODOS los locales por default (no puede cambiar)
   if (!liqState.local) liqState.local = (isAdmin || isDirectora) ? 'todos' : (session.empleadoData?.local || 'alcorta');
-  if (isDirectora) liqState.local = 'todos';
+  // (5-ago) La directora/soloBanco ahora SÍ puede filtrar por local
   const local = isGerente ? session.empleadoData.local : liqState.local;
   const periodo = liqState.periodo;
 
@@ -14272,7 +14272,7 @@ async function renderLiquidaciones() {
       <select onchange="liqState.periodo=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
         ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
       </select>
-      ${isAdmin ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
+      ${(isAdmin || session.soloBanco) ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
         <option value="todos"     ${local==='todos'    ?'selected':''}>Todos los locales</option>
         <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
@@ -21526,8 +21526,8 @@ const salaryEngine = (() => {
 
 // ─── Descargar TODOS los recibos del mes/local combinados en 1 PDF ──────
 async function descargarTodosRecibosCombinados(local, periodo) {
-  if (!(session.rol === 'admin' || session.rol === 'gerente')) {
-    toast('Solo admin/encargada', 'error'); return;
+  if (!(session.rol === 'admin' || session.rol === 'gerente' || session.soloBanco)) {
+    toast('Solo admin/encargada/administración', 'error'); return;
   }
   let q = sb.from('rrhh_liquidacion')
     .select('id, periodo, local, empleado_id, sac_recibo_neto, empleado:rrhh_empleados(apellido, nombre)')
