@@ -3385,6 +3385,15 @@ async function renderDocList() {
 // ════════════════════════════════════════════════════════════
 let vacState = { tab: 'pendientes', _touched: false };
 
+// Orden del Historial de vacaciones (click en encabezado)
+function vacHistOrdenar(k) {
+  const hs = vacState.histSort || { by: 'solicitado', dir: -1 };
+  if (hs.by === k) hs.dir = -hs.dir;
+  else { hs.by = k; hs.dir = (k === 'solicitado' || k === 'periodo' || k === 'anio') ? -1 : 1; }
+  vacState.histSort = hs;
+  renderVacContent();
+}
+
 async function renderVacacionesAdmin() {
   const isAdmin = session.rol === 'admin';
   const localFiltro = isAdmin ? null : session.local_gerencia;
@@ -3575,14 +3584,49 @@ async function renderVacContent() {
     `;
 
   } else if (vacState.tab === 'historial') {
-    // TODAS las solicitudes de vacaciones, ordenadas por fecha_solicitud DESC
+    // TODAS las solicitudes, con el AÑO/ejercicio al que corresponden
     let q = sb.from('rrhh_vacaciones_movimientos')
-      .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
+      .select(`*, empleado:rrhh_empleados(id, nombre_completo, local), vacaciones:rrhh_vacaciones(año)`)
       .order('fecha_solicitud', { ascending: false, nullsFirst: false });
     const { data, error } = await q;
     if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
-    const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
-    if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">Sin solicitudes.</div>`; return; }
+    let lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
+
+    // Año del ejercicio: viene del saldo asociado; fallback = año de la fecha de inicio
+    const anioDe = (m) => m.vacaciones?.['año'] ?? (m.fecha_desde ? Number(m.fecha_desde.slice(0, 4)) : null);
+
+    // 🔎 Búsqueda (nombre, local, estado, tipo, año)
+    const _txt = (vacState.histBusqueda || '').toLowerCase().trim();
+    if (_txt) {
+      lista = lista.filter(m =>
+        (m.empleado?.nombre_completo || '').toLowerCase().includes(_txt)
+        || (LOCALES[m.empleado?.local]?.nombre || '').toLowerCase().includes(_txt)
+        || (m.estado || '').toLowerCase().includes(_txt)
+        || (m.tipo_solicitud || '').toLowerCase().includes(_txt)
+        || String(anioDe(m) || '').includes(_txt));
+    }
+
+    // ↕ Orden por columna (click en el encabezado)
+    const hs = vacState.histSort || { by: 'solicitado', dir: -1 };
+    const _valorOrden = (m) => {
+      switch (hs.by) {
+        case 'colaboradora': return (m.empleado?.nombre_completo || '');
+        case 'local':        return (m.empleado?.local || '');
+        case 'tipo':         return (m.tipo_solicitud || '');
+        case 'periodo':      return (m.fecha_desde || '');
+        case 'dias':         return Number(m.dias || 0);
+        case 'anio':         return Number(anioDe(m) || 0);
+        case 'estado':       return (m.estado || '');
+        default:             return (m.fecha_solicitud || '');
+      }
+    };
+    lista.sort((a, b) => {
+      const va = _valorOrden(a), vb = _valorOrden(b);
+      const cmp = (typeof va === 'number') ? va - vb : String(va).localeCompare(String(vb));
+      return cmp * hs.dir;
+    });
+
+    if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">Sin resultados${_txt ? ` para "${escapeHtml(_txt)}"` : ''}.</div><div style="margin-top:8px;"><button class="btn small" onclick="vacState.histBusqueda='';renderVacContent()">Limpiar búsqueda</button></div>`; return; }
 
     const estadoChip = (est) => {
       const map = {
@@ -3617,18 +3661,30 @@ async function renderVacContent() {
         ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:4px;font-size:10px;">💵 Pago</span>`
         : `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10px;">🌴 Toma</span>`;
 
+    const _flecha = (k) => hs.by === k ? (hs.dir === 1 ? ' ▲' : ' ▼') : '';
+    const _th = (k, label, align = 'left') =>
+      `<th onclick="vacHistOrdenar('${k}')" style="padding:10px 12px;text-align:${align};font-size:11px;color:var(--muted);text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;" title="Ordenar por ${label}">${label}${_flecha(k)}</th>`;
     cont.innerHTML = `
+      <div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <input type="text" id="vac-hist-buscar" value="${escapeHtml(vacState.histBusqueda || '')}"
+          placeholder="🔎 Buscar por nombre, local, estado, año…"
+          style="flex:1;min-width:220px;max-width:380px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;"
+          oninput="clearTimeout(window._vacHistT); window._vacHistT = setTimeout(() => { vacState.histBusqueda = this.value; renderVacContent().then(() => { const i = document.getElementById('vac-hist-buscar'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 350);">
+        ${vacState.histBusqueda ? `<button class="btn small" onclick="vacState.histBusqueda='';renderVacContent()">✕ Limpiar</button>` : ''}
+        <span style="font-size:11px;color:var(--muted);">click en los encabezados para ordenar</span>
+      </div>
       <div class="card" style="overflow-x:auto;padding:0;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead>
             <tr style="background:#f9fafb;">
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Solicitado</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Colaboradora</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Local</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Tipo</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Período</th>
-              <th style="padding:10px 12px;text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;">Días</th>
-              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Estado</th>
+              ${_th('solicitado', 'Solicitado')}
+              ${_th('colaboradora', 'Colaboradora')}
+              ${_th('local', 'Local')}
+              ${_th('tipo', 'Tipo')}
+              ${_th('periodo', 'Período')}
+              ${_th('anio', 'Año vac.', 'center')}
+              ${_th('dias', 'Días', 'center')}
+              ${_th('estado', 'Estado')}
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;">Firma</th>
               <th style="padding:10px 12px;text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;">PDF</th>
             </tr>
@@ -3653,6 +3709,7 @@ async function renderVacContent() {
                   <td style="padding:8px 12px;"><span class="emp-tag local-${m.empleado?.local||''}" style="font-size:10px;">${LOCALES[m.empleado?.local]?.nombre||'—'}</span></td>
                   <td style="padding:8px 12px;">${tipoChip(m.tipo_solicitud)}</td>
                   <td style="padding:8px 12px;white-space:nowrap;">${periodo}</td>
+                  <td style="padding:8px 12px;text-align:center;color:#0d9488;font-weight:600;">${anioDe(m) || '—'}</td>
                   <td style="padding:8px 12px;text-align:center;font-weight:600;">${m.dias}</td>
                   <td style="padding:8px 12px;">${estadoChip(m.estado)}</td>
                   <td style="padding:8px 12px;">${firmaChip(m)}</td>
