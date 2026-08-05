@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
 
@@ -786,6 +786,17 @@ function renderSidebar() {
 // ── Sidebar colapsable (tablet / teléfono) ──────────────────────
 // En pantallas chicas el menú no ocupa ancho: se abre con el ☰ de la topbar
 // y se cierra al elegir una opción o tocar fuera. En desktop no hace nada.
+// Mide la topbar real y la publica como --topbar-h (la usa la barra de
+// acciones de Liquidación para pegarse justo debajo, sin solaparse).
+function medirTopbar() {
+  const tb = document.querySelector('.topbar');
+  if (tb) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
+}
+window.addEventListener('resize', medirTopbar);
+window.addEventListener('orientationchange', () => setTimeout(medirTopbar, 250));
+document.addEventListener('DOMContentLoaded', medirTopbar);
+setTimeout(medirTopbar, 300);
+
 function toggleSidebar(forzar) {
   const abrir = (typeof forzar === 'boolean') ? forzar : !document.body.classList.contains('nav-open');
   document.body.classList.toggle('nav-open', abrir);

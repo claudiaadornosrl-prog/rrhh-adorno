@@ -81,6 +81,10 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   background: var(--accent); color: white; padding: 12px 24px;
   display: flex; align-items: center; justify-content: space-between;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  /* Fija al scrollear: el ☰ y el nombre de usuario siempre a mano.
+     z-index por debajo del overlay (1100) y del sidebar (1200) para que
+     el menú lateral se despliegue por encima. */
+  position: sticky; top: 0; z-index: 1000;
 }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
 .topbar-logo { display: flex; align-items: center; gap: 10px; }
@@ -404,7 +408,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
    Mantiene visibles Proforma / Definitivo / Exportar / ⋮ (kebab) mientras
    se recorre la grilla, sobre todo en tablet donde la pantalla es corta. */
 .liq-toolbar-sticky {
-  position: sticky; top: 0; z-index: 30;
+  position: sticky; top: var(--topbar-h, 58px); z-index: 30;
   background: var(--bg); margin: 0 -8px 16px; padding: 10px 8px;
   border-bottom: 1px solid var(--border);
 }

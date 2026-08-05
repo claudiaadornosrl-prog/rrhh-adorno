@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v303-toolbar-sticky';
+const CACHE_VERSION = 'rrhh-v304-topbar-fija';
 const ASSETS = [
   './',
   './index.html',
