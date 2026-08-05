@@ -5294,10 +5294,10 @@ async function renderMisRecibos() {
   const { data: liqs, error } = await sb.from('rrhh_liquidacion')
     .select('id, periodo, tipo, recibo_neto, pdf_firmado_at, pdf_firmado_path, pdf_url_firmado, pdf_enviado_at, calculado_at, total_negro, sac_recibo_neto, sac_pdf_firmado_at, sac_pdf_firmado_path')
     .eq('empleado_id', session.empleado_id)
+    // (5-ago) Alcanza con tipo='definitivo': el estado del workflow puede
+    // seguir en 'borrador' aunque el recibo ya esté emitido (caso julio).
+    // Las proformas nunca son tipo definitivo, así que no se filtran de más.
     .eq('tipo', 'definitivo')
-    // Los borradores del mes en curso NO se muestran: la colaboradora ve su
-    // recibo recién cuando se emite el definitivo (igual que en Documentos).
-    .neq('estado', 'borrador')
     .order('periodo', { ascending: false })
     .limit(12);
   if (error) {
