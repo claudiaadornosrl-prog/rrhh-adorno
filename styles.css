@@ -394,14 +394,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 }
 
 
-/* ── Grilla de Liquidación: alto útil según pantalla ──────────────
-   Antes era max-height: calc(100vh - 340px) inline: en tablet dejaba la
-   tabla muy corta. Ahora usa dvh (descuenta la barra del navegador móvil)
-   y reserva menos alto en pantallas chicas. */
-#liq-scroll-main { max-height: calc(100dvh - 340px); }
-@media (max-width: 1100px), (hover: none) and (pointer: coarse) {
-  #liq-scroll-main { max-height: calc(100dvh - 250px); }
-}
-@media (max-width: 768px) {
-  #liq-scroll-main { max-height: calc(100dvh - 210px); padding: 10px !important; }
-}
+/* Grilla de Liquidación: el alto lo calcula liqWireScrollDoble() en runtime
+   (depende de dónde arranca el contenedor y del alto real de pantalla).
+   Estos valores son solo el fallback hasta que corre el JS. */
+#liq-scroll-main { max-height: 70dvh; }
+@media (max-width: 768px) { #liq-scroll-main { padding: 10px !important; } }

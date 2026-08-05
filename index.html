@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
 
@@ -14920,9 +14920,11 @@ async function renderLiquidaciones() {
       </div>
       <!-- fin card doble-scroll liquidador -->
 
-      <div class="card" style="margin-top:14px;padding:12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
-        💡 <strong>Cómo se lee:</strong> el <strong>Total</strong> (azulado) es lo que debería cobrar la colaboradora (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. <strong>Banco</strong> (verde) es lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos). <strong>Subtotal</strong> (verde claro) es la base del efectivo (Total − Recibo); de ahí se descuentan Mercadería, Intereses y Ajustes para llegar al <strong>Efectivo</strong> (rojo) que va en mano. Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
-      </div>
+      <details class="card" style="margin-top:14px;padding:10px 12px;background:#fef9c3;border-left:4px solid #eab308;font-size:12.5px;color:#854d0e;">
+        <summary style="cursor:pointer;font-weight:600;list-style:none;">💡 Cómo se lee esta grilla</summary>
+        <div style="margin-top:8px;"> el <strong>Total</strong> (azulado) es lo que debería cobrar la colaboradora (Fijo + Comisión + Premios + Viáticos + Extras + Feriado${esMesSAC ? ' + SAC' : ''}). <strong>Recibo</strong> es el neto del recibo blanco CCT. <strong>Banco</strong> (verde) es lo que efectivamente se transfiere por banco (Recibo − Préstamos − Adelantos). <strong>Subtotal</strong> (verde claro) es la base del efectivo (Total − Recibo); de ahí se descuentan Mercadería, Intereses y Ajustes para llegar al <strong>Efectivo</strong> (rojo) que va en mano. Para Contreras y Escasany (esquema 'todo en blanco') el sistema ajusta el básico del recibo para que el neto = Total esperado, así no hay negro.
+        </div>
+      </details>
     `}
   `;
 }
@@ -14941,12 +14943,26 @@ function liqWireScrollDoble() {
   // Esto hace que scrollee VERTICAL adentro (no la página) → el thead sticky funciona.
   const ajustarAltura = () => {
     const rect = main.getBoundingClientRect();
-    const marginBottom = 40;  // deja lugar para el card explicativo de abajo
-    const disponible = window.innerHeight - rect.top - marginBottom;
-    main.style.maxHeight = Math.max(300, disponible) + 'px';
+    const marginBottom = 24;
+    // Alto que entra desde donde HOY está el contenedor hasta el fondo de pantalla.
+    // Si la página está arriba del todo, rect.top es grande y sobra poco: por eso
+    // garantizamos un piso proporcional a la pantalla (60% del alto visible), que
+    // se aprovecha al bajar el scroll. Sin esto la tabla quedaba "petiza" en tablet.
+    const disponible = window.innerHeight - Math.max(0, rect.top) - marginBottom;
+    const piso = Math.round(window.innerHeight * 0.6);
+    main.style.maxHeight = Math.max(piso, disponible) + 'px';
   };
   ajustarAltura();
-  window.addEventListener('resize', ajustarAltura);
+  // iOS reporta innerHeight viejo justo al rotar → recalcular con delay
+  const reajustar = () => { ajustarAltura(); setTimeout(ajustarAltura, 200); setTimeout(ajustarAltura, 600); };
+  window.addEventListener('resize', reajustar);
+  window.addEventListener('orientationchange', reajustar);
+  // Al bajar el scroll de la página la tabla gana alto (aprovecha la pantalla)
+  let rafAlto = null;
+  window.addEventListener('scroll', () => {
+    if (rafAlto) return;
+    rafAlto = requestAnimationFrame(() => { rafAlto = null; ajustarAltura(); });
+  }, { passive: true });
   // Igualar ancho del inner al scrollWidth de la tabla — así ambas barras
   // tienen el mismo rango de scroll.
   const sync = () => { inner.style.width = tabla.scrollWidth + 'px'; };
