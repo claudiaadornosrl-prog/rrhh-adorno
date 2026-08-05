@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v299-mis-recibos-julio';
+const CACHE_VERSION = 'rrhh-v300-nav-colapsable';
 const ASSETS = [
   './',
   './index.html',

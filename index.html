@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 
@@ -69,6 +69,7 @@
 <div id="app-screen">
   <header class="topbar">
     <div class="topbar-left">
+      <button id="nav-toggle" class="nav-toggle" title="Menú" aria-label="Menú" onclick="toggleSidebar()">☰</button>
       <div class="topbar-logo">
         <span class="badge">RRHH</span>
         <h1>Claudia Adorno</h1>
@@ -84,6 +85,7 @@
     </div>
   </header>
   <div class="layout">
+    <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
     <aside class="sidebar" id="sidebar">
       <!-- nav-items se inyectan según rol -->
     </aside>
@@ -777,9 +779,18 @@ function renderSidebar() {
   });
   sb_el.innerHTML = html;
   sb_el.querySelectorAll('.nav-item').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    btn.addEventListener('click', () => { switchTab(btn.dataset.tab); toggleSidebar(false); });
   });
 }
+
+// ── Sidebar colapsable (tablet / teléfono) ──────────────────────
+// En pantallas chicas el menú no ocupa ancho: se abre con el ☰ de la topbar
+// y se cierra al elegir una opción o tocar fuera. En desktop no hace nada.
+function toggleSidebar(forzar) {
+  const abrir = (typeof forzar === 'boolean') ? forzar : !document.body.classList.contains('nav-open');
+  document.body.classList.toggle('nav-open', abrir);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleSidebar(false); });
 
 // ════════════════════════════════════════════════════════════
 // TABS / PÁGINAS
@@ -14393,7 +14404,7 @@ async function renderLiquidaciones() {
         <div id="liq-scroll-top" style="overflow-x:auto;overflow-y:hidden;height:14px;border-bottom:1px solid var(--border);">
           <div id="liq-scroll-top-inner" style="height:1px;"></div>
         </div>
-      <div id="liq-scroll-main" style="overflow:auto;padding:14px;max-height:calc(100vh - 340px);">
+      <div id="liq-scroll-main" style="overflow:auto;padding:14px;">
         ${(() => {
           // ── Definición de TODAS las columnas posibles del Liquidador ──
           // ─── Helper para renderizar celdas editables con override visual ───
