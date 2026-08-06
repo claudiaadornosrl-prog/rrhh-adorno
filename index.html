@@ -7447,22 +7447,38 @@ async function abrirPopoverTurno(cellEl) {
   `;
   document.body.appendChild(pop);
 
-  // ── Ajuste de alto/posición: que siempre entre en pantalla ──────
-  // Si abajo de la celda no hay lugar, lo abrimos hacia arriba; si tampoco
-  // alcanza, limitamos el alto y la lista scrollea adentro.
+  // ── Ajuste de alto/posición: que SIEMPRE entre en pantalla ──────
+  // Todo inline (alto, scroll, posición) para no depender del CSS cacheado.
+  // Elige el lado con más espacio (arriba/abajo de la celda); si la lista
+  // no entra, se limita el alto y scrollea adentro.
   (() => {
     const margen = 10;
+    pop.style.overflowY = 'auto';
+    pop.style.webkitOverflowScrolling = 'touch';
+    pop.style.overscrollBehavior = 'contain';
     const alto = pop.offsetHeight;
-    const espacioAbajo  = window.innerHeight - rect.bottom - margen;
-    const espacioArriba = rect.top - margen;
-    if (alto <= espacioAbajo) return;                  // entra tal cual
-    if (espacioArriba > espacioAbajo) {                 // conviene arriba
-      const h = Math.min(alto, espacioArriba);
+    const vh = window.innerHeight;
+    const espacioAbajo  = vh - rect.bottom - margen - 4;
+    const espacioArriba = rect.top - margen - 4;
+    if (alto <= espacioAbajo) {
+      pop.style.maxHeight = espacioAbajo + 'px';       // entra abajo tal cual
+      return;
+    }
+    if (espacioArriba > espacioAbajo && espacioArriba >= 220) {
+      const h = Math.min(alto, espacioArriba);          // conviene arriba
       pop.style.maxHeight = h + 'px';
       pop.style.top = Math.max(margen, rect.top - h - 4) + 'px';
-    } else {                                            // se queda abajo, recortado
-      pop.style.maxHeight = Math.max(180, espacioAbajo) + 'px';
+      return;
     }
+    if (espacioAbajo >= 220) {
+      pop.style.maxHeight = espacioAbajo + 'px';        // abajo, con scroll
+      return;
+    }
+    // Celda al medio de una pantalla corta: ni arriba ni abajo alcanzan.
+    // Centrar el popover en el alto de la pantalla con scroll interno.
+    const h = Math.min(alto, vh - margen * 2);
+    pop.style.maxHeight = h + 'px';
+    pop.style.top = Math.max(margen, Math.round((vh - h) / 2)) + 'px';
   })();
 
   pop.querySelectorAll('.tpl-option').forEach(opt => {
