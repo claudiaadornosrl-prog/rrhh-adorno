@@ -335,6 +335,15 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   box-shadow: 0 10px 40px rgba(0,0,0,0.15);
   padding: 8px; min-width: 240px; max-width: 320px;
   display: none;
+  /* Con muchos turnos la lista se cortaba abajo (sobre todo en tablet):
+     ahora scrollea adentro. El alto real lo fija el JS al posicionarlo. */
+  max-height: 70dvh; overflow-y: auto;
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+}
+/* El encabezado del popover queda fijo mientras se scrollea la lista */
+.tpl-popover .tpl-popover-header {
+  position: sticky; top: -8px; background: white; z-index: 1;
+  margin: -8px -8px 6px; padding: 12px 10px 8px;
 }
 .tpl-popover.show { display: block; }
 .tpl-popover-header { padding: 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -7415,10 +7415,11 @@ async function abrirPopoverTurno(cellEl) {
   const pop = document.createElement('div');
   pop.className = 'tpl-popover show';
 
-  // Posicionar relativo a la celda
+  // Posicionar relativo a la celda (el alto definitivo se ajusta abajo,
+  // después de insertarlo en el DOM y conocer su tamaño real)
   const rect = cellEl.getBoundingClientRect();
-  pop.style.left = Math.min(window.innerWidth - 280, rect.left) + 'px';
-  pop.style.top  = Math.min(window.innerHeight - 400, rect.bottom + 4) + 'px';
+  pop.style.left = Math.max(8, Math.min(window.innerWidth - 280, rect.left)) + 'px';
+  pop.style.top  = (rect.bottom + 4) + 'px';
 
   pop.innerHTML = `
     <div class="tpl-popover-header">
@@ -7444,6 +7445,24 @@ async function abrirPopoverTurno(cellEl) {
     </div>
   `;
   document.body.appendChild(pop);
+
+  // ── Ajuste de alto/posición: que siempre entre en pantalla ──────
+  // Si abajo de la celda no hay lugar, lo abrimos hacia arriba; si tampoco
+  // alcanza, limitamos el alto y la lista scrollea adentro.
+  (() => {
+    const margen = 10;
+    const alto = pop.offsetHeight;
+    const espacioAbajo  = window.innerHeight - rect.bottom - margen;
+    const espacioArriba = rect.top - margen;
+    if (alto <= espacioAbajo) return;                  // entra tal cual
+    if (espacioArriba > espacioAbajo) {                 // conviene arriba
+      const h = Math.min(alto, espacioArriba);
+      pop.style.maxHeight = h + 'px';
+      pop.style.top = Math.max(margen, rect.top - h - 4) + 'px';
+    } else {                                            // se queda abajo, recortado
+      pop.style.maxHeight = Math.max(180, espacioAbajo) + 'px';
+    }
+  })();
 
   pop.querySelectorAll('.tpl-option').forEach(opt => {
     opt.addEventListener('click', async () => {
