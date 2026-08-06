@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v305-popover-scroll';
+const CACHE_VERSION = 'rrhh-v306-icono-pwa';
 const ASSETS = [
   './',
   './index.html',
