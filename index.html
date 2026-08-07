@@ -15855,6 +15855,18 @@ async function ejecutarDefinitivo(local, periodo, descuentosPorEmp, huboProforma
           }});
         } catch (_) {}
       }
+      // 🔔 (7-ago) Aviso a Clau (empleado 2): los sueldos ya están terminados.
+      // Es la ÚNICA notificación de RRHH que le interesa recibir.
+      try {
+        sb.functions.invoke('enviar-push', { body: {
+          empleado_id: 2,
+          app: 'rrhh',
+          title: '💰 Sueldos terminados',
+          body: `JP emitió los recibos definitivos de ${periodo}${local === 'todos' ? ' (todos los locales)' : ' (' + local + ')'}. Los sueldos ya están listos.`,
+          url: './#liquidaciones',
+          tag: 'definitivos-clau-' + periodo,
+        }});
+      } catch (_) {}
     }
     if (huboProforma) {
       await liqMostrarDiferenciasProformaDefinitivo(local, periodo);
