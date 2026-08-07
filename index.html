@@ -304,6 +304,7 @@ const pushManager = (() => {
       auth:        raw.keys.auth,
       user_agent:  (navigator.userAgent || '').slice(0, 200),
       plataforma:  plataforma(),
+      app:         'rrhh',
       activa:      true,
       last_seen_at: new Date().toISOString(),
     };
@@ -311,7 +312,7 @@ const pushManager = (() => {
     // Upsert por endpoint (único)
     const { error } = await sb
       .from('rrhh_push_subscriptions')
-      .upsert(payload, { onConflict: 'endpoint' });
+      .upsert(payload, { onConflict: 'endpoint,app' });
     if (error) throw new Error('No se pudo guardar la suscripción: ' + error.message);
 
     return sub;

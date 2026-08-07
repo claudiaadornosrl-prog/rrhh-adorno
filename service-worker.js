@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v307-boton-hub';
+const CACHE_VERSION = 'rrhh-v308-push-endpoint-app';
 const ASSETS = [
   './',
   './index.html',
