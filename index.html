@@ -423,7 +423,10 @@ const NAV = {
     { id: 'mi-legajo',   label: 'Mi legajo',    icon: '👤', section: 'Mi cuenta' },
     { id: 'manual',      label: '📖 Manual',     icon: '📖', section: null },
   ],
-  directora: [],
+  directora: [
+    { id: 'empleados',     label: 'Colaboradores', icon: '👥', section: null },
+    { id: 'liquidaciones', label: 'Liquidación',   icon: '🧮', section: null },
+  ],
   empleado: [
     { id: 'mi-calendario', label: 'Mi calendario', icon: '📅', section: null },
     { id: 'mi-legajo',     label: 'Mi legajo',     icon: '👤', section: null },
@@ -731,15 +734,15 @@ async function onLoggedIn(user) {
 
   console.log('[LOGIN] renderUserInfo...');
   renderUserInfo();
-  // Aplicar clase del layout antes de render (evita flash visual)
-  if (session.rol === 'directora') document.body.classList.add('layout-directora');
-  else document.body.classList.remove('layout-directora');
+  // (7-ago) La directora ahora SÍ tiene sidebar (Colaboradores + Liquidación)
+  // — la clase layout-directora que lo ocultaba quedó sin uso.
+  document.body.classList.remove('layout-directora');
   console.log('[LOGIN] renderSidebar...');
   renderSidebar();
-  // Tab inicial según rol — directora no tiene NAV items así que forzamos liquidaciones
+  // Tab inicial según rol — directora arranca en Liquidación (su vista principal)
   let firstTab;
   if (session.soloBanco) liqState.subTab = 'banco';
-  if (session.rol === 'directora') firstTab = 'liquidaciones';
+  if (session.rol === 'directora' || esNavSimple()) firstTab = 'liquidaciones';
   else firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
   // Si es colaboradora y le faltan datos críticos, arrancar en Mi legajo
   if (session.rol === 'empleado' && legajoIncompleto(session.empleadoData).length > 0) {
@@ -765,9 +768,16 @@ function renderUserInfo() {
   roleEl.className = 'role ' + session.rol;
 }
 
+const NAV_SIMPLE_EMAILS = ['clau@claudiaadorno.com'];
+const NAV_SIMPLE_TABS = ['empleados', 'liquidaciones'];
+function esNavSimple() {
+  return NAV_SIMPLE_EMAILS.includes((session?.user?.email || '').toLowerCase());
+}
+
 function renderSidebar() {
   const sb_el = document.getElementById('sidebar');
-  const items = NAV[session.rol] || [];
+  let items = NAV[session.rol] || [];
+  if (esNavSimple()) items = items.filter(i => NAV_SIMPLE_TABS.includes(i.id)).map(i => ({ ...i, section: null }));
   let html = '';
   let lastSection = undefined;
   items.forEach(item => {

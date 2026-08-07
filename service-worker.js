@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v309-hub-mono';
+const CACHE_VERSION = 'rrhh-v310-nav-directora';
 const ASSETS = [
   './',
   './index.html',
