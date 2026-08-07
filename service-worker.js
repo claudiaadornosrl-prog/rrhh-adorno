@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v306-icono-pwa';
+const CACHE_VERSION = 'rrhh-v307-boton-hub';
 const ASSETS = [
   './',
   './index.html',
