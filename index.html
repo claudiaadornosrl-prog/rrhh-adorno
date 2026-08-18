@@ -822,6 +822,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleSideba
 function switchTab(tabId) {
   // Usuarios solo-Banco: no salen de Liquidación
   if (session?.soloBanco && tabId !== 'liquidaciones') tabId = 'liquidaciones';
+  // (10-ago) Vista simple (Clau): solo sus tabs — lo demás va a Liquidación
+  if (typeof esNavSimple === 'function' && esNavSimple() && !NAV_SIMPLE_TABS.includes(tabId)) tabId = 'liquidaciones';
   // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
   if (session && session.rol === 'empleado' && tabId !== 'mi-legajo') {
     // Chequeo async: si está incompleto, redirigir
@@ -5766,7 +5768,7 @@ async function anularVacacionAprobada(id) {
   await auditLog('anular_vacaciones_aprobada', 'rrhh_vacaciones_movimientos', id, mov, null, null);
   toast('Vacación anulada', 'info');
   // Refrescar la vista actual de vacaciones
-  if (typeof renderVacaciones === 'function') renderVacaciones();
+  if (typeof renderVacacionesAdmin === 'function') switchTab('vacaciones');
 }
 
 async function renderMisFichadas() {
@@ -9394,10 +9396,10 @@ async function renderConfigAdmin() {
 
     <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
       <button class="modal-tab ${configState.tab==='usuarios'?'active':''}" data-cfg="usuarios" style="border-bottom:2px solid transparent;padding:12px 14px;">🔑 Usuarios</button>
-      <button class="modal-tab ${configState.tab==='cct'?'active':''}" data-cfg="cct" style="border-bottom:2px solid transparent;padding:12px 14px;">💼 Categorías CCT</button>
-      <button class="modal-tab ${configState.tab==='feriados'?'active':''}" data-cfg="feriados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗓️ Feriados</button>
+      <!-- (10-ago) CCT y Feriados ocultos: sus renders no existen todavía
+           (renderConfigCCT/renderConfigFeriados) — tocarlos colgaba el panel -->
       <button class="modal-tab ${configState.tab==='salvados'?'active':''}" data-cfg="salvados" style="border-bottom:2px solid transparent;padding:12px 14px;">🛡 Errores salvados</button>
-      <button class="modal-tab ${configState.tab==='log'?'active':''}" data-cfg="log" style="border-bottom:2px solid transparent;padding:12px 14px;">📜 Audit log</button>
+      <!-- (10-ago) Audit log oculto: renderConfigLog no existe todavía -->
       <button class="modal-tab ${configState.tab==='notifs'?'active':''}" data-cfg="notifs" style="border-bottom:2px solid transparent;padding:12px 14px;">🔔 Mis notificaciones</button>
       <button class="modal-tab ${configState.tab==='borrados'?'active':''}" data-cfg="borrados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗑️ Borrados pendientes</button>
     </div>
@@ -12528,7 +12530,7 @@ async function guardarExtra() {
 
   // Si compensación = banco, también crear movimiento en banco
   if (compensacion === 'banco') {
-    await sb.from('rrhh_banco_minutos').insert({
+    const { error: errBanco } = await sb.from('rrhh_banco_minutos').insert({
       empleado_id, fecha, minutos,
       tipo: 'hora_extra',
       referencia_tipo: 'horas_extras',
@@ -12536,6 +12538,11 @@ async function guardarExtra() {
       observaciones: motivoFinal,
       creado_por: session.email,
     });
+    if (errBanco) {
+      // (10-ago) antes se tragaba el error y la extra quedaba sin banco
+      toast('⚠ La extra se guardó pero NO entró al banco de minutos: ' + errBanco.message, 'error');
+      return;
+    }
   }
 
   await auditLog('crear_hora_extra', 'rrhh_horas_extras', data.id, null, null, `${minutos} min - ${motivoFinal}`);
@@ -16054,6 +16061,14 @@ async function liqRegistrarCreditosEmpresa(local, periodo) {
 const _liqAutoRefreshDone = new Set();
 async function liqAutoRefreshSueldo(local, periodo) {
   try {
+    // (10-ago) SOLO el mes en curso: los meses pasados con definitivos
+    // emitidos seguían en estado 'borrador' y este auto-refresh los
+    // recalculaba en cada apertura de la grilla (así se pisó el total de
+    // Bianchi julio por 3ª vez). Los meses viejos solo cambian con los
+    // botones explícitos (⚡ Importes / Definitivo).
+    const _hoy = new Date();
+    const _mesActual = `${_hoy.getFullYear()}-${String(_hoy.getMonth()+1).padStart(2,'0')}`;
+    if (periodo !== _mesActual) return;
     const key = `${local}::${periodo}`;
     if (_liqAutoRefreshDone.has(key)) return;
     _liqAutoRefreshDone.add(key);
@@ -23033,5 +23048,35 @@ const salaryWorkflow = (() => {
 <script src="vacaciones-pdf.js?v=4"></script>
 <script src="manuales.js?v=1"></script>
 <script src="exportaciones.js?v=5"></script>
+<script>
+// ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
+(function () {
+  function toggleAviso(input, on) {
+    var el = input.nextElementSibling;
+    var esAviso = el && el.classList && el.classList.contains('caps-aviso');
+    if (on && !esAviso) {
+      el = document.createElement('div');
+      el.className = 'caps-aviso';
+      el.textContent = '\u21ea May\u00fasculas activadas';
+      el.style.cssText = 'color:#b45309;font-size:12px;font-weight:600;margin-top:4px;';
+      input.insertAdjacentElement('afterend', el);
+    } else if (!on && esAviso) {
+      el.remove();
+    }
+  }
+  function handler(e) {
+    var t = e.target;
+    if (t && t.type === 'password' && typeof e.getModifierState === 'function') {
+      toggleAviso(t, e.getModifierState('CapsLock'));
+    }
+  }
+  document.addEventListener('keydown', handler, true);
+  document.addEventListener('keyup', handler, true);
+  document.addEventListener('focusout', function (e) {
+    var t = e.target;
+    if (t && t.type === 'password') toggleAviso(t, false);
+  }, true);
+})();
+</script>
 </body>
 </html>
