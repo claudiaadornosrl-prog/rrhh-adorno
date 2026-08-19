@@ -31,8 +31,10 @@ const MANUAL_GERENTE = [
     desc: 'Control mensual de fichadas, tardanzas, faltas y permisos. Acá se cierra el mes.',
     pasos: [
       'Antes de cerrar el mes, revisá el "Resumen mensual" — listado por colaboradora con sus errores.',
+      'El panel de sugerencias compara fichadas contra turnos y permisos: si detecta una extra, la cargás con "✔ Cargar extra" (podés ajustar los minutos); si algo no corresponde, "Ignorar".',
+      'Importante: las horas extra ya NO van solas al banco de minutos al cerrar el mes — solo entran las que cargás vos con el botón de extras o desde las sugerencias.',
       'Si una colaboradora tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
-      'Si tenés permisos pendientes de aprobar, aparecen marcados.',
+      'Los permisos solo se pueden cargar con fecha de hoy en adelante — los de fecha pasada los carga el admin.',
       'Cuando todo está OK, apretás el botón rojo "🔒 Cerrar mes" — esto materializa el banco de minutos y aplica las cuotas de préstamo.',
       'Importante: una vez cerrado, las modificaciones quedan registradas con aviso.',
     ],
@@ -108,6 +110,7 @@ const MANUAL_EMPLEADO = [
     pasos: [
       'Cargá tu CBU para que te transfiramos el sueldo directo al banco.',
       'Mantené tus datos de contacto al día por si necesitamos comunicarnos.',
+      'Activá el botón "🔔 Notificaciones" para recibir avisos (turnos, recibos, permisos). En iPhone solo funcionan si instalaste la app en la pantalla de inicio (Compartir → Agregar a pantalla de inicio).',
       'Si querés cambiar nombre o datos legales, avisá a la encargada.',
     ],
     img: null,
@@ -118,6 +121,8 @@ const MANUAL_EMPLEADO = [
     pasos: [
       'Click "📄 Descargar" para bajar el PDF.',
       'Imprimilo y firmalo, escanealo y reenvialo al mail que figura abajo (claudiaadornosrl@gmail.com).',
+      'El sistema identifica el recibo por el código QR del PDF — mandá el escaneo completo y legible, sin cortar el QR.',
+      'Si el QR no se pudo leer, te llega un mail automático pidiendo rehacer el escaneo.',
       'El sistema lo va a procesar automático y vas a ver "✓ Firmada" cuando esté guardado.',
     ],
     img: null,
@@ -159,7 +164,7 @@ const MANUAL_EMPLEADO = [
     desc: 'Tus préstamos activos, propuestas pendientes y la opción de pedir adelantos o refinanciaciones.',
     pasos: [
       'Si tenés un préstamo activo, ves todas las cuotas con su estado.',
-      'Podés pedir un "Adelanto de sueldo" entre el 5 y 14 de cada mes (50% del neto del mes pasado, tope).',
+      'Podés pedir un "Adelanto de sueldo" entre el 5 y 14 de cada mes (50% del neto del mes pasado, tope). El día 14 te llega un recordatorio: es el último día.',
       'Podés pedir "Refinanciar" (más capital sobre el saldo del préstamo viejo) o "Adelantar cuotas" (terminar antes).',
       'Todo queda pendiente hasta que el admin lo apruebe.',
     ],
