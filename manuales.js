@@ -110,7 +110,7 @@ const MANUAL_EMPLEADO = [
     pasos: [
       'Cargá tu CBU para que te transfiramos el sueldo directo al banco.',
       'Mantené tus datos de contacto al día por si necesitamos comunicarnos.',
-      'Activá el botón "🔔 Notificaciones" para recibir avisos (turnos, recibos, permisos). En iPhone solo funcionan si instalaste la app en la pantalla de inicio (Compartir → Agregar a pantalla de inicio).',
+      'Activá el botón "🔔 Notificaciones" para recibir avisos (turnos, recibos, permisos). En iPhone solo funcionan si instalaste la app en la pantalla de inicio (Compartir → Agregar a pantalla de inicio). Si iOS las apaga solo, la app las reactiva automáticamente al abrirla.',
       'Si querés cambiar nombre o datos legales, avisá a la encargada.',
     ],
     img: null,
