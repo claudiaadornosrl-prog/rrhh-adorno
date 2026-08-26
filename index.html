@@ -19584,8 +19584,10 @@ async function renderPrestamos() {
   if (session.rol === 'gerente') {
     return renderPrestamosGerente();
   }
-  if (session.soloBanco) return renderPrestamosLectura();
-  if (session.rol !== 'admin') {
+  // (26-ago) administracion@ ve exactamente la misma pantalla que el admin.
+  // No puede modificar: las funciones de escritura tienen guard y la RLS
+  // tampoco se lo permitiria.
+  if (session.rol !== 'admin' && !session.soloBanco) {
     cont.innerHTML = '<div class="card"><div class="card-body">Solo el admin puede gestionar préstamos.</div></div>';
     return;
   }
@@ -19958,7 +19960,19 @@ async function renderPrestamos() {
 //  Crea solicitud aprobada → setea _prestamoRefiSolicitudId → abre wizard
 //  con capital pre-cargado = saldo_pendiente + adicional
 // ═══════════════════════════════════════════════════════════════════
+// (26-ago) administracion@ tiene la vista completa de Prestamos pero en modo
+// consulta: cualquier accion que modifique corta aca con un aviso claro, en vez
+// de reventar contra la RLS con un error tecnico.
+function prestamoSoloLectura() {
+  if (session.soloBanco) {
+    toast('Vista de consulta: los préstamos los gestiona JP', 'warning');
+    return true;
+  }
+  return false;
+}
+
 async function prestamoRefinanciarAdmin(prestamoId) {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   // Cargar préstamo + cuotas para calcular saldo pendiente
   const { data: pres } = await sb.from('rrhh_prestamo')
@@ -20092,6 +20106,7 @@ async function prestamoRefinanciarAdminContinuar(prestamoId, saldoCapital) {
 }
 
 async function prestamoAbrirNuevo(prefill = {}) {
+  if (prestamoSoloLectura()) return;
   // Lista de colaboradoras activas para el dropdown
   const { data: emps } = await sb.from('rrhh_empleados')
     .select('id, apellido, nombre, local')
@@ -20468,6 +20483,7 @@ function prestamoAjustarManual() {
 }
 
 async function prestamoCrear() {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const empId   = parseInt(document.getElementById('pr-emp').value);
   const fecha   = document.getElementById('pr-fecha').value;
@@ -20741,6 +20757,7 @@ async function prestamoAbrirDetalle(prestamoId) {
 }
 
 async function prestamoCancelar(prestamoId) {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const motivo = prompt('¿Por qué cancelás el préstamo anticipadamente? (renuncia, perdón de saldo, etc.)');
   if (motivo == null) return;
@@ -20779,6 +20796,7 @@ async function prestamoCancelar(prestamoId) {
 // Editar una propuesta que NO está aceptada todavía
 // ─────────────────────────────────────────────────────────────────────
 async function prestamoEditarPropuesta(prestamoId) {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
   // Traer datos del préstamo
@@ -20824,6 +20842,7 @@ async function prestamoEditarPropuesta(prestamoId) {
 // Borrar una propuesta (solo si todavía no fue aceptada)
 // ─────────────────────────────────────────────────────────────────────
 async function prestamoBorrarPropuesta(prestamoId) {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
   const { data: p } = await sb.from('rrhh_prestamo')
@@ -20851,6 +20870,7 @@ async function prestamoBorrarPropuesta(prestamoId) {
 // MEMOSOFT que ya tienen cuotas descontadas en meses pasados).
 // ─────────────────────────────────────────────────────────────────────
 async function prestamoMarcarHistorico(prestamoId, cuotasTotales) {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
   // Traer estado actual de las cuotas
@@ -21238,6 +21258,7 @@ La colaboradora elige una y la acepta.`)) return;
 // Admin: rechazar solicitud (refi o adelanto)
 // ─────────────────────────────────────────────────────────────────────
 async function rechazarSolicitudPrestamo(solicitudId) {
+  if (prestamoSoloLectura()) return;
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const motivo = prompt('Motivo del rechazo (opcional):');
   if (motivo === null) return;
