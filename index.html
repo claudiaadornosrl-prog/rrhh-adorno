@@ -777,6 +777,9 @@ function esNavSimple() {
 function renderSidebar() {
   const sb_el = document.getElementById('sidebar');
   let items = NAV[session.rol] || [];
+  // (26-ago) administracion@: ve los prestamos activos de todos (solo lectura)
+  if (session.soloBanco && !items.some(i => i.id === 'prestamos'))
+    items = items.concat([{ id: 'prestamos', label: 'Préstamos', icon: '💵', section: null }]);
   if (esNavSimple()) items = items.filter(i => NAV_SIMPLE_TABS.includes(i.id)).map(i => ({ ...i, section: null }));
   let html = '';
   let lastSection = undefined;
@@ -821,7 +824,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleSideba
 // ════════════════════════════════════════════════════════════
 function switchTab(tabId) {
   // Usuarios solo-Banco: no salen de Liquidación
-  if (session?.soloBanco && tabId !== 'liquidaciones') tabId = 'liquidaciones';
+  // (26-ago) administracion@ tambien puede ver Prestamos, en modo lectura
+  if (session?.soloBanco && !['liquidaciones','prestamos'].includes(tabId)) tabId = 'liquidaciones';
   // (10-ago) Vista simple (Clau): solo sus tabs — lo demás va a Liquidación
   if (typeof esNavSimple === 'function' && esNavSimple() && !NAV_SIMPLE_TABS.includes(tabId)) tabId = 'liquidaciones';
   // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
@@ -19390,11 +19394,79 @@ function verCuotasPrestamoGerente(prestamoId) {
   openModal(htmlModal, '720px');
 }
 
+// ─── Préstamos · vista de SOLO LECTURA para administracion@ (26-ago) ────
+// Ve los préstamos activos de todas las colaboradoras: cuánto se prestó,
+// cuánto se descontó y cuánto falta. Sin botones de gestión.
+async function renderPrestamosLectura() {
+  const cont = document.getElementById('main');
+  cont.innerHTML = '<div class="card"><div class="card-body">Cargando préstamos…</div></div>';
+
+  const { data: prestamos, error } = await sb.from('rrhh_prestamo')
+    .select('id, empleado_id, fecha_otorgamiento, capital, cuotas_totales, cuota_monto, estado, notas, empleado:rrhh_empleados(apellido, nombre, local)')
+    .eq('estado', 'activo')
+    .order('fecha_otorgamiento', { ascending: false });
+  if (error) { cont.innerHTML = `<div class="card"><div class="card-body">Error: ${error.message}</div></div>`; return; }
+  if (!prestamos || !prestamos.length) {
+    cont.innerHTML = '<div class="card"><div class="card-body">No hay préstamos activos en este momento.</div></div>'; return;
+  }
+
+  const ids = prestamos.map(p => p.id);
+  const { data: cuotas } = await sb.from('rrhh_prestamo_cuota')
+    .select('prestamo_id, numero, mes_descuento, monto_total, monto_capital, estado')
+    .in('prestamo_id', ids).order('numero');
+
+  const porPrestamo = {};
+  (cuotas || []).forEach(c => { (porPrestamo[c.prestamo_id] = porPrestamo[c.prestamo_id] || []).push(c); });
+
+  const $ = n => '$' + (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  let totCapital = 0, totPendiente = 0;
+
+  const filas = prestamos.map(p => {
+    const cs = porPrestamo[p.id] || [];
+    const pagadas = cs.filter(c => c.estado === 'aplicada');
+    const pend = cs.filter(c => c.estado !== 'aplicada' && c.estado !== 'cancelada');
+    const restante = pend.reduce((a, c) => a + (Number(c.monto_total) || 0), 0);
+    const prox = pend[0];
+    totCapital += Number(p.capital) || 0;
+    totPendiente += restante;
+    const emp = p.empleado ? `${p.empleado.apellido}, ${p.empleado.nombre}` : '—';
+    const pct = cs.length ? Math.round(pagadas.length / cs.length * 100) : 0;
+    return `<tr>
+      <td><b>${emp}</b><br><span style="font-size:11.5px;color:var(--muted)">${p.empleado?.local || ''}</span></td>
+      <td style="text-align:right">${$(p.capital)}</td>
+      <td style="text-align:right">${$(p.cuota_monto)}</td>
+      <td style="text-align:center">${pagadas.length} / ${cs.length || p.cuotas_totales}
+        <div style="background:#e2e8f0;border-radius:5px;height:7px;margin-top:4px">
+          <div style="background:#16a34a;height:7px;border-radius:5px;width:${pct}%"></div></div></td>
+      <td style="text-align:right"><b>${$(restante)}</b></td>
+      <td style="font-size:12.5px">${prox ? (prox.mes_descuento || '').slice(0, 7) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div class="card"><div class="card-body">
+      <h2 style="margin:0 0 4px;font-size:19px">💵 Préstamos activos</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px">
+        Vista de consulta: ${prestamos.length} préstamos vigentes ·
+        capital otorgado ${$(totCapital)} · saldo por descontar <b>${$(totPendiente)}</b>
+      </p>
+      <div style="overflow-x:auto"><table class="tabla">
+        <thead><tr>
+          <th>Colaboradora</th><th style="text-align:right">Capital</th>
+          <th style="text-align:right">Cuota</th><th style="text-align:center">Avance</th>
+          <th style="text-align:right">Falta</th><th>Próxima</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>
+    </div></div>`;
+}
+
 async function renderPrestamos() {
   const cont = document.getElementById('main');
   if (session.rol === 'gerente') {
     return renderPrestamosGerente();
   }
+  if (session.soloBanco) return renderPrestamosLectura();
   if (session.rol !== 'admin') {
     cont.innerHTML = '<div class="card"><div class="card-body">Solo el admin puede gestionar préstamos.</div></div>';
     return;
