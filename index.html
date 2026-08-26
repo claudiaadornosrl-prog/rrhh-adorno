@@ -12593,6 +12593,7 @@ const TIPOS_BANCO = {
   'salida_temprana':     { label: 'Salida temprana',     color: '#d97706', icon: '↩' },
   'pago':                { label: 'Pago',                color: '#7c3aed', icon: '💵' },
   'ajuste':              { label: 'Ajuste manual',       color: '#6b7280', icon: '🔧' },
+  'vacaciones_compensa': { label: 'Compensado con vacaciones', color: '#0891b2', icon: '🌴' },
 };
 
 let bancoState = { local: '' };
@@ -12610,7 +12611,10 @@ async function renderBancoAdmin(cont) {
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : `<div style="font-weight:600;">${LOCALES[localFiltro]?.nombre || ''}</div>`}
-      <button class="btn accent2" onclick="abrirAjusteBancoAdmin()">+ Ajuste manual</button>
+      <div style="display:flex;gap:8px;">
+        ${isAdmin ? `<button class="btn" onclick="abrirCompensarVacaciones()" title="Usar días de vacaciones para saldar un banco en negativo">🌴 Compensar con vacaciones</button>` : ''}
+        <button class="btn accent2" onclick="abrirAjusteBancoAdmin()">+ Ajuste manual</button>
+      </div>
     </div>
     <div id="banco-list"><div class="spinner"></div></div>
   `;
@@ -12708,6 +12712,120 @@ async function abrirDetalleBanco(empleadoId) {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// ─── Compensar banco negativo con días de vacaciones (26-ago) ──────────
+// A pedido de la colaboradora: se usan días de vacaciones para saldar el
+// saldo negativo del banco. La RPC hace los dos asientos juntos (acredita
+// minutos y descuenta los días) — o ninguno si algo falla.
+async function abrirCompensarVacaciones() {
+  if (session.rol !== 'admin') { toast('Solo el admin', 'error'); return; }
+  const { data: saldos } = await sb.from('rrhh_banco_saldo').select('*');
+  const negativos = (saldos || []).filter(x => (x.saldo_minutos || 0) < 0);
+  if (!negativos.length) { toast('No hay nadie con el banco en negativo', 'info'); return; }
+
+  const html = `
+    <div class="modal-bg" id="vaccomp-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="card" style="max-width:480px;width:100%;max-height:90vh;overflow:auto;">
+        <div class="card-header"><h3 style="margin:0;">🌴 Compensar con vacaciones</h3></div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+            Se usan días de vacaciones para saldar el banco en negativo. Solo a pedido
+            de la colaboradora — queda registrado en las dos puntas.
+          </p>
+          <label style="font-size:12px;font-weight:600;">Colaboradora</label>
+          <select id="vc-emp" onchange="vcCargarAnios()" style="width:100%;padding:9px;margin:4px 0 12px;border:1px solid var(--border);border-radius:8px;">
+            <option value="">— Elegir —</option>
+            ${negativos.map(n => `<option value="${n.empleado_id}" data-min="${n.saldo_minutos}">
+                ${escapeHtml(n.nombre_completo || n.apellido || ('#' + n.empleado_id))} · ${fmtMin(n.saldo_minutos)}</option>`).join('')}
+          </select>
+          <div id="vc-detalle" style="display:none;">
+            <label style="font-size:12px;font-weight:600;">Año de vacaciones a descontar</label>
+            <select id="vc-anio" style="width:100%;padding:9px;margin:4px 0 12px;border:1px solid var(--border);border-radius:8px;"></select>
+            <div style="display:flex;gap:10px;">
+              <div style="flex:1;">
+                <label style="font-size:12px;font-weight:600;">Días</label>
+                <input type="number" id="vc-dias" min="1" step="1" value="1" oninput="vcPreview()"
+                       style="width:100%;padding:9px;margin-top:4px;border:1px solid var(--border);border-radius:8px;">
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:12px;font-weight:600;">Horas por día</label>
+                <input type="number" id="vc-horas" min="1" step="0.5" value="8" oninput="vcPreview()"
+                       style="width:100%;padding:9px;margin-top:4px;border:1px solid var(--border);border-radius:8px;">
+              </div>
+            </div>
+            <div id="vc-preview" style="background:#ecfeff;border-left:3px solid #0891b2;border-radius:6px;padding:10px 12px;margin:12px 0;font-size:13px;"></div>
+            <label style="font-size:12px;font-weight:600;">Observación (queda asentada)</label>
+            <input type="text" id="vc-obs" placeholder="Ej: a pedido de la colaboradora, hablado el 26/08"
+                   style="width:100%;padding:9px;margin-top:4px;border:1px solid var(--border);border-radius:8px;">
+          </div>
+        </div>
+        <div class="card-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn" onclick="document.getElementById('vaccomp-modal').remove()">Cancelar</button>
+          <button class="btn accent2" id="vc-guardar" onclick="guardarCompensarVacaciones()" disabled>Compensar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function vcCargarAnios() {
+  const sel = document.getElementById('vc-emp');
+  const empId = sel.value;
+  const cont = document.getElementById('vc-detalle');
+  const btn = document.getElementById('vc-guardar');
+  if (!empId) { cont.style.display = 'none'; btn.disabled = true; return; }
+  const { data: vac } = await sb.from('rrhh_vacaciones')
+    .select('año, dias_pendientes').eq('empleado_id', empId).gt('dias_pendientes', 0)
+    .order('año');
+  const selA = document.getElementById('vc-anio');
+  if (!vac || !vac.length) {
+    selA.innerHTML = '<option value="">Sin días pendientes</option>';
+    cont.style.display = 'block'; btn.disabled = true;
+    document.getElementById('vc-preview').innerHTML = '⚠ Esta colaboradora no tiene días de vacaciones pendientes.';
+    return;
+  }
+  selA.innerHTML = vac.map(v => `<option value="${v.año}" data-pend="${v.dias_pendientes}">${v.año} · ${v.dias_pendientes} día(s) pendiente(s)</option>`).join('');
+  cont.style.display = 'block'; btn.disabled = false;
+  vcPreview();
+}
+
+function vcPreview() {
+  const sel = document.getElementById('vc-emp');
+  const op = sel.options[sel.selectedIndex];
+  const saldo = Math.abs(parseInt(op?.dataset.min || 0));
+  const dias = parseInt(document.getElementById('vc-dias').value || 0);
+  const horas = parseFloat(document.getElementById('vc-horas').value || 8);
+  const valen = Math.round(dias * horas * 60);
+  const acredita = Math.min(valen, saldo);
+  const resta = saldo - acredita;
+  const selA = document.getElementById('vc-anio');
+  const pend = parseInt(selA.options[selA.selectedIndex]?.dataset.pend || 0);
+  const btn = document.getElementById('vc-guardar');
+  let msg = `Debe <b>${fmtMin(saldo)}</b>. ${dias} día(s) × ${horas} hs = <b>${fmtMin(valen)}</b>.<br>`;
+  msg += `Se le acreditan <b>${fmtMin(acredita)}</b> y el banco queda en <b>${resta === 0 ? 'cero' : '-' + fmtMin(resta)}</b>.`;
+  if (valen > saldo) msg += `<br><span style="color:#b45309">Sobran ${fmtMin(valen - saldo)} — no se acreditan de más.</span>`;
+  if (dias > pend) { msg += `<br><span style="color:#dc2626">✗ Solo tiene ${pend} día(s) pendiente(s).</span>`; btn.disabled = true; }
+  else btn.disabled = false;
+  document.getElementById('vc-preview').innerHTML = msg;
+}
+
+async function guardarCompensarVacaciones() {
+  const btn = document.getElementById('vc-guardar');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  const { data, error } = await sb.rpc('rrhh_compensar_banco_con_vacaciones', {
+    p_empleado_id: parseInt(document.getElementById('vc-emp').value),
+    p_dias: parseInt(document.getElementById('vc-dias').value),
+    p_anio: parseInt(document.getElementById('vc-anio').value),
+    p_horas_por_dia: parseFloat(document.getElementById('vc-horas').value),
+    p_observacion: document.getElementById('vc-obs').value.trim() || null,
+  });
+  if (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Compensar'; return; }
+  document.getElementById('vaccomp-modal')?.remove();
+  toast(`✓ ${data.empleada}: banco ${data.saldo_nuevo_min === 0 ? 'en cero' : fmtMin(data.saldo_nuevo_min)} · ${data.dias_usados} día(s) descontado(s)`);
+  await auditLog('compensar_vacaciones', 'rrhh_banco_minutos', data.banco_movimiento_id, null, null,
+                 `${data.dias_usados} dia(s) de vacaciones -> +${data.minutos_acreditados} min`);
+  renderAsisTab();
 }
 
 async function abrirAjusteBancoAdmin() {
