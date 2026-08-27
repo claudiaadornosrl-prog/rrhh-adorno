@@ -22189,6 +22189,34 @@ const salaryWorkflow = (() => {
   }
 
   // Lee la paritaria vigente al período
+  // ══════════════════════════════════════════════════════════════════════
+  //  Guardián de escala CCT (27-ago-2026)
+  //  El sistema liquidaba con "la escala más reciente ANTERIOR al período":
+  //  si el mes nuevo no estaba cargado, usaba la del mes anterior EN
+  //  SILENCIO. Así salieron las proformas de agosto con la escala de julio
+  //  (~$24.000 menos por empleada; lo detectó la comparación contra los
+  //  recibos del estudio). Regla nueva: NO se liquida un mes que no tenga
+  //  escala propia cargada — el sistema frena y lo dice, no adivina.
+  //  Solo aplica desde abr-2026 (antes no existía la tabla de escalas).
+  // ══════════════════════════════════════════════════════════════════════
+  const _escalaMesOk = {};
+  async function verificarEscalaDelMes(periodo) {
+    if (periodo < '2026-04') return;                    // legacy: sin tabla
+    if (_escalaMesOk[periodo]) return;
+    const { data } = await sb.from('rrhh_categorias_cct')
+      .select('id').eq('fecha_vigencia', periodo + '-01').limit(1);
+    if (!data || !data.length) {
+      const [y, m] = periodo.split('-');
+      const MES = ['','enero','febrero','marzo','abril','mayo','junio','julio',
+                   'agosto','septiembre','octubre','noviembre','diciembre'][Number(m)];
+      throw new Error(
+        `No hay escala CCT cargada para ${MES} ${y}. ` +
+        `Cargala en Configuración → Categorías CCT antes de liquidar — ` +
+        `sin eso el sistema usaría la escala del mes anterior en silencio.`);
+    }
+    _escalaMesOk[periodo] = true;
+  }
+
   async function cargarParitaria(periodo) {
     const periodoFull = periodo + '-01';
     const { data } = await sb.from('rrhh_paritaria_sumas_nr')
@@ -22355,6 +22383,7 @@ const salaryWorkflow = (() => {
    * Si no se pasan, se infieren (días = 30 - dias_no_trabajados, uniforme_ok = true, etc.)
    */
   async function liquidarEmpleada(empleadoId, periodo, inputs = {}) {
+    await verificarEscalaDelMes(periodo);   // frena si el mes no tiene escala propia
     // Cargas
     const _cache = inputs._cache || {};
     const [emp, configLocal, configEmp, paritaria] = await Promise.all([

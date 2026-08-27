@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v318-auto-resub-push';
+const CACHE_VERSION = 'rrhh-v319-auto-resub-push';
 const ASSETS = [
   './',
   './index.html',
