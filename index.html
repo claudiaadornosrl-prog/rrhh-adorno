@@ -12718,11 +12718,23 @@ async function abrirDetalleBanco(empleadoId) {
 // A pedido de la colaboradora: se usan días de vacaciones para saldar el
 // saldo negativo del banco. La RPC hace los dos asientos juntos (acredita
 // minutos y descuenta los días) — o ninguno si algo falla.
-async function abrirCompensarVacaciones() {
-  if (session.rol !== 'admin') { toast('Solo el admin', 'error'); return; }
-  const { data: saldos } = await sb.from('rrhh_banco_saldo').select('*');
-  const negativos = (saldos || []).filter(x => (x.saldo_minutos || 0) < 0);
-  if (!negativos.length) { toast('No hay nadie con el banco en negativo', 'info'); return; }
+async function abrirCompensarVacaciones(selfMode = false) {
+  // (27-ago, JP) modo SELF: la colaboradora compensa SU PROPIO banco en
+  // negativo con SUS días de vacaciones, desde Mi banco. La RPC valida del
+  // lado del server que solo pueda tocarse a sí misma y sin excedente.
+  const esSelf = selfMode || session.rol !== 'admin';
+  let negativos;
+  if (esSelf) {
+    if (!session.empleado_id) { toast('Tu usuario no está vinculado a un empleado', 'error'); return; }
+    const { data: s } = await sb.from('rrhh_banco_saldo').select('*')
+      .eq('empleado_id', session.empleado_id).maybeSingle();
+    if (!s || (s.saldo_minutos || 0) >= 0) { toast('Tu banco no está en negativo', 'info'); return; }
+    negativos = [s];
+  } else {
+    const { data: saldos } = await sb.from('rrhh_banco_saldo').select('*');
+    negativos = (saldos || []).filter(x => (x.saldo_minutos || 0) < 0);
+    if (!negativos.length) { toast('No hay nadie con el banco en negativo', 'info'); return; }
+  }
 
   const html = `
     <div class="modal-bg" id="vaccomp-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -12730,11 +12742,12 @@ async function abrirCompensarVacaciones() {
         <div class="card-header"><h3 style="margin:0;">🌴 Compensar con vacaciones</h3></div>
         <div class="card-body">
           <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
-            Se usan días de vacaciones para saldar el banco en negativo. Solo a pedido
-            de la colaboradora — queda registrado en las dos puntas.
+            ${esSelf
+              ? 'Usás días de tus vacaciones pendientes para saldar tus minutos en contra. Queda registrado en las dos puntas.'
+              : 'Se usan días de vacaciones para saldar el banco en negativo. Solo a pedido de la colaboradora — queda registrado en las dos puntas.'}
           </p>
           <label style="font-size:12px;font-weight:600;">Colaboradora</label>
-          <select id="vc-emp" onchange="vcCargarAnios()" style="width:100%;padding:9px;margin:4px 0 12px;border:1px solid var(--border);border-radius:8px;">
+          <select id="vc-emp" onchange="vcCargarAnios()" ${esSelf ? 'disabled' : ''} style="width:100%;padding:9px;margin:4px 0 12px;border:1px solid var(--border);border-radius:8px;">
             <option value="">— Elegir —</option>
             ${negativos.map(n => `<option value="${n.empleado_id}" data-min="${n.saldo_minutos}">
                 ${escapeHtml(n.nombre_completo || n.apellido || ('#' + n.empleado_id))} · ${fmtMin(n.saldo_minutos)}</option>`).join('')}
@@ -12767,6 +12780,11 @@ async function abrirCompensarVacaciones() {
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+  if (esSelf) {
+    const se = document.getElementById('vc-emp');
+    se.value = String(session.empleado_id);
+    vcCargarAnios();
+  }
 }
 
 async function vcCargarAnios() {
@@ -12974,6 +12992,12 @@ async function renderMiBanco() {
         ${saldoProyectado >= 480 ? `≈ ${Math.floor(saldoProyectado/480)} día${Math.floor(saldoProyectado/480)!==1?'s':''} a favor` : (saldoProyectado <= -480 ? `≈ ${Math.floor(Math.abs(saldoProyectado)/480)} día${Math.floor(Math.abs(saldoProyectado)/480)!==1?'s':''} en contra` : '')}
       </div>
     </div>
+
+    ${saldoMin < 0 ? `
+    <div style="text-align:center;margin-top:14px;">
+      <button class="btn accent2" onclick="abrirCompensarVacaciones(true)">🌴 Compensar con días de vacaciones</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;">Usás días de vacaciones pendientes para saldar tus minutos en contra.</div>
+    </div>` : ''}
 
     <div class="metrics-grid" style="margin-top:16px;">
       <div class="metric-card accent"><div class="label">Total a favor</div><div class="value" style="font-size:22px;font-family:monospace;">${fmtMin(positivos)}</div></div>
@@ -23286,7 +23310,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=4"></script>
-<script src="manuales.js?v=3"></script>
+<script src="manuales.js?v=4"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

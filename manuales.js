@@ -155,6 +155,7 @@ const MANUAL_EMPLEADO = [
       'Tu saldo actual aparece arriba en grande.',
       'Si tenés muchos minutos a favor podés pedir días extra de vacaciones o que se te paguen.',
       'Si estás en contra (negativo), se descuenta del sueldo o de las vacaciones.',
+      'Con saldo en contra aparece el botón "🌴 Compensar con días de vacaciones": elegís cuántos días de tus vacaciones pendientes usar y el sistema salda los minutos. Nunca acredita de más.',
       'Los movimientos pendientes aparecen en amarillo hasta que la encargada cierra el mes.',
     ],
     img: null,
