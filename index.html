@@ -17414,8 +17414,8 @@ async function renderAumentos() {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;align-items:end;">
         <div class="form-row"><label>% mínimo</label><input type="number" id="aum-rg-pmin" value="6" min="0" step="0.5"></div>
         <div class="form-row"><label>% máximo</label><input type="number" id="aum-rg-pmax" value="10" min="0" step="0.5"></div>
-        <div class="form-row"><label>Vigente desde</label>
-          <input type="date" id="aum-rg-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        <div class="form-row"><label>Vigente a partir del sueldo de</label>
+          <input type="month" id="aum-rg-vigencia" title="El aumento entra en la liquidación de este mes (que se paga a principios del mes siguiente)" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,7)}">
         </div>
         <div class="form-row"><label>Redondear a múltiplo de</label>
           <select id="aum-rg-redondeo">
@@ -17446,8 +17446,8 @@ async function renderAumentos() {
         <div class="form-row"><label>Fijo nuevo</label>
           <input type="text" id="aum-puntual-nuevo" placeholder="$0" oninput="fmtMoneyInput(this)">
         </div>
-        <div class="form-row"><label>Vigente desde</label>
-          <input type="date" id="aum-puntual-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        <div class="form-row"><label>Vigente a partir del sueldo de</label>
+          <input type="month" id="aum-puntual-vigencia" title="El aumento entra en la liquidación de este mes (que se paga a principios del mes siguiente)" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,7)}">
         </div>
         <div class="form-row"><label>Motivo (opcional)</label>
           <input type="text" id="aum-puntual-motivo" placeholder="Ej: promoción a encargada">
@@ -17466,8 +17466,8 @@ async function renderAumentos() {
         <div class="form-row"><label>% aumento</label>
           <input type="number" id="aum-extras-pct" placeholder="ej 8" min="0" max="100" step="0.1">
         </div>
-        <div class="form-row"><label>Vigente desde</label>
-          <input type="date" id="aum-extras-vigencia" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,10)}">
+        <div class="form-row"><label>Vigente a partir del sueldo de</label>
+          <input type="month" id="aum-extras-vigencia" title="El aumento entra en la liquidación de este mes (que se paga a principios del mes siguiente)" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,7)}">
         </div>
         <div class="form-row"><label>Redondear a múltiplo de</label>
           <select id="aum-extras-redondeo">
@@ -17880,7 +17880,7 @@ async function aumPuntualAplicar() {
   const fijoNuevo = Number(nuevoRaw);
   if (!fijoNuevo || fijoNuevo < 1000) { toast('Fijo nuevo inválido', 'error'); return; }
 
-  const vigencia = document.getElementById('aum-puntual-vigencia').value;
+  const vigencia = (v => v && v.length === 7 ? v + '-01' : v)(document.getElementById('aum-puntual-vigencia').value);
   if (!vigencia) { toast('Falta vigencia', 'error'); return; }
 
   const motivo = document.getElementById('aum-puntual-motivo').value.trim() || null;
@@ -17942,7 +17942,7 @@ async function aumPuntualAplicar() {
 async function aumExtrasPreview() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const pct = Number(document.getElementById('aum-extras-pct').value);
-  const vigencia = document.getElementById('aum-extras-vigencia').value;
+  const vigencia = (v => v && v.length === 7 ? v + '-01' : v)(document.getElementById('aum-extras-vigencia').value);
   const redondeo = Number(document.getElementById('aum-extras-redondeo').value);
   const aplicaViaticos = document.getElementById('aum-extras-chk-viaticos').checked;
   const aplicaPremio = document.getElementById('aum-extras-chk-premio').checked;
@@ -18669,7 +18669,7 @@ async function aumPreviewRangos() {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const pmin = Number(document.getElementById('aum-rg-pmin').value);
   const pmax = Number(document.getElementById('aum-rg-pmax').value);
-  const vigencia = document.getElementById('aum-rg-vigencia').value;
+  const vigencia = (v => v && v.length === 7 ? v + '-01' : v)(document.getElementById('aum-rg-vigencia').value);
   const redondeo = Number(document.getElementById('aum-rg-redondeo').value);
   if (isNaN(pmin) || isNaN(pmax) || pmin < 0 || pmax < pmin) {
     toast('% min/max inválidos', 'error'); return;
@@ -23310,7 +23310,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=4"></script>
-<script src="manuales.js?v=4"></script>
+<script src="manuales.js?v=5"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

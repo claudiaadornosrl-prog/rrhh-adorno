@@ -68,6 +68,7 @@ const MANUAL_GERENTE = [
       'En la tabla cargás el monto del nuevo fijo de cada colaboradora (dentro del rango).',
       'Para tu propia fila viene pre-marcado el MAX del rango.',
       'Click "💾 Aplicar aumentos" — se actualizan los fijos vigentes desde el período del envío.',
+      '"Vigente a partir del sueldo de SEPTIEMBRE" significa que el aumento entra en la liquidación de septiembre (la que se paga a principios de octubre). El sueldo del mes anterior sale con los valores viejos.',
     ],
     img: null,
   },
