@@ -7994,8 +7994,11 @@ async function cerrarMes(periodo, local) {
     }
 
     // 2) Acumular para el pool mensual: tardanzas + salidas tempranas
-    //    Solo cuentan los minutos QUE EXCEDEN la tolerancia diaria.
-    const tardeReal = (d.minutos_tarde || 0) > tolDiariaTarde ? (d.minutos_tarde || 0) : 0;
+    //    🚨 Regla JP (1-sep): al pool van TODOS los minutos desde el horario
+    //    real (turno + buffer), haya error de fichada o no. La tolerancia
+    //    diaria decide solo el ERROR (premio); llegar 8:07 no quema error
+    //    pero suma 7 minutos. Las salidas tempranas mantienen su tolerancia.
+    const tardeReal = d.minutos_tarde || 0;
     const tempReal  = (d.minutos_salida_temp || 0) > tolDiariaTemp ? (d.minutos_salida_temp || 0) : 0;
     const aSumar = tardeReal + tempReal;
     if (aSumar > 0) {
@@ -8700,10 +8703,11 @@ async function procesarMes(periodo, local = null) {
       if (!eraSalvado) {
         // Acumular tardanzas Y salidas tempranas para el descuento mensual.
         // Si la suma supera el umbral (60 min), se descuenta TODO al cierre del mes.
-        const tolEmpTarde = (tols[emp.local] || {}).minutos_tarde || 5;
         const tolEmpTemp = (tols[emp.local] || {}).minutos_temprano || 5;
-        // Solo cuentan los minutos que excedan la tolerancia diaria
-        const tardeReal = minTarde > tolEmpTarde ? minTarde : 0;
+        // 🚨 Regla JP (1-sep): al pool van TODOS los minutos de tardanza
+        // desde el horario real, haya error o no. La tolerancia diaria
+        // (minutos_tarde) decide solo si el día cuenta como ERROR de premio.
+        const tardeReal = minTarde || 0;
         const tempReal = minTemp > tolEmpTemp ? (minTemp - tolEmpTemp) : 0;
         const aSumar = tardeReal + tempReal;
         if (aSumar > 0) {
@@ -8881,7 +8885,7 @@ async function waResumenAsistencia(empId) {
     doc.text(`${MESES_L[mm-1]} ${yy}`, W-margen, 42, { align: 'right' });
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...MUT);
     const infoLn = [LOCALES[e.local]?.nombre || e.local, turnoHab ? `Turno habitual ${turnoHab}` : null,
-                    `Tolerancia de entrada: ${tol?.buffer_entrada ?? 20} min`].filter(Boolean).join(' · ');
+                    `Tolerancia de entrada: ${(tol?.buffer_entrada ?? 15) + (tol?.minutos_tarde ?? 5)} min`].filter(Boolean).join(' · ');
     doc.text(infoLn, margen, 47.5);
 
     // Tabla
@@ -23310,7 +23314,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=4"></script>
-<script src="manuales.js?v=5"></script>
+<script src="manuales.js?v=6"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

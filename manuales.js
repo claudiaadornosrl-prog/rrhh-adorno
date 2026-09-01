@@ -33,6 +33,7 @@ const MANUAL_GERENTE = [
       'Antes de cerrar el mes, revisá el "Resumen mensual" — listado por colaboradora con sus errores.',
       'El panel de sugerencias compara fichadas contra turnos y permisos: si detecta una extra, la cargás con "✔ Cargar extra" (podés ajustar los minutos); si algo no corresponde, "Ignorar".',
       'Importante: las horas extra ya NO van solas al banco de minutos al cerrar el mes — solo entran las que cargás vos con el botón de extras o desde las sugerencias.',
+      'Tardanzas — cómo funciona (dos sistemas separados): (1) ERROR de fichada: entrar pasada la tolerancia (Oficina 25 min desde el turno cargado, locales 20) quema 1 error contra el premio. (2) MINUTOS al banco: TODOS los minutos desde el horario real (turno + 15) suman a un pool mensual, haya error o no; si el pool pasa los 60 minutos en el mes, se descuenta TODO del banco al cerrar. Ejemplo: llegar 7 min tarde no quema error pero suma 7 minutos.',
       'Si una colaboradora tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
       'Los permisos solo se pueden cargar con fecha de hoy en adelante — los de fecha pasada los carga el admin.',
       'Cuando todo está OK, apretás el botón rojo "🔒 Cerrar mes" — esto materializa el banco de minutos y aplica las cuotas de préstamo.',
