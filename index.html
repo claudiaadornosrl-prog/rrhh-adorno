@@ -1692,6 +1692,20 @@ async function auditLog(accion, tabla, registroId, campo = null, valorAnterior =
 
 // Cache de categorías CCT (no cambian seguido)
 let CACHE_CATEGORIAS = null;
+function pbMesAyudaTexto(v) {
+  if (!v) return '';
+  const MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio',
+                 'agosto','septiembre','octubre','noviembre','diciembre'];
+  const [y, m] = String(v).split('-').map(Number);
+  if (!y || !m) return '';
+  const sig = m === 12 ? `${MES_L[0]} ${y+1}` : `${MES_L[m]} ${y}`;
+  return `La cuota sale del sueldo de ${MES_L[m-1]} ${y}, que se cobra a principios de ${sig}.`;
+}
+function pbMesAyuda() {
+  const inp = document.getElementById('pb-mes'), ay = document.getElementById('pb-mes-ayuda');
+  if (inp && ay) ay.textContent = pbMesAyudaTexto(inp.value);
+}
+
 function limpiarLactancia() {
   if (!confirm('¿Limpiar el período de lactancia?\nLas fechas y reducciones se borran y el sistema deja de aplicar ajustes a su turno.')) return;
   empModalState.formData.lactancia_desde = null;
@@ -7719,17 +7733,44 @@ async function renderFichadas(cont) {
     return;
   }
 
-  // Stats
+  _fichData = data;
+  _fichLimite = 500;
+  // el filtro de colaborador se conserva al cambiar de mes/local si sigue existiendo
+  pintarFichadas();
+}
+
+// ── Tabla de fichadas: filtro por colaborador + "mostrar más" ──────────
+let _fichData = [], _fichFiltroEmp = '', _fichLimite = 500;
+
+function setFichEmp(v) { _fichFiltroEmp = v; _fichLimite = 500; pintarFichadas(); }
+function verMasFichadas() { _fichLimite += 500; pintarFichadas(); }
+
+function pintarFichadas() {
+  const elc = document.getElementById('fich-container');
+  if (!elc) return;
+  const nombreDe = r => r.empleado ? r.empleado.nombre_completo
+                       : `${r.anviz_last_name||''} ${r.anviz_first_name||''} (sin match)`.trim();
+  const nombres = [...new Set(_fichData.map(nombreDe))].sort((a,b)=>a.localeCompare(b));
+  if (_fichFiltroEmp && !nombres.includes(_fichFiltroEmp)) _fichFiltroEmp = '';
+  const data = _fichFiltroEmp ? _fichData.filter(r => nombreDe(r) === _fichFiltroEmp) : _fichData;
+
   const empleadosUnicos = new Set(data.map(r => r.empleado_id || `unmatched:${r.anviz_last_name}`));
   const fechasUnicas = new Set(data.map(r => r.fecha));
+  const visibles = data.slice(0, _fichLimite);
 
   elc.innerHTML = `
     <div class="metrics-grid">
-      <div class="metric-card accent"><div class="label">Fichadas del mes</div><div class="value">${data.length.toLocaleString('es-AR')}</div></div>
+      <div class="metric-card accent"><div class="label">Fichadas${_fichFiltroEmp ? ' (filtradas)' : ' del mes'}</div><div class="value">${data.length.toLocaleString('es-AR')}</div></div>
       <div class="metric-card"><div class="label">Colaboradores distintos</div><div class="value">${empleadosUnicos.size}</div></div>
       <div class="metric-card"><div class="label">Días con fichadas</div><div class="value">${fechasUnicas.size}</div></div>
     </div>
-    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
+    <div style="margin-top:12px;">
+      <select onchange="setFichEmp(this.value)" style="max-width:320px;">
+        <option value="">👤 Todos los colaboradores</option>
+        ${nombres.map(n => `<option value="${escapeHtml(n)}" ${n===_fichFiltroEmp?'selected':''}>${escapeHtml(n)}</option>`).join('')}
+      </select>
+    </div>
+    <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:12px;">
       <thead>
         <tr style="background:#f9fafb;text-align:left;">
           <th style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;">Fecha</th>
@@ -7740,7 +7781,7 @@ async function renderFichadas(cont) {
         </tr>
       </thead>
       <tbody>
-        ${data.slice(0, 500).map(r => `
+        ${visibles.map(r => `
           <tr style="border-top:1px solid var(--border);">
             <td style="padding:8px 14px;font-size:13px;font-family:monospace;">${r.fecha}</td>
             <td style="padding:8px 14px;font-size:13px;font-family:monospace;font-weight:600;">${r.hora.substring(0,5)}</td>
@@ -7751,7 +7792,9 @@ async function renderFichadas(cont) {
         `).join('')}
       </tbody>
     </table>
-    ${data.length > 500 ? `<div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center;">Mostrando 500 de ${data.length} fichadas — usá filtros para refinar</div>` : ''}
+    ${data.length > _fichLimite ? `<div style="margin-top:12px;text-align:center;">
+        <button class="btn btn-secondary" onclick="verMasFichadas()">⬇ Mostrar 500 más (${(data.length - _fichLimite).toLocaleString('es-AR')} restantes)</button>
+      </div>` : `<div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center;">${data.length.toLocaleString('es-AR')} fichadas mostradas${_fichData.length >= 2000 ? ' · ⚠ el mes supera las 2.000 fichadas: filtrá por local o colaborador para ver el resto' : ''}</div>`}
   `;
 }
 
@@ -21042,8 +21085,9 @@ async function abrirCrearPropuestasEnBloque(solicitudId) {
         <input type="text" inputmode="numeric" id="pb-capital" data-money value="${Math.round(s.monto_solicitado)}">
       </div>
       <div class="form-row">
-        <label>Mes primer descuento</label>
-        <input type="month" id="pb-mes" value="${mesDefault}">
+        <label>Primer descuento — sueldo del mes</label>
+        <input type="month" id="pb-mes" value="${mesDefault}" oninput="pbMesAyuda()">
+        <div id="pb-mes-ayuda" style="font-size:11.5px;color:var(--muted);margin-top:3px;">${pbMesAyudaTexto(mesDefault)}</div>
       </div>
       <div class="form-row full">
         <label>CFT anual (%) <span style="color:var(--muted);font-size:11px;">— se aplica a todas las opciones</span></label>
