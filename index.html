@@ -16657,8 +16657,16 @@ async function liqCerrarMes(local, periodo) {
           cuotasRevertidas = (revertidas || []).length;
         }
       }
+      // ─── (1-sep) Liberar las liquidaciones: el cierre las marcó 'firmada'
+      // y el generador de proforma/definitivo excluye las firmadas. Sin esto,
+      // reabrir el mes no alcanzaba para poder regenerar (bug caso Alcorta ago-26).
+      await sb.from('rrhh_liquidacion')
+        .update({ estado: 'borrador' })
+        .eq('local', local)
+        .eq('periodo', periodo + '-01')
+        .eq('estado', 'firmada');
       const extra = cuotasRevertidas > 0 ? ` · ${cuotasRevertidas} cuota(s) volvieron a pendiente` : '';
-      toast(`✓ Mes ${periodo} reabierto para ${local}${extra}`, 'success');
+      toast(`✓ Mes ${periodo} reabierto para ${local}${extra} · liquidaciones liberadas`, 'success');
       switchTab('liquidaciones'); return;
     }
   }
