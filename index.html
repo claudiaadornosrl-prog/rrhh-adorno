@@ -1644,6 +1644,16 @@ function filtrarTablaPorTexto(inputEl, rowSelector, counterSel) {
   }
 }
 
+// (2-sep) fmtMin GLOBAL: el flujo de compensar-con-vacaciones la usaba
+// pero solo existía como const local de otras pantallas → "fmtMin is not
+// defined" al tocar el botón (caso Contreras). Las locales la pisan sin drama.
+function fmtMin(m) {
+  const v = Math.round(Math.abs(Number(m) || 0));
+  if (!v) return '0m';
+  const h = Math.floor(v / 60), mm = v % 60;
+  return h > 0 ? `${h}h${String(mm).padStart(2, '0')}` : `${mm}m`;
+}
+
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));

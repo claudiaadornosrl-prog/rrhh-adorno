@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v326-vaccomp-diag';
+const CACHE_VERSION = 'rrhh-v327-fmtmin-global';
 const ASSETS = [
   './',
   './index.html',
