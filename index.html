@@ -12769,13 +12769,17 @@ async function abrirCompensarVacaciones(selfMode = false) {
   // (27-ago, JP) modo SELF: la colaboradora compensa SU PROPIO banco en
   // negativo con SUS días de vacaciones, desde Mi banco. La RPC valida del
   // lado del server que solo pueda tocarse a sí misma y sin excedente.
+  // (2-sep) Instrumentado: cualquier falla muestra el error en un cartel
+  // en vez de morir en silencio (caso Contreras "no hace nada").
+  try {
   const esSelf = selfMode || session.rol !== 'admin';
   let negativos;
   if (esSelf) {
-    if (!session.empleado_id) { toast('Tu usuario no está vinculado a un empleado', 'error'); return; }
-    const { data: s } = await sb.from('rrhh_banco_saldo').select('*')
+    if (!session.empleado_id) { alert('Tu usuario no está vinculado a un empleado. Avisale a JP.'); return; }
+    const { data: s, error: eS } = await sb.from('rrhh_banco_saldo').select('*')
       .eq('empleado_id', session.empleado_id).maybeSingle();
-    if (!s || (s.saldo_minutos || 0) >= 0) { toast('Tu banco no está en negativo', 'info'); return; }
+    if (eS) { alert('No pude leer tu banco de minutos: ' + eS.message); return; }
+    if (!s || (s.saldo_minutos || 0) >= 0) { alert('Tu banco no está en negativo — no hay nada para compensar.'); return; }
     negativos = [s];
   } else {
     const { data: saldos } = await sb.from('rrhh_banco_saldo').select('*');
@@ -12830,7 +12834,10 @@ async function abrirCompensarVacaciones(selfMode = false) {
   if (esSelf) {
     const se = document.getElementById('vc-emp');
     se.value = String(session.empleado_id);
-    vcCargarAnios();
+    vcCargarAnios().catch(e => alert('No pude cargar tus vacaciones: ' + (e.message || e)));
+  }
+  } catch (e) {
+    alert('Error al abrir la compensación: ' + (e.message || e));
   }
 }
 
