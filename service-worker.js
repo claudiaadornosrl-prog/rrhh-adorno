@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v329-compensa-pdf';
+const CACHE_VERSION = 'rrhh-v330-vac-pago-doble-blanco';
 const ASSETS = [
   './',
   './index.html',

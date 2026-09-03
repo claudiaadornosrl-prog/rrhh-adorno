@@ -23136,7 +23136,10 @@ const salaryWorkflow = (() => {
       const premioFinal    = (overridesPrev.premio_monto?.new != null) ? Number(overridesPrev.premio_monto.new) : premio;
       const viaticosFinal  = (overridesPrev.viaticos?.new  != null) ? Number(overridesPrev.viaticos.new)  : viaticos;
       const feriadoFinal   = (overridesPrev.feriado_monto?.new != null) ? Number(overridesPrev.feriado_monto.new) : feriado_monto;
-      const totalNegroReal = fijoFinal + comisionFinal + premioFinal + viaticosFinal + extras + feriadoFinal + vacacionesPago;
+      // (3-sep, regla JP) El PAGO DE VACACIONES no entra al recibo doble
+      // blanco: se paga en efectivo, fuera del recibo. El solver apunta al
+      // total SIN vacaciones y el efectivo queda = vacaciones pagadas.
+      const totalNegroReal = fijoFinal + comisionFinal + premioFinal + viaticosFinal + extras + feriadoFinal;
       const neto_objetivo_db = totalNegroReal;
       const comisionVentaBruta = salaryEngine.calcularComisionVentaParaNeto({
         neto_objetivo: neto_objetivo_db,
@@ -23163,7 +23166,7 @@ const salaryWorkflow = (() => {
           unidades_pct: dias_recibo,
         },
       });
-      efectivo = 0;
+      efectivo = vacacionesPago;   // doble blanco: solo las vacaciones pagadas van por efectivo
       // ajuste_blanco ahora = bruto del ítem 'Comisiones 0018' agregado por solver
       // (cambio de significado vs v1 que era delta del básico, mismo campo en DB).
       ajuste_blanco = Number(comisionVentaBruta.toFixed(2));
@@ -23200,6 +23203,7 @@ const salaryWorkflow = (() => {
       // negro
       fijo, comision, premio_cobra: cobraPremio, premio_monto: premio,
       viaticos, extras, feriado_dias, feriado_monto,
+      vacaciones_pago: vacacionesPago,   // (3-sep) se persiste: en doble blanco es el efectivo
       ajuste_comentario: ajusteComentPrev,
       total_negro: total_negro_esperado,
       efectivo, ajuste_blanco,
@@ -23242,9 +23246,10 @@ const salaryWorkflow = (() => {
     filaLiq.total_negro = (filaLiq.fijo || 0) + (filaLiq.comision || 0) + (filaLiq.premio_monto || 0)
                        + (filaLiq.viaticos || 0) + (filaLiq.extras || 0) + (filaLiq.feriado_monto || 0);
     // Recalcular efectivo: subtotal - mercaderia - intereses - ajuste
-    // EXCEPTO en doble_blanco donde efectivo SIEMPRE es 0 (todo absorbido en el recibo).
+    // EXCEPTO en doble_blanco donde efectivo = SOLO el pago de vacaciones
+    // (3-sep, regla JP: las vacaciones pagadas no entran al recibo doble blanco).
     if (configEmp.modo_liquidacion === 'doble_blanco') {
-      filaLiq.efectivo = 0;
+      filaLiq.efectivo = Number(filaLiq.vacaciones_pago || 0);
     } else {
       const subtotalEfMan = Math.max(0, (filaLiq.total_negro || 0) - (filaLiq.recibo_neto || 0));
       filaLiq.efectivo = Math.max(0, subtotalEfMan - (filaLiq.mercaderia || 0) - (prestamo_interes || 0) - (filaLiq.ajuste || 0));
