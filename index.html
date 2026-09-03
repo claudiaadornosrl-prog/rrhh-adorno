@@ -12823,8 +12823,8 @@ async function abrirCompensarVacaciones(selfMode = false) {
                        style="width:100%;padding:9px;margin-top:4px;border:1px solid var(--border);border-radius:8px;">
               </div>
               <div style="flex:1;">
-                <label style="font-size:12px;font-weight:600;">Horas por día</label>
-                <input type="number" id="vc-horas" min="1" step="0.5" value="8" oninput="vcPreview()"
+                <label style="font-size:12px;font-weight:600;">Horas por día <span style="font-weight:400;color:var(--muted);">(Oficina 9,5 · locales 7)</span></label>
+                <input type="number" id="vc-horas" min="1" step="0.5" value="7" oninput="vcPreview()"
                        style="width:100%;padding:9px;margin-top:4px;border:1px solid var(--border);border-radius:8px;">
               </div>
             </div>
@@ -12857,6 +12857,13 @@ async function vcCargarAnios() {
   const cont = document.getElementById('vc-detalle');
   const btn = document.getElementById('vc-guardar');
   if (!empId) { cont.style.display = 'none'; btn.disabled = true; return; }
+  // (2-sep, regla JP) Valor del día según el local: Oficina 9,5 hs ·
+  // locales 7 hs. Editable en el campo para los casos especiales.
+  try {
+    const { data: empRow } = await sb.from('rrhh_empleados').select('local').eq('id', empId).maybeSingle();
+    const hIn = document.getElementById('vc-horas');
+    if (empRow && hIn) hIn.value = (empRow.local === 'oficina') ? 9.5 : 7;
+  } catch (_) {}
   const { data: vac } = await sb.from('rrhh_vacaciones')
     .select('año, dias_pendientes').eq('empleado_id', empId).gt('dias_pendientes', 0)
     .order('año');
@@ -23383,7 +23390,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=4"></script>
-<script src="manuales.js?v=6"></script>
+<script src="manuales.js?v=7"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

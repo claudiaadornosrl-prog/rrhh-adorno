@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v327-fmtmin-global';
+const CACHE_VERSION = 'rrhh-v328-horas-dia-local';
 const ASSETS = [
   './',
   './index.html',
