@@ -3724,6 +3724,8 @@ async function renderVacContent() {
     const tipoChip = (tipo) =>
       tipo === 'pago'
         ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 6px;border-radius:4px;font-size:10px;">💵 Pago</span>`
+        : tipo === 'compensacion'
+        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;">⏱ Compensa banco</span>`
         : `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10px;">🌴 Toma</span>`;
 
     const _flecha = (k) => hs.by === k ? (hs.dir === 1 ? ' ▲' : ' ▼') : '';
@@ -4255,7 +4257,7 @@ async function abrirDetalleVacEmpleada(empId, año) {
   const filasMovs = (movs || []).length === 0
     ? `<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin movimientos.</td></tr>`
     : (movs || []).map(m => {
-        const tipo = m.tipo_solicitud === 'pago' ? '💵 Pago' : '🌴 Toma';
+        const tipo = m.tipo_solicitud === 'pago' ? '💵 Pago' : m.tipo_solicitud === 'compensacion' ? '⏱ Compensa banco' : '🌴 Toma';
         const periodo = m.fecha_desde === m.fecha_hasta
           ? fmt(m.fecha_desde)
           : `${fmt(m.fecha_desde)} → ${fmt(m.fecha_hasta)}`;
@@ -12912,6 +12914,17 @@ async function guardarCompensarVacaciones() {
   if (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Compensar'; return; }
   document.getElementById('vaccomp-modal')?.remove();
   toast(`✓ ${data.empleada}: banco ${data.saldo_nuevo_min === 0 ? 'en cero' : fmtMin(data.saldo_nuevo_min)} · ${data.dias_usados} día(s) descontado(s)`);
+  // (3-sep) La compensación es un movimiento de vacaciones (VAC-xxxxx): tiene
+  // su PDF firmable con QR, mismo circuito de firma y archivado.
+  if (data.vacaciones_movimiento_id) {
+    if (session.rol === 'admin') {
+      if (confirm('¿Generar ahora el PDF de conformidad para que lo firme?')) {
+        try { await generarNotificacionVacaciones(data.vacaciones_movimiento_id); } catch (e) { toast('PDF: ' + e.message, 'error'); }
+      }
+    } else {
+      alert('Listo. JP te va a dar el papel de conformidad para firmar (queda en tu historial de vacaciones como "Compensa banco").');
+    }
+  }
   await auditLog('compensar_vacaciones', 'rrhh_banco_minutos', data.banco_movimiento_id, null, null,
                  `${data.dias_usados} dia(s) de vacaciones -> +${data.minutos_acreditados} min`);
   renderAsisTab();
@@ -23389,8 +23402,8 @@ const salaryWorkflow = (() => {
 
 </script>
 <script src="recibos-pdf.js?v=12"></script>
-<script src="vacaciones-pdf.js?v=4"></script>
-<script src="manuales.js?v=7"></script>
+<script src="vacaciones-pdf.js?v=5"></script>
+<script src="manuales.js?v=8"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

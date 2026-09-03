@@ -118,6 +118,14 @@ async function generarNotificacionVacaciones(movId) {
 
   // ─── Detectar si es PAGO (no toma) ───
   const esPago = mov.estado === 'pagada' || mov.tipo_solicitud === 'pago';
+  // ─── (3-sep) COMPENSACIÓN de banco de minutos con días de vacaciones ───
+  const esCompensacion = mov.tipo_solicitud === 'compensacion';
+  let compMinutos = 0, compHoras = '';
+  if (esCompensacion) {
+    const mObs = String(mov.observaciones || '').match(/(\d+)\s*min\s*\(([\d.,]+)\s*hs/);
+    if (mObs) { compMinutos = parseInt(mObs[1]); compHoras = mObs[2].replace('.', ','); }
+  }
+  const _hhmm = (m) => `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')} hs`;
 
   // Colores de marca
   const COLOR_PRIMARY = [13, 148, 136];   // #0d9488 turquesa
@@ -167,7 +175,8 @@ async function generarNotificacionVacaciones(movId) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
   doc.setTextColor(...COLOR_TEXT);
-  _textTracked(doc, esPago ? 'CONFORMIDAD DE PAGO DE VACACIONES' : 'NOTIFICACIÓN DE COMIENZO DE VACACIONES', W/2, 50, {
+  _textTracked(doc, esCompensacion ? 'CONFORMIDAD · COMPENSACIÓN DE MINUTOS CON VACACIONES'
+                  : esPago ? 'CONFORMIDAD DE PAGO DE VACACIONES' : 'NOTIFICACIÓN DE COMIENZO DE VACACIONES', W/2, 50, {
     align: 'center', tracking: 0.5, fontSize: 13,
   });
 
@@ -203,7 +212,9 @@ async function generarNotificacionVacaciones(movId) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(...COLOR_TEXT);
-  const cuerpo = esPago
+  const cuerpo = esCompensacion
+    ? `Por la presente dejo constancia de que solicito aplicar ${dias} día/s de mis vacaciones correspondientes al año ${año} para compensar ${compMinutos ? _hhmm(compMinutos) + ' (' + compMinutos + ' minutos)' : 'el saldo en contra'} de mi banco de minutos${compHoras ? ', computando cada día a razón de ' + compHoras + ' horas' : ''}. Con la firma del presente presto conformidad con esta imputación, que reduce en ${dias} día/s mi saldo de vacaciones del año ${año} y cancela en igual medida los minutos adeudados. Estos días no serán gozados como descanso.`
+    : esPago
     ? `Por la presente dejamos constancia de que, a su solicitud, se procede al pago de ${dias} día/s de vacaciones correspondientes al año ${año}, los cuales no serán gozados como descanso. El importe correspondiente se abonará junto con la próxima liquidación de haberes. Con la firma del presente, el/la trabajador/a presta su conformidad con la modalidad de pago y confirma la imputación de los días al saldo del año ${año}.`
     : `Le comunicamos que, de acuerdo con las disposiciones legales vigentes, gozará de las vacaciones correspondientes al año ${año} por el período de ${dias} día/s. Dichas vacaciones comenzarán a regir desde el día ${desde} hasta el día ${hasta}, inclusive, debiendo reintegrarse a sus tareas el día ${reintegro}.`;
   const lineas = doc.splitTextToSize(cuerpo, ancho);
@@ -230,7 +241,8 @@ async function generarNotificacionVacaciones(movId) {
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(10.5);
   doc.setTextColor(...COLOR_TEXT);
-  doc.text('"Quedo debidamente notificado de la comunicación precedente."', W/2, y, { align: 'center' });
+  doc.text(esCompensacion ? '"Presto conformidad con la compensación detallada precedentemente."'
+                          : '"Quedo debidamente notificado de la comunicación precedente."', W/2, y, { align: 'center' });
 
   // ═══ FIRMAS — TRABAJADOR ═══
   y = 230;
@@ -311,7 +323,9 @@ async function generarNotificacionVacaciones(movId) {
   const nombreLimpio = String(nombre || 'EMPLEADO').replace(/,/g, '').trim().toUpperCase();
   const fDesde = _fmtDdMmAaaa(mov.fecha_desde);
   const fHasta = _fmtDdMmAaaa(mov.fecha_hasta);
-  const fname = `VACACIONES ${año} ${nombreLimpio} - ${fDesde} HASTA ${fHasta}.pdf`;
+  const fname = esCompensacion
+    ? `VACACIONES ${año} ${nombreLimpio} - COMPENSACION BANCO ${dias} DIAS ${fDesde}.pdf`
+    : `VACACIONES ${año} ${nombreLimpio} - ${fDesde} HASTA ${fHasta}.pdf`;
   doc.save(fname);
   toast('✓ PDF generado y descargado', 'success');
 }

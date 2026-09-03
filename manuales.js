@@ -147,6 +147,7 @@ const MANUAL_EMPLEADO = [
       'Click "+ Pedir nuevo permiso" → elegís fecha (desde hoy en adelante), tipo y motivo.',
       'Podés elegir cómo compensarlo: banco de minutos, días de vacaciones, o sin compensar (te descuenta del sueldo).',
       'Si tu banco está en negativo, en "Mi banco" tenés el botón 🌴 para compensar con días de vacaciones. El valor del día es según tu lugar: Oficina 9,5 horas · locales 7 horas (casos especiales se ajustan a mano).',
+      'La compensación queda como un movimiento de vacaciones ("⏱ Compensa banco") con su papel de conformidad para firmar — igual que una notificación de vacaciones: se imprime, se firma, se escanea y se manda por mail; el QR lo archiva solo.',
       'La encargada va a recibir el pedido y lo aprueba o rechaza.',
     ],
     img: null,
