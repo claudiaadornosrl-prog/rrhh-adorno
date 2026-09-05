@@ -33,6 +33,8 @@ const MANUAL_GERENTE = [
       'Antes de cerrar el mes, revisá el "Resumen mensual" — listado por colaboradora con sus errores.',
       'El panel de sugerencias compara fichadas contra turnos y permisos: si detecta una extra, la cargás con "✔ Cargar extra" (podés ajustar los minutos); si algo no corresponde, "Ignorar".',
       'Importante: las horas extra ya NO van solas al banco de minutos al cerrar el mes — solo entran las que cargás vos con el botón de extras o desde las sugerencias.',
+      'Sugerencias nuevas: 🌅 "entró más de 45 min antes del horario real" (revisá si fue una extra pedida) y 📅 "trabajó en su franco". Si la chica trabajó el franco y lo toma otro día, NO cargues extra: usá "⋮ Otro turno → 🔁 Trabaja este franco → trasladarlo" en ese día: elegís el nuevo día de franco y el día trabajado computa DOBLE al banco solo al cruzar el mes.',
+      'Las extras van SIEMPRE al banco de minutos. El pago en efectivo lo pide la colaboradora desde "Mi banco" recién cuando junta una semana entera de extras (sus horas semanales del legajo) y lo aprueba JP.',
       'Tardanzas — cómo funciona (dos sistemas separados): (1) ERROR de fichada: entrar pasada la tolerancia (Oficina 25 min desde el turno cargado, locales 20) quema 1 error contra el premio. (2) MINUTOS al banco: TODOS los minutos desde el horario real (turno + 15) suman a un pool mensual, haya error o no; si el pool pasa los 60 minutos en el mes, se descuenta TODO del banco al cerrar. Ejemplo: llegar 7 min tarde no quema error pero suma 7 minutos.',
       'Si una colaboradora tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
       'Los permisos solo se pueden cargar con fecha de hoy en adelante — los de fecha pasada los carga el admin.',
@@ -157,7 +159,7 @@ const MANUAL_EMPLEADO = [
     desc: 'Saldo de minutos a favor o en contra. Si te quedaste más, ganás banco; si te fuiste antes, te descuenta.',
     pasos: [
       'Tu saldo actual aparece arriba en grande.',
-      'Si tenés muchos minutos a favor podés pedir días extra de vacaciones o que se te paguen.',
+      'Tus horas extra se suman al banco. Cuando las extras acumuladas llegan a una semana entera de trabajo (tus horas semanales), aparece el botón "💵 Pedir pago de extras": JP lo aprueba y se te paga en efectivo con el sueldo; esos minutos se descuentan del banco.',
       'Si estás en contra (negativo), se descuenta del sueldo o de las vacaciones.',
       'Con saldo en contra aparece el botón "🌴 Compensar con días de vacaciones": elegís cuántos días de tus vacaciones pendientes usar y el sistema salda los minutos. Nunca acredita de más.',
       'Los movimientos pendientes aparecen en amarillo hasta que la encargada cierra el mes.',

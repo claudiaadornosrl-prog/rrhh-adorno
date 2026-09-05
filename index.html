@@ -2196,6 +2196,15 @@ async function renderTabDatos() {
       </div>
     </div>
 
+    <div class="section-title">⏱ Horas extras</div>
+    <div class="form-grid">
+      <div class="form-row ${!editing?'readonly':''}">
+        <label>Horas semanales de trabajo</label>
+        <input type="number" data-field="horas_semanales" value="${d.horas_semanales||''}" min="0" max="60" step="0.5" ${!editing?'disabled':''} placeholder="ej. 42">
+        <div class="hint" style="font-size:11px;color:var(--muted);">Regla JP: la colaboradora puede pedir el pago de extras recién cuando las extras acumuladas en el banco suman una semana entera (estas horas). Vacío = no puede pedir.</div>
+      </div>
+    </div>
+
     <div class="section-title">Contacto</div>
     <div class="form-grid">
       <div class="form-row ${!editing?'readonly':''}">
@@ -2332,7 +2341,7 @@ async function renderTabDatos() {
         val = val === '' ? 0 : parseInt(val, 10) || 0;
       }
       // Campos numéricos decimales (Ganancias deducciones)
-      if (field === 'domestica_mensual' || field === 'prepaga_mensual') {
+      if (field === 'domestica_mensual' || field === 'prepaga_mensual' || field === 'horas_semanales') {
         val = val === '' ? 0 : Number(val) || 0;
       }
       // Fechas de lactancia vacías → null
@@ -3243,6 +3252,7 @@ async function saveEmpleado() {
     lactancia_hasta:                d.lactancia_hasta || null,
     lactancia_reduccion_diaria_min: Number(d.lactancia_reduccion_diaria_min) || 0,
     lactancia_reduccion_finde_min:  Number(d.lactancia_reduccion_finde_min) || 0,
+    horas_semanales:                d.horas_semanales ? Number(d.horas_semanales) : null,
   };
 
   const saveBtn = document.getElementById('emp-modal-save');
@@ -4011,11 +4021,8 @@ async function decidirVacacion(movId, accion) {
     // Update saldos
     const sumaPorVac = {};
     tramos.forEach(t => { sumaPorVac[t.vacId] = (sumaPorVac[t.vacId] || 0) + t.dias; });
-    for (const vacIdStr in sumaPorVac) {
-      const vacId = parseInt(vacIdStr, 10);
-      const { data: s } = await sb.from('rrhh_vacaciones').select('dias_tomados').eq('id', vacId).single();
-      await sb.from('rrhh_vacaciones').update({ dias_tomados: (s.dias_tomados||0) + sumaPorVac[vacId] }).eq('id', vacId);
-    }
+    // (3-sep) dias_tomados lo recalcula la base desde los movimientos (trigger
+    // trg_vacmov_refrescar_saldo): sumar a mano duplicaba y dejaba días huérfanos.
 
     // Crear UN movimiento NUEVO por cada tramo con estado='pagada'
     // Y marcar el ORIGINAL como 'pagada' también (cerrando la solicitud)
@@ -4023,7 +4030,7 @@ async function decidirVacacion(movId, accion) {
     // Importe se guarda solo en el mov principal (no en los tramos extra) para no duplicar
     if (tramos.length === 1) {
       // Único tramo: update directo sobre la solicitud original
-      await sb.from('rrhh_vacaciones_movimientos').update({
+      const { error: eUp1 } = await sb.from('rrhh_vacaciones_movimientos').update({
         estado: 'pagada',
         vacaciones_id: tramos[0].vacId,
         aprobado_por: session.email,
@@ -4032,9 +4039,10 @@ async function decidirVacacion(movId, accion) {
         periodo_liquidacion: periodoLiq || null,
         observaciones: (mov.observaciones || '') + ` · Aprobado y pagado FIFO → ${tramos[0].año}`,
       }).eq('id', movId);
+      if (eUp1) { alert('No se pudo aprobar el pago: ' + eUp1.message); return; }
     } else {
       // Múltiples tramos: marcamos el original como pagada con el primer año, y creamos extras
-      await sb.from('rrhh_vacaciones_movimientos').update({
+      const { error: eUp2 } = await sb.from('rrhh_vacaciones_movimientos').update({
         estado: 'pagada',
         vacaciones_id: tramos[0].vacId,
         dias: tramos[0].dias,
@@ -4044,6 +4052,7 @@ async function decidirVacacion(movId, accion) {
         periodo_liquidacion: periodoLiq || null,
         observaciones: (mov.observaciones || '') + ` · FIFO tramo 1/${tramos.length} → ${tramos[0].año}`,
       }).eq('id', movId);
+      if (eUp2) { alert('No se pudo aprobar el pago: ' + eUp2.message); return; }
       const extras = tramos.slice(1).map((t, i) => ({
         vacaciones_id: t.vacId, empleado_id: mov.empleado_id,
         fecha_desde: fecha, fecha_hasta: fecha,
@@ -4080,6 +4089,10 @@ async function decidirVacacion(movId, accion) {
     }
 
     toast(`✓ Pago aprobado: ${mov.dias} días (${tramos.length} tramo${tramos.length>1?'s':''})${msjLiq}`, 'success');
+    // (3-sep) conformidad de pago firmable, en el acto
+    if (confirm('¿Generar ahora el PDF de conformidad de pago para que lo firme?')) {
+      try { await generarNotificacionVacaciones(movId); } catch (e) { toast('PDF: ' + e.message, 'error'); }
+    }
     // 🔔 Push a la empleada
     enviarPush(
       mov.empleado_id,
@@ -4145,6 +4158,11 @@ async function abrirSolicitarPagoVac() {
         <div>
           <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Días a pagar *</label>
           <input type="number" id="solpag-dias" min="1" max="${totalDisp}" value="${Math.min(totalDisp, maxPagAño)}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+            Días <b>corridos</b> (así los computa la ley: sueldo ÷ 25 por día). En Oficina, una semana de vacaciones = <b>7</b> corridos, no 5 hábiles.
+            <button type="button" class="btn small" style="margin-left:6px;padding:2px 8px;font-size:11px;" onclick="document.getElementById('solpag-dias').value=7">1 semana = 7</button>
+            <button type="button" class="btn small" style="padding:2px 8px;font-size:11px;" onclick="document.getElementById('solpag-dias').value=14">2 semanas = 14</button>
+          </div>
         </div>
         <div>
           <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo (opcional)</label>
@@ -4215,7 +4233,7 @@ async function abrirDetalleVacEmpleada(empId, año) {
   const [{ data: emp }, { data: saldos }, { data: movs }] = await Promise.all([
     sb.from('rrhh_empleados').select('id, nombre_completo, local, fecha_ingreso').eq('id', empId).single(),
     sb.from('rrhh_vacaciones').select('*').eq('empleado_id', empId).order('año', { ascending: false }),
-    sb.from('rrhh_vacaciones_movimientos').select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen').eq('empleado_id', empId).order('fecha_desde', { ascending: false }).limit(50),
+    sb.from('rrhh_vacaciones_movimientos').select('*, documento_firmado_at, documento_firmado_path, documento_firmado_origen, saldo:rrhh_vacaciones(año)').eq('empleado_id', empId).order('fecha_desde', { ascending: false }).limit(50),
   ]);
   if (!emp) { toast('No se encontró la empleada', 'error'); return; }
 
@@ -4255,7 +4273,7 @@ async function abrirDetalleVacEmpleada(empId, año) {
     return `<span style="color:var(--muted);font-size:11px;">—</span>`;
   };
   const filasMovs = (movs || []).length === 0
-    ? `<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin movimientos.</td></tr>`
+    ? `<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--muted);font-size:13px;">Sin movimientos.</td></tr>`
     : (movs || []).map(m => {
         const tipo = m.tipo_solicitud === 'pago' ? '💵 Pago' : m.tipo_solicitud === 'compensacion' ? '⏱ Compensa banco' : '🌴 Toma';
         const periodo = m.fecha_desde === m.fecha_hasta
@@ -4265,9 +4283,11 @@ async function abrirDetalleVacEmpleada(empId, año) {
         const btnPdf = puedeImprimir
           ? `<button class="btn" style="padding:3px 8px;font-size:11px;" onclick="generarNotificacionVacaciones(${m.id})">📄 PDF</button>`
           : `<span style="color:var(--muted);font-size:11px;">—</span>`;
+        const añoImput = m.saldo?.año || '—';
         return `<tr style="border-top:1px solid var(--border);">
           <td style="padding:8px;font-size:12px;">${tipo}</td>
           <td style="padding:8px;font-size:12px;">${periodo}</td>
+          <td style="padding:8px;text-align:center;font-size:12px;font-weight:600;color:#92400e;">${añoImput}</td>
           <td style="padding:8px;text-align:center;font-weight:600;">${m.dias}</td>
           <td style="padding:8px;">${tagEstado(m.estado, m.tipo_solicitud)}</td>
           <td style="padding:8px;">${tagFirmado(m)}</td>
@@ -4321,6 +4341,7 @@ async function abrirDetalleVacEmpleada(empId, año) {
           <thead><tr style="background:#f3f4f6;text-align:left;">
             <th style="padding:8px;">Tipo</th>
             <th style="padding:8px;">Período</th>
+            <th style="padding:8px;text-align:center;" title="Año de vacaciones al que se imputó">Año vac.</th>
             <th style="padding:8px;text-align:center;">Días</th>
             <th style="padding:8px;">Estado</th>
             <th style="padding:8px;">Firma</th>
@@ -8571,6 +8592,7 @@ async function procesarMes(periodo, local = null) {
     .select('empleado_id, fecha, minutos').in('empleado_id', empIds);
   const extrasMap = {};
   (extras || []).forEach(x => { extrasMap[`${x.empleado_id}_${x.fecha}`] = x.minutos || 0; });
+  const francoDobleExtras = [];   // francos trasladados a acreditar ×2 (se escriben al final)
 
   // 9) Tolerancias por local
   const { data: tolDb } = await sb.from('rrhh_config_tolerancias').select('*');
@@ -8666,6 +8688,19 @@ async function procesarMes(periodo, local = null) {
         if (hayFichada) {
           estado = 'puntual';  // vino en franco — cuenta como extra
           entrada = fichs[0]; salida = fichs[fichs.length-1];
+          // 🔁 Franco trasladado (regla JP 3-sep): si la encargada marcó el
+          // franco como "trabajado → trasladado a otro día", ese día computa
+          // DOBLE. La marca ES la autorización: el cruce carga la extra ×2 al
+          // banco solo (idempotente: si ya hay extra ese día, no repite).
+          if (turno.doble && fichs.length >= 2 && !extrasMap[k]) {
+            const trab = horaToMin(salida) - horaToMin(entrada);
+            if (trab > 0) {
+              minExtra = trab * 2;
+              francoDobleExtras.push({ empleado_id: emp.id, fecha, trab, minutos: trab * 2, trasladado_a: turno.franco_trasladado_a });
+            }
+          } else if (extrasMap[k]) {
+            minExtra = extrasMap[k];
+          }
         } else estado = 'franco';
       } else {
         // Turno normal planificado
@@ -8800,6 +8835,21 @@ async function procesarMes(periodo, local = null) {
         });
       }
     }
+  }
+
+  // 10.4) Francos trasladados (día doble): extra automática al banco
+  for (const fd of francoDobleExtras) {
+    const _fc = (f) => f ? f.split('-').reverse().join('/') : '?';
+    const motivo = `[franco_doble] Franco trabajado y trasladado al ${_fc(fd.trasladado_a)} — ${fd.trab} min fichados ×2 = ${fd.minutos} min`;
+    const { data: hx, error: eHx } = await sb.from('rrhh_horas_extras').insert({
+      empleado_id: fd.empleado_id, fecha: fd.fecha, minutos: fd.minutos,
+      motivo, autorizado_por: 'sistema-cruce', compensacion: 'banco',
+    }).select().single();
+    if (eHx) { console.warn('[procesarMes] franco doble', eHx.message); continue; }
+    await sb.from('rrhh_banco_minutos').insert({
+      empleado_id: fd.empleado_id, fecha: fd.fecha, minutos: fd.minutos, tipo: 'hora_extra',
+      referencia_tipo: 'horas_extras', referencia_id: hx.id, observaciones: motivo, creado_por: 'sistema-cruce',
+    });
   }
 
   // 10.5) Movimiento mensual de tardanzas
@@ -9188,6 +9238,7 @@ async function abrirMenuCambiarTurno(detalleId, empId, fecha) {
           return `<button class="btn" style="text-align:left;padding:10px 12px;" onclick="document.getElementById('cambiar-turno-modal').remove();cambiarTurnoDia(${detalleId}, ${empId}, '${fecha}', ${t.id})">${t.icono||''} <strong>${escapeHtml(t.nombre)}</strong> <span style="color:var(--muted);font-size:12px;margin-left:8px;">${horas}</span></button>`;
         }).join('')}
         <button class="btn" style="text-align:left;padding:10px 12px;border-top:1px dashed var(--border);margin-top:6px;" onclick="document.getElementById('cambiar-turno-modal').remove();cambiarTurnoPersonalizado(${detalleId}, ${empId}, '${fecha}')">✏️ <strong>Horario personalizado...</strong> <span style="color:var(--muted);font-size:12px;margin-left:8px;">elegir hora_inicio y hora_fin</span></button>
+        <button class="btn" style="text-align:left;padding:10px 12px;background:#fff7ed;border-color:#fdba74;" onclick="document.getElementById('cambiar-turno-modal').remove();marcarFrancoTrasladado(${empId}, '${fecha}')">🔁 <strong>Trabaja este franco → trasladarlo</strong> <span style="color:var(--muted);font-size:12px;margin-left:8px;">el día trabajado computa DOBLE al banco; el franco pasa a otro día</span></button>
       </div>
       <div style="display:flex;justify-content:flex-end;">
         <button class="btn" onclick="document.getElementById('cambiar-turno-modal').remove()">Cancelar</button>
@@ -9196,6 +9247,43 @@ async function abrirMenuCambiarTurno(detalleId, empId, fecha) {
   `;
   document.body.appendChild(modal);
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
+
+// 🔁 Franco trasladado (regla JP 3-sep): la empleada trabaja su franco y lo
+// toma otro día. El día trabajado queda como franco con doble=true (el cruce
+// acredita los minutos fichados ×2 al banco, sin pago); el día elegido pasa a
+// franco. Si ya era franco, se avisa y no se toca.
+async function marcarFrancoTrasladado(empId, fecha) {
+  if (!['admin','gerente'].includes(session.rol)) { toast('Solo encargada/admin', 'error'); return; }
+  const { data: t } = await sb.from('rrhh_turnos').select('id, es_franco, doble, franco_trasladado_a')
+    .eq('empleado_id', empId).eq('fecha', fecha).maybeSingle();
+  if (!t || !t.es_franco) { toast('Ese día no es franco: primero cambiá el turno a Franco', 'error'); return; }
+  if (t.doble) {
+    if (!confirm(`Este franco ya está marcado como trabajado (trasladado al ${t.franco_trasladado_a || '?'}).\n¿Quitar la marca?`)) return;
+    const { error } = await sb.from('rrhh_turnos').update({ doble: false, franco_trasladado_a: null }).eq('id', t.id);
+    if (error) { toast('Error: ' + error.message, 'error'); return; }
+    toast('Marca quitada. Recalculando mes...', 'info');
+    try { await procesarMes(fecha.substring(0,7), null); } catch(_) {}
+    await renderDetalleEmpDia(empId); await renderResumenContent();
+    return;
+  }
+  const dest = prompt(`Trabaja el franco del ${fecha.split('-').reverse().join('/')}.\n¿A qué día lo traslada? (AAAA-MM-DD)`);
+  if (!dest) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dest.trim())) { toast('Fecha inválida (AAAA-MM-DD)', 'error'); return; }
+  const destino = dest.trim();
+  // el día destino pasa a franco (upsert sobre el turno de ese día)
+  const { data: td } = await sb.from('rrhh_turnos').select('id, es_franco').eq('empleado_id', empId).eq('fecha', destino).maybeSingle();
+  if (td && td.es_franco) { toast('El día elegido ya es franco — elegí otro', 'error'); return; }
+  const filaDest = { empleado_id: empId, fecha: destino, es_franco: true, template_id: null, hora_inicio: null, hora_fin: null, tipo: 'franco', planificado_por: session.email };
+  const rDest = td ? await sb.from('rrhh_turnos').update(filaDest).eq('id', td.id)
+                   : await sb.from('rrhh_turnos').insert(filaDest);
+  if (rDest.error) { toast('Error al mover el franco: ' + rDest.error.message, 'error'); return; }
+  const { error } = await sb.from('rrhh_turnos').update({ doble: true, franco_trasladado_a: destino }).eq('id', t.id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  await auditLog('franco_trasladado', 'rrhh_turnos', t.id, fecha, 'franco', `franco trabajado (doble) → franco el ${destino}`);
+  toast(`Franco trasladado al ${destino.split('-').reverse().join('/')}. Recalculando mes (el día trabajado computa doble)...`, 'info');
+  try { await procesarMes(fecha.substring(0,7), null); toast('Mes recalculado ✓', 'success'); } catch (e) { toast('Falló el recálculo: ' + e.message, 'warning'); }
+  await renderDetalleEmpDia(empId); await renderResumenContent();
 }
 
 async function cambiarTurnoPersonalizado(detalleId, empId, fecha) {
@@ -9227,7 +9315,7 @@ async function renderDetalleEmpDia(empId) {
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
 
   const { data: detalle } = await sb.from('rrhh_asistencias_detalle')
-    .select('*, turno:rrhh_turnos(hora_inicio, hora_fin, tipo, es_franco)')
+    .select('*, turno:rrhh_turnos(hora_inicio, hora_fin, tipo, es_franco, doble, franco_trasladado_a)')
     .eq('empleado_id', empId)
     .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
     .order('fecha', { ascending: true });
@@ -9363,7 +9451,7 @@ async function renderDetalleEmpDia(empId) {
           const dow = DIAS[fecha.getDay()];
           const dia_num = fecha.getDate();
           const est = ESTADO_MAP[d.estado] || ESTADO_MAP.sin_definir;
-          const turnoTxt = d.turno?.es_franco ? '— Franco' :
+          const turnoTxt = d.turno?.es_franco ? (d.turno.doble ? `🔁 Franco trabajado (doble → franco el ${(d.turno.franco_trasladado_a||'?').split('-').reverse().join('/')})` : '— Franco') :
                            (d.turno?.hora_inicio ? `${fmtHora(d.turno.hora_inicio)} → ${fmtHora(d.turno.hora_fin)}` : '—');
           const anomalia = detectarAnomalia(d);
           const banco = d.minutos_banco || 0;
@@ -9398,7 +9486,8 @@ async function renderDetalleEmpDia(empId) {
                   // pueda corregir el turno aún cuando el desfase sea chico (< 60 min)
                   // como el caso "salida temprana de 54 min" o "entrada 55 min antes".
                   const tieneDesfase = tieneFichadas && (Math.abs(d.minutos_banco||0) > 0 || (d.minutos_tarde||0) > 0 || (d.minutos_salida_temp||0) > 0);
-                  const mostrarOpciones = puedeSalvar && (anomalia || sug || (tieneFichadas && bancoRaro) || tieneDesfase);
+                  const esFrancoConFichada = !!(d.turno?.es_franco && tieneFichadas);
+                  const mostrarOpciones = puedeSalvar && (anomalia || sug || (tieneFichadas && bancoRaro) || tieneDesfase || esFrancoConFichada);
 
                   let html = anomalia ? `<span style="color:#92400e;">${anomalia}</span>` : '';
                   if (!anomalia && sug) {
@@ -10179,11 +10268,39 @@ async function generarSugerenciasFichadas() {
     const permSet  = new Set((permsRes.data  || []).map(p => `${p.empleado_id}_${p.fecha}`));
     const extraSet = new Set((extrasRes.data || []).map(x => `${x.empleado_id}_${x.fecha}`));
 
+    // (3-sep, JP) turnos del mes: para detectar entradas tempranas (>45 min
+    // antes del horario real) y francos trabajados sin marca de "doble"
+    const { data: turnosMes } = await sb.from('rrhh_turnos')
+      .select('empleado_id, fecha, hora_inicio, es_franco, tipo, doble')
+      .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta);
+    const turnoMap = {};
+    (turnosMes || []).forEach(t => { turnoMap[`${t.empleado_id}_${t.fecha}`] = t; });
+    const BUFFER_REAL = 15;          // los turnos se cargan 15 min antes del horario real
+    const UMBRAL_TEMPRANO = 45;      // regla JP: más de 45 min antes → que la encargada revise
+
     const _hhmm = (t) => (t || '').toString().slice(0, 5) || '?';
+    const _m = (t) => { const p = (t || '').toString().split(':'); return p.length >= 2 ? (+p[0]) * 60 + (+p[1]) : null; };
     const cands = [];
     (snap.detalle || []).forEach(d => {
       if (!empIds.includes(d.empleado_id) || d.error_salvado) return;
       const key = `${d.empleado_id}_${d.fecha}`;
+      const tu = turnoMap[key];
+      // entrada temprana: solo si hay turno con hora y no hay extra cargada ese día
+      if (tu && !tu.es_franco && tu.hora_inicio && d.entrada && !extraSet.has(key)) {
+        const real = _m(tu.hora_inicio) + BUFFER_REAL, ent = _m(d.entrada);
+        if (real != null && ent != null && real - ent >= UMBRAL_TEMPRANO) {
+          cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'extra_antes', minutos: real - ent,
+            detalle: `Entró ${real - ent} min ANTES del horario real (fichó ${_hhmm(d.entrada)}, turno real ${_hhmm(tu.hora_inicio)}+15) — ¿fue extra pedida?` });
+        }
+      }
+      // franco trabajado sin marca de "franco trasladado (doble)": extra común
+      if (tu && tu.es_franco && !tu.doble && d.entrada && d.salida && !extraSet.has(key)) {
+        const trab = _m(d.salida) - _m(d.entrada);
+        if (trab >= SUG_UMBRAL_MIN) {
+          cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'extra_franco', minutos: trab,
+            detalle: `Trabajó ${trab} min en su día de FRANCO (${_hhmm(d.entrada)}→${_hhmm(d.salida)}) sin extra ni franco trasladado. Si trasladó el franco, marcalo con ⋮ en el día (computa doble).` });
+        }
+      }
       if ((d.minutos_extra || 0) >= SUG_UMBRAL_MIN && !extraSet.has(key)) {
         cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'extra', minutos: d.minutos_extra,
           detalle: `Trabajó ${d.minutos_extra} min de más (salida ${_hhmm(d.salida_real || d.salida)}) sin extra cargada` });
@@ -10292,7 +10409,7 @@ function renderSugFichadasPanel(sugs) {
     const dt = new Date(f + 'T12:00:00');
     return `${DIAS_S[dt.getDay()]} ${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`;
   };
-  const ICONO_SUG = { extra: '⏰', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪', permiso_sin_uso: '↩', permiso_parcial: '⚖', extra_sin_respaldo: '🚫' };
+  const ICONO_SUG = { extra: '⏰', extra_antes: '🌅', extra_franco: '📅', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪', permiso_sin_uso: '↩', permiso_parcial: '⚖', extra_sin_respaldo: '🚫' };
   cont.style.display = 'block';
   cont.innerHTML = `
     <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;margin-bottom:16px;overflow:hidden;">
@@ -10311,7 +10428,7 @@ function renderSugFichadasPanel(sugs) {
             <span style="color:#78716c;flex:1;min-width:180px;">${escapeHtml(su.detalle || '')}</span>
             ${(() => {
               const b = (bg, fn, txt) => `<button class="btn" style="font-size:11px;padding:4px 10px;background:${bg};color:white;border:none;border-radius:6px;" onclick="${fn}(${su.id})">${txt}</button>`;
-              if (su.tipo === 'extra') return b('#065f46', 'sugAplicarExtra', '✔ Cargar extra');
+              if (su.tipo === 'extra' || su.tipo === 'extra_antes' || su.tipo === 'extra_franco') return b('#065f46', 'sugAplicarExtra', '✔ Cargar extra');
               // Permisos retroactivos: SOLO admin (regla 4-ago). Encargadas solo
               // ignoran — el descuento lo hace el pool de tardanzas al cierre.
               if (su.tipo === 'falta_permiso_tarde' || su.tipo === 'falta_permiso_salida')
@@ -11697,11 +11814,8 @@ async function guardarAsignarVacacion() {
   tramos.forEach(t => { sumaPorVac[t.vacId] = (sumaPorVac[t.vacId] || 0) + t.dias; });
 
   // Update saldos
-  for (const vacIdStr in sumaPorVac) {
-    const vacId = parseInt(vacIdStr, 10);
-    const { data: s } = await sb.from('rrhh_vacaciones').select('dias_tomados').eq('id', vacId).single();
-    await sb.from('rrhh_vacaciones').update({ dias_tomados: (s.dias_tomados||0) + sumaPorVac[vacId] }).eq('id', vacId);
-  }
+  // (3-sep) dias_tomados lo recalcula la base desde los movimientos (trigger):
+  // sumar a mano duplicaba y dejaba días huérfanos si el insert fallaba.
 
   // Crear movimientos (uno por tramo, con las mismas fechas)
   const obsBase = (obs || 'Asignada directamente por encargada/admin') + (esOficina ? ' (días hábiles)' : '');
@@ -11758,6 +11872,11 @@ async function abrirPagarVacaciones() {
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Días a pagar *</label>
             <input type="number" id="pag-dias" min="1" value="7" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+            Días <b>corridos</b> (así los computa la ley: sueldo ÷ 25 por día). En Oficina, una semana de vacaciones = <b>7</b> corridos, no 5 hábiles.
+            <button type="button" class="btn small" style="margin-left:6px;padding:2px 8px;font-size:11px;" onclick="document.getElementById('pag-dias').value=7">1 semana = 7</button>
+            <button type="button" class="btn small" style="padding:2px 8px;font-size:11px;" onclick="document.getElementById('pag-dias').value=14">2 semanas = 14</button>
+          </div>
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha de pago / liquidación</label>
@@ -11915,11 +12034,8 @@ async function guardarPagoVacaciones() {
   // Update saldos
   const sumaPorVac = {};
   tramos.forEach(t => { sumaPorVac[t.vacId] = (sumaPorVac[t.vacId] || 0) + t.dias; });
-  for (const vacIdStr in sumaPorVac) {
-    const vacId = parseInt(vacIdStr, 10);
-    const { data: s } = await sb.from('rrhh_vacaciones').select('dias_tomados').eq('id', vacId).single();
-    await sb.from('rrhh_vacaciones').update({ dias_tomados: (s.dias_tomados||0) + sumaPorVac[vacId] }).eq('id', vacId);
-  }
+  // (3-sep) dias_tomados lo recalcula la base desde los movimientos (trigger):
+  // sumar a mano duplicaba y dejaba días huérfanos si el insert fallaba.
 
   // Crear movimientos con estado='pagada' (uno por tramo)
   const inserts = tramos.map(t => ({
@@ -11929,6 +12045,7 @@ async function guardarPagoVacaciones() {
     fecha_hasta: fecha,
     dias: t.dias,
     estado: 'pagada',
+    tipo_solicitud: 'pago',
     solicitado_por: session.email,
     aprobado_por:   session.email,
     fecha_aprobacion: new Date().toISOString(),
@@ -11941,6 +12058,10 @@ async function guardarPagoVacaciones() {
     `${dias}d pagados ${tramos.length>1?'(FIFO '+tramos.length+' tramos)':''}`);
   toast(`✓ Pago registrado: ${dias} días`, 'success');
   document.getElementById('pagvac-modal').remove();
+  // (3-sep) conformidad de pago firmable, en el acto
+  if (data?.[0]?.id && confirm('¿Generar ahora el PDF de conformidad de pago para que lo firme?')) {
+    try { await generarNotificacionVacaciones(data[0].id); } catch (e) { toast('PDF: ' + e.message, 'error'); }
+  }
   if (typeof renderVacContent === 'function') renderVacContent();
 }
 
@@ -12109,13 +12230,10 @@ async function guardarCargaMasivaVac() {
     const { data: existing } = await sb.from('rrhh_vacaciones')
       .select('id, dias_tomados').eq('empleado_id', empId).eq('año', año).maybeSingle();
     if (existing) {
-      vacIdCache[k] = existing.id;
-      await sb.from('rrhh_vacaciones')
-        .update({ dias_tomados: (existing.dias_tomados || 0) + dias })
-        .eq('id', existing.id);
+      vacIdCache[k] = existing.id;   // (3-sep) el saldo lo recalcula el trigger al insertar los movs
     } else {
       const { data: created, error: errCreate } = await sb.from('rrhh_vacaciones')
-        .insert({ empleado_id: empId, año, dias_correspondientes: 0, dias_tomados: dias })
+        .insert({ empleado_id: empId, año, dias_correspondientes: 0, dias_tomados: 0 })
         .select().single();
       if (errCreate) { toast('Error creando saldo: '+errCreate.message,'error'); return; }
       vacIdCache[k] = created.id;
@@ -12176,9 +12294,56 @@ async function renderExtrasAdmin(cont) {
       </div>
       <button class="btn accent2" onclick="abrirNuevoExtraAdmin()">+ Cargar hora extra</button>
     </div>
+    <div id="extras-pagos-panel"></div>
     <div id="extras-list"><div class="spinner"></div></div>
   `;
+  await renderSolicitudesPagoExtras();
   await listarExtras(fechaDesde, fechaHasta);
+}
+
+// (3-sep) Solicitudes de pago de extras — las aprueba SOLO JP
+async function renderSolicitudesPagoExtras() {
+  const cont = document.getElementById('extras-pagos-panel');
+  if (!cont || session.rol !== 'admin') return;
+  const { data: sols } = await sb.from('rrhh_extras_pago_solicitudes')
+    .select('*, empleado:rrhh_empleados(nombre_completo, local)')
+    .in('estado', ['pendiente']).order('id');
+  if (!sols || !sols.length) { cont.innerHTML = ''; return; }
+  const _h = (m) => `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}`;
+  cont.innerHTML = `
+    <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:12px 14px;margin-bottom:14px;">
+      <strong style="color:#065f46;">💵 Pedidos de pago de extras (${sols.length})</strong>
+      ${sols.map(s => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #d1fae5;font-size:13px;flex-wrap:wrap;">
+          <strong>${escapeHtml(s.empleado?.nombre_completo || '')}</strong>
+          <span class="local-tag ${s.empleado?.local}">${LOCALES[s.empleado?.local]?.nombre || ''}</span>
+          <span style="font-family:monospace;">${_h(s.minutos)} (${s.minutos} min)</span>
+          <span style="color:var(--muted);font-size:11px;">pedido ${new Date(s.solicitado_at).toLocaleDateString('es-AR')} · semana = ${s.horas_semanales_ref} hs</span>
+          <span style="flex:1;"></span>
+          <button class="btn" style="font-size:11px;background:#065f46;color:white;border:none;" onclick="resolverPagoExtras(${s.id}, 'aprobada', ${s.minutos})">✔ Aprobar</button>
+          <button class="btn" style="font-size:11px;" onclick="resolverPagoExtras(${s.id}, 'rechazada', ${s.minutos})">✖ Rechazar</button>
+        </div>`).join('')}
+    </div>`;
+}
+async function resolverPagoExtras(id, estado, minutos) {
+  let importe = null, periodo = null, motivo = null;
+  if (estado === 'aprobada') {
+    const imp = prompt(`Importe en EFECTIVO a pagar por ${minutos} min de extras (va a la columna Extras de la liquidación):`);
+    if (imp === null) return;
+    importe = Number(String(imp).replace(/\./g, '').replace(',', '.'));
+    if (!importe || importe <= 0) { toast('Importe inválido', 'error'); return; }
+    const per = prompt('¿En qué liquidación se paga? (AAAA-MM)', mesActualString_());
+    if (!per || !/^\d{4}-\d{2}$/.test(per.trim())) { toast('Período inválido', 'error'); return; }
+    periodo = per.trim() + '-01';
+  } else {
+    motivo = prompt('Motivo del rechazo (se lo mostramos a la colaboradora):');
+    if (motivo === null) return;
+  }
+  const { data, error } = await sb.rpc('rrhh_extras_resolver_pago', { p_id: id, p_estado: estado, p_importe: importe, p_periodo: periodo, p_motivo: motivo });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (!data?.ok) { toast(data?.msg || 'No se pudo', 'error'); return; }
+  toast(estado === 'aprobada' ? `Aprobado: ${minutos} min descontados del banco. Regenerá la proforma de ${periodo.substring(0,7)} para que aparezca en Extras.` : 'Rechazado', 'success');
+  renderSolicitudesPagoExtras();
 }
 
 function cambiarMesExtras(delta) {
@@ -12548,9 +12713,8 @@ async function abrirNuevoExtraAdmin() {
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Compensación</label>
             <select id="ext-comp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="banco">🏦 Sumar al banco de minutos</option>
-              <option value="pago_negro">💵 Pago en efectivo (no impacta banco)</option>
-              <option value="pago_recibo">📄 En recibo (no impacta banco)</option>
             </select>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;">Regla JP (3-sep): las extras SIEMPRE van al banco. El pago en efectivo lo pide la colaboradora desde "Mi banco" cuando junta una semana entera, y lo aprueba JP.</div>
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo / Observaciones</label>
@@ -13009,6 +13173,44 @@ async function guardarAjusteBanco() {
 //  con `img: 'manual_assets/nombre.png'`
 // ════════════════════════════════════════════════════════════
 // Manuales de encargada/colaboradora → manuales.js
+// (3-sep, JP) Pago de extras: la colaboradora puede pedirlo solo cuando las
+// extras acumuladas en el banco suman una semana entera (horas_semanales).
+async function _bloqueExtrasPago() {
+  try {
+    const { data } = await sb.rpc('rrhh_extras_pagables', { p_emp: session.empleado_id });
+    const r = Array.isArray(data) ? data[0] : data;
+    if (!r || !r.horas_semanales) return '';
+    const disp = Math.min(r.minutos_extras || 0, r.saldo_banco || 0);
+    const min = r.minimo_min || 0;
+    const pct = Math.min(100, Math.round(disp / Math.max(min, 1) * 100));
+    const _h = (m) => `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}`;
+    let accion;
+    if (r.pendiente_id) accion = `<span style="font-size:12px;color:#92400e;">⏳ Pedido #${r.pendiente_id} esperando aprobación de JP</span>`;
+    else if (disp >= min) accion = `<button class="btn accent" onclick="pedirPagoExtras()">💵 Pedir pago de extras (${_h(disp)})</button>`;
+    else accion = `<span style="font-size:12px;color:var(--muted);">Te faltan ${_h(min - disp)} para completar una semana</span>`;
+    return `
+    <div class="card" style="margin-top:14px;padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div>
+          <strong>⏱ Extras acumuladas: ${_h(disp)}</strong>
+          <div style="font-size:11px;color:var(--muted);">Se pueden pedir en efectivo al juntar una semana entera (${r.horas_semanales} hs = ${_h(min)}).</div>
+        </div>
+        ${accion}
+      </div>
+      <div style="height:8px;background:#e5e7eb;border-radius:4px;margin-top:10px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${disp>=min?'#059669':'#6366f1'};"></div></div>
+    </div>`;
+  } catch(_) { return ''; }
+}
+async function pedirPagoExtras() {
+  if (!confirm('¿Pedir el pago en efectivo de tus extras acumuladas? JP lo revisa y aprueba.')) return;
+  const { data, error } = await sb.rpc('rrhh_extras_pedir_pago');
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (!data?.ok) { toast(data?.msg || 'No se pudo', 'error'); return; }
+  toast(`Pedido enviado (${data.minutos} min). JP lo aprueba.`, 'success');
+  try { enviarPush(3, '💵 Pedido de pago de extras', `${session.empleadoData?.nombre_completo || 'Una colaboradora'} pide el pago de ${data.minutos} min de extras`, { url: './#asistencias', tag: 'extras-pago-' + data.id }); } catch(_) {}
+  renderPage('mi-banco');
+}
+
 async function renderMiBanco() {
   if (!session.empleado_id) {
     return `<div class="page-header"><h2>Mi banco</h2></div>
@@ -13077,6 +13279,7 @@ async function renderMiBanco() {
       </div>
     </div>
 
+    ${await _bloqueExtrasPago()}
     ${saldoMin < 0 ? `
     <div style="text-align:center;margin-top:14px;">
       <button class="btn accent2" onclick="abrirCompensarVacaciones(true)">🌴 Compensar con días de vacaciones</button>
@@ -22678,7 +22881,13 @@ const salaryWorkflow = (() => {
     const ajusteComentPrev = existingAjuste?.[0]?.ajuste_comentario || null;
     const overridesPrev = existingAjuste?.[0]?.overrides_manuales || {};
     const ajuste = inputs.ajuste ?? ajustePrev;
-    const extras = inputs.extras ?? 0;
+    // (3-sep) Pagos de extras aprobados por JP para este período → columna Extras (efectivo)
+    let extrasPagoAprob = 0;
+    try {
+      const { data: _ep } = await sb.rpc('rrhh_extras_pago_mes', { p_emp: empleadoId, p_periodo: periodo + '-01' });
+      extrasPagoAprob = Number(_ep || 0);
+    } catch(_) {}
+    const extras = (inputs.extras ?? 0) + extrasPagoAprob;
     const otros_rem = inputs.otros_remunerativos ?? 0;
     const uniforme_ok = inputs.uniforme_ok ?? true;
     const fuera_convenio = !!emp.fuera_convenio;
@@ -23408,7 +23617,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=8"></script>
+<script src="manuales.js?v=9"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
