@@ -993,6 +993,15 @@ async function borrarBuzonMensaje(id) { if (!confirm('¿Borrar este mensaje? No 
 // ════════════════════════════════════════════════════════════
 // DASHBOARD (Fase 0 — métricas básicas para verificar conexión)
 // ════════════════════════════════════════════════════════════
+async function avisoAdminLeido(id) {
+  await sb.rpc('rrhh_aviso_marcar_leido', { p_id: id });
+  renderPage('dashboard');
+}
+async function avisoAdminAbrir(id, tab) {
+  await sb.rpc('rrhh_aviso_marcar_leido', { p_id: id });
+  if (tab) switchTab(tab); else renderPage('dashboard');
+}
+
 async function renderDashboard() {
   // Solo para admin/gerente — colaborador tiene su propio "mi-legajo"
   const isAdmin = session.rol === 'admin';
@@ -1216,6 +1225,12 @@ async function renderDashboard() {
   const { data: vacEstaSem } = await qVacEstaSem;
 
   // Lactancia próxima a vencer (≤30 días) o ya vencida sin actualizar
+  // (7-sep, JP) Novedades para el admin: quedan hasta que se clickean (no dependen del push)
+  let avisosAdmin = [];
+  if (isAdmin) {
+    const { data: _av } = await sb.from('rrhh_avisos_admin').select('*').is('leido_at', null).order('creado_at', { ascending: false }).limit(30);
+    avisosAdmin = _av || [];
+  }
   let qLact = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, lactancia_hasta').not('lactancia_hasta', 'is', null).eq('estado', 'activo');
   if (!isAdmin && local) qLact = qLact.eq('local', local);
   const { data: lactData } = await qLact;
@@ -1279,6 +1294,22 @@ async function renderDashboard() {
         <div class="hint">${proxFeriado?.nombre || 'Sin feriados próximos'}</div>
       </div>
     </div>
+
+    ${avisosAdmin.length ? `
+      <div class="card" style="margin-top:8px;background:linear-gradient(135deg,#eef2ff,#e0e7ff);border:1px solid #a5b4fc;">
+        <h3 style="margin:0 0 10px;font-size:14px;font-weight:600;color:#3730a3;display:flex;align-items:center;gap:8px;">🔔 Novedades <span style="font-size:11px;font-weight:400;color:#4338ca;">(desaparecen al clickearlas)</span></h3>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          ${avisosAdmin.map(a => `
+            <div onclick="avisoAdminAbrir(${a.id}, '${escapeHtml(a.url_tab || '')}')" style="cursor:pointer;background:white;padding:10px 14px;border-radius:10px;border-left:4px solid #6366f1;display:flex;align-items:center;gap:10px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;">${escapeHtml(a.titulo)}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escapeHtml(a.cuerpo || '')}</div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);white-space:nowrap;">${new Date(a.creado_at).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</div>
+              <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="event.stopPropagation();avisoAdminLeido(${a.id})" title="Marcar como visto sin abrir">✓</button>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
 
     ${(() => {
       const totalCriticas = (vacPendientes||0) + (permPendientes||0) + (pagoPendientes||0)
