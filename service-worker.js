@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v335-novedades';
+const CACHE_VERSION = 'rrhh-v336-vac-solap-tope';
 const ASSETS = [
   './',
   './index.html',

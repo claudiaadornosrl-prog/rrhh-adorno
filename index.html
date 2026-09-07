@@ -340,6 +340,19 @@ const pushManager = (() => {
 // Notifica a TODOS los admins activos. Útil cuando las encargadas hacen
 // acciones que el admin quiere ver (cargar extras, salvar errores de fichada).
 // excluir: empleado_id a saltear (típicamente quien ejecuta la acción si es admin).
+// (7-sep, JP) Superposición de vacaciones en el mismo local: devuelve las
+// otras vacaciones (pedidas/aprobadas/en curso) que se pisan con el período.
+async function _vacSolapadas(empId, desde, hasta, excluirId = null) {
+  try {
+    const { data } = await sb.rpc('rrhh_vacaciones_solapadas', { p_emp: empId, p_desde: desde, p_hasta: hasta, p_excluir_id: excluirId });
+    return data || [];
+  } catch (_) { return []; }
+}
+function _vacSolapadasTxt(lista) {
+  const _f = (d) => d ? d.split('-').slice(1).reverse().join('/') : '';
+  return lista.map(v => `${(v.nombre || '').split(',')[0]} (${_f(v.fecha_desde)}→${_f(v.fecha_hasta)}, ${v.dias_comunes} día${v.dias_comunes === 1 ? '' : 's'} en común, ${v.estado})`).join('; ');
+}
+
 async function notifAdmins(title, body, opts = {}, excluir = null) {
   // FIX v152b: usar RPC en vez de SELECT directo. La RLS de rrhh_usuarios
   // solo permite a cada usuario ver su PROPIA fila, así que vendedoras/encargadas
@@ -1213,16 +1226,21 @@ async function renderDashboard() {
   // 6. Aniversarios próximos (7 días)
   const anivProx7d = aniversariosProximos.filter(a => a._diasFalta <= 7);
 
-  // 7. Vacaciones que arrancan esta semana (próximos 7 días)
-  const en7d = new Date(hoy); en7d.setDate(en7d.getDate() + 7);
-  const en7dStr = en7d.toISOString().split('T')[0];
+  // 7. (7-sep, JP) Vacaciones de la SEMANA ACTUAL (lunes→domingo): quién está
+  //    de vacaciones esta semana + quién PIDIÓ vacaciones esta semana
+  const _lun = new Date(hoy); _lun.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+  const _dom = new Date(_lun); _dom.setDate(_lun.getDate() + 6);
+  const lunStr = _lun.toISOString().split('T')[0], domStr = _dom.toISOString().split('T')[0];
   let qVacEstaSem = sb.from('rrhh_vacaciones_movimientos')
-    .select('id, fecha_desde, fecha_hasta, dias, empleado:rrhh_empleados!inner(nombre_completo, local)')
-    .in('estado', ['aprobada','tomada'])
-    .gte('fecha_desde', hoyStr).lte('fecha_desde', en7dStr)
+    .select('id, fecha_desde, fecha_hasta, dias, estado, fecha_solicitud, tipo_solicitud, empleado:rrhh_empleados!inner(nombre_completo, local)')
+    .in('estado', ['aprobada','tomada','solicitada'])
+    .or(`and(fecha_desde.lte.${domStr},fecha_hasta.gte.${lunStr}),fecha_solicitud.gte.${lunStr}T00:00:00`)
     .order('fecha_desde');
   if (!isAdmin && local) qVacEstaSem = qVacEstaSem.eq('empleado.local', local);
-  const { data: vacEstaSem } = await qVacEstaSem;
+  const { data: _vacSemRaw } = await qVacEstaSem;
+  const vacEstaSem = (_vacSemRaw || []).filter(v => (v.tipo_solicitud || 'toma') === 'toma');
+  const vacEnCurso = vacEstaSem.filter(v => v.estado !== 'solicitada' && v.fecha_desde <= domStr && v.fecha_hasta >= lunStr);
+  const vacPedidasSem = vacEstaSem.filter(v => v.estado === 'solicitada' || (v.fecha_solicitud || '') >= lunStr);
 
   // Lactancia próxima a vencer (≤30 días) o ya vencida sin actualizar
   // (7-sep, JP) Novedades para el admin: quedan hasta que se clickean (no dependen del push)
@@ -1371,7 +1389,8 @@ async function renderDashboard() {
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
               ${cardInfo('#ec4899', '🎂', 'Cumpleaños en 7d', cumpleProx7d.length, cumpleProx7d.slice(0,3).map(c => c.nombre.split(' ')[0]+(c._diasFalta===0?' (¡HOY!)':c._diasFalta===1?' (mañana)':' (+'+c._diasFalta+'d)')).join(', ')||'—', null)}
               ${cardInfo('#0d9488', '🏆', 'Aniversario en 7d', anivProx7d.length, anivProx7d.slice(0,2).map(a => a.nombre.split(' ')[0]+' ('+a._años+'a · '+a._diasFalta+'d)').join(', ')||'—', null)}
-              ${cardInfo('#3b82f6', '🌴', 'Vacaciones esta sem', vacEstaSem?.length||0, (vacEstaSem||[]).slice(0,2).map(v => v.empleado.nombre_completo.split(' ')[0]+' '+v.fecha_desde.split('-').slice(1).reverse().join('/')).join(', ')||'—', `vacState.tab='aprobadas';switchTab('vacaciones')`)}
+              ${cardInfo('#3b82f6', '🌴', 'De vacaciones esta semana', vacEnCurso.length, vacEnCurso.slice(0,3).map(v => v.empleado.nombre_completo.split(',')[0]+' ('+v.fecha_desde.split('-').slice(1).reverse().join('/')+'→'+v.fecha_hasta.split('-').slice(1).reverse().join('/')+')').join(', ')||'—', `vacState.tab='aprobadas';switchTab('vacaciones')`)}
+              ${cardInfo('#d97706', '📝', 'Pidieron vacaciones esta semana', vacPedidasSem.length, vacPedidasSem.slice(0,3).map(v => v.empleado.nombre_completo.split(',')[0]+' ('+v.fecha_desde.split('-').slice(1).reverse().join('/')+'→'+v.fecha_hasta.split('-').slice(1).reverse().join('/')+(v.estado==='solicitada'?', pendiente':'')+')').join(', ')||'—', `vacState.tab='pendientes';switchTab('vacaciones')`)}
               ${cardInfo('#8b5cf6', '📦', '+30 días sin tomar', empConAtraso30.length, empConAtraso30.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+' ('+e.dias+'d)').join(', ')||'—', `vacState.tab='saldos';switchTab('vacaciones')`)}
             </div>
           </div>`;
@@ -3559,8 +3578,15 @@ async function renderVacContent() {
     if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`; return; }
     const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
     if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">🎉 No hay solicitudes pendientes.</div>`; return; }
+    // (7-sep) superposiciones por solicitud de toma
+    const _solapMap = {};
+    await Promise.all(lista.filter(m => m.tipo_solicitud !== 'pago').map(async m => {
+      _solapMap[m.id] = await _vacSolapadas(m.empleado_id, m.fecha_desde, m.fecha_hasta, m.id);
+    }));
     cont.innerHTML = '<ul class="simple-list">' + lista.map(m => {
       const esPago = m.tipo_solicitud === 'pago';
+      const _sl = _solapMap[m.id] || [];
+      const solapHtml = _sl.length ? `<div class="meta" style="margin-top:4px;color:#b91c1c;font-weight:600;">⚠ Se superpone con: ${escapeHtml(_vacSolapadasTxt(_sl))}</div>` : '';
       const tag = esPago
         ? `<span class="emp-tag" style="background:#ede9fe;color:#5b21b6;margin-left:8px;">💵 Pago</span>`
         : `<span class="emp-tag" style="background:#dbeafe;color:#1e40af;margin-left:8px;">🌴 Toma</span>`;
@@ -3575,6 +3601,7 @@ async function renderVacContent() {
           ${tag}
           <div class="meta">${detalle}</div>
           ${m.observaciones ? `<div class="meta" style="margin-top:4px;font-style:italic;">"${escapeHtml(m.observaciones)}"</div>` : ''}
+          ${solapHtml}
         </div>
         <div style="display:flex;gap:6px;">
           <button class="btn small accent2" data-mov="${m.id}" data-action="aprobar">✓ Aprobar</button>
@@ -4135,7 +4162,11 @@ async function decidirVacacion(movId, accion) {
     return;
   }
 
-  // Aprobar solicitud normal de TOMA
+  // Aprobar solicitud normal de TOMA — (7-sep) frenar superposiciones sin querer
+  const _solA = await _vacSolapadas(mov.empleado_id, mov.fecha_desde, mov.fecha_hasta, mov.id);
+  if (_solA.length) {
+    if (!confirm(`⚠ SUPERPOSICIÓN DE VACACIONES en el local.\n\nEn esas fechas también está / pidió:\n${_vacSolapadasTxt(_solA).replace(/; /g, '\n')}\n\n¿Aprobar IGUAL sabiendo que van a faltar dos personas a la vez?`)) return;
+  }
   const { error } = await sb.from('rrhh_vacaciones_movimientos').update({
     estado: 'aprobada',
     aprobado_por: session.email,
@@ -5788,13 +5819,15 @@ async function solicitarVacaciones() {
   const _localTxt = LOCALES[session.empleadoData?.local]?.nombre || session.empleadoData?.local || '';
   const _desdeFmt = desde ? desde.split('-').reverse().join('/') : '';
   const _hastaFmt = hasta ? hasta.split('-').reverse().join('/') : '';
+  const _sol = await _vacSolapadas(session.empleado_id, desde, hasta, data.id);
   notifAdmins(
-    '🌴 Solicitud de vacaciones',
-    `${_nombre} (${_localTxt}) pidió ${dias} día(s) del ${_desdeFmt} al ${_hastaFmt}.`,
+    _sol.length ? '⚠ Vacaciones SUPERPUESTAS — revisar' : '🌴 Solicitud de vacaciones',
+    `${_nombre} (${_localTxt}) pidió ${dias} día(s) del ${_desdeFmt} al ${_hastaFmt}.` +
+      (_sol.length ? ` SE SUPERPONE con: ${_vacSolapadasTxt(_sol)}.` : ''),
     { url: './#vacaciones', tag: 'vac-' + data.id }
   );
 
-  toast('Solicitud enviada ✓ Te avisamos cuando la aprueben', 'success');
+  toast(_sol.length ? `Solicitud enviada. Ojo: en esas fechas también está/pidió ${_vacSolapadasTxt(_sol)} — lo decide la encargada.` : 'Solicitud enviada ✓ Te avisamos cuando la aprueben', 'success');
   switchTab('mis-vacaciones');
 }
 
@@ -11828,6 +11861,10 @@ async function guardarAsignarVacacion() {
   const dias = esOficina ? _diasHabilesUI(desde, hasta) : (Math.round((new Date(hasta+'T12:00:00') - new Date(desde+'T12:00:00')) / 86400000) + 1);
   const hoy = new Date().toISOString().split('T')[0];
   const estado = (desde < hoy) ? 'tomada' : 'aprobada';
+  const _solG = await _vacSolapadas(empId, desde, hasta, null);
+  if (_solG.length) {
+    if (!confirm(`⚠ SUPERPOSICIÓN DE VACACIONES en el local.\n\nEn esas fechas también está / pidió:\n${_vacSolapadasTxt(_solG).replace(/; /g, '\n')}\n\n¿Asignar IGUAL?`)) return;
+  }
 
   // FIFO — repartir los días entre años más viejos primero
   let tramos;
@@ -12325,11 +12362,50 @@ async function renderExtrasAdmin(cont) {
       </div>
       <button class="btn accent2" onclick="abrirNuevoExtraAdmin()">+ Cargar hora extra</button>
     </div>
+    <div id="extras-tope-panel"></div>
     <div id="extras-pagos-panel"></div>
     <div id="extras-list"><div class="spinner"></div></div>
   `;
+  await renderTopeExtras(fechaDesde);
   await renderSolicitudesPagoExtras();
   await listarExtras(fechaDesde, fechaHasta);
+}
+
+// (7-sep, JP) Tope mensual de extras por local: 1 h cada $10M vendidos + horas
+// de turno de los días ausente/vacaciones/licencia. La encargada no puede pasarlo
+// (lo frena la base); el admin no tiene tope.
+async function renderTopeExtras(mesDesde) {
+  const cont = document.getElementById('extras-tope-panel');
+  if (!cont) return;
+  const locales = session.rol === 'admin' ? ['alcorta', 'unicenter'] : [session.local_gerencia].filter(Boolean);
+  if (!locales.length) { cont.innerHTML = ''; return; }
+  const _h = (m) => `${Math.floor(Math.abs(m)/60)}h ${String(Math.abs(m)%60).padStart(2,'0')}`;
+  const _$ = (v) => '$' + Math.round(v || 0).toLocaleString('es-AR');
+  const cards = [];
+  for (const loc of locales) {
+    const { data } = await sb.rpc('rrhh_extras_tope_local', { p_local: loc, p_mes: mesDesde });
+    const r = Array.isArray(data) ? data[0] : data;
+    if (!r) continue;
+    const pct = r.tope_total_min > 0 ? Math.min(100, Math.round(r.usado_min / r.tope_total_min * 100)) : 100;
+    const color = r.disponible_min <= 0 ? '#dc2626' : (pct >= 80 ? '#d97706' : '#059669');
+    cards.push(`
+      <div style="background:white;border-radius:10px;padding:10px 14px;border-left:4px solid ${color};flex:1;min-width:240px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <strong>${LOCALES[loc]?.nombre || loc}</strong>
+          <span style="font-size:12px;color:${color};font-weight:700;">${r.disponible_min >= 0 ? 'quedan ' + _h(r.disponible_min) : 'excedido ' + _h(r.disponible_min)}</span>
+        </div>
+        <div style="height:8px;background:#e5e7eb;border-radius:4px;margin:6px 0;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};"></div></div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">
+          Usadas ${_h(r.usado_min)} de ${_h(r.tope_total_min)} · ventas ${_$(r.ventas)} → ${_h(r.tope_ventas_min)}
+          ${r.ausencias_min ? ` + ${r.ausencias_dias} día${r.ausencias_dias===1?'':'s'} sin cubrir → ${_h(r.ausencias_min)}` : ''}
+        </div>
+      </div>`);
+  }
+  cont.innerHTML = cards.length ? `
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 14px;margin-bottom:14px;">
+      <div style="font-size:12px;color:#166534;margin-bottom:8px;"><strong>⏱ Tope de extras del mes</strong> — 1 hora por cada $10.000.000 vendidos, más las horas de los días en que alguien faltó o estuvo de vacaciones (hay que cubrirlas).${session.rol === 'admin' ? ' El admin no tiene tope.' : ''}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">${cards.join('')}</div>
+    </div>` : '';
 }
 
 // (3-sep) Solicitudes de pago de extras — las aprueba SOLO JP
@@ -23648,7 +23724,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=9"></script>
+<script src="manuales.js?v=10"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
