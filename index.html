@@ -8679,10 +8679,14 @@ async function procesarMes(periodo, local = null) {
 
   // 8) Horas extras autorizadas
   const { data: extras } = await sb.from('rrhh_horas_extras')
-    .select('empleado_id, fecha, minutos').in('empleado_id', empIds);
+    .select('id, empleado_id, fecha, minutos, motivo').in('empleado_id', empIds);
   const extrasMap = {};
-  (extras || []).forEach(x => { extrasMap[`${x.empleado_id}_${x.fecha}`] = x.minutos || 0; });
-  const francoDobleExtras = [];   // francos trasladados a acreditar ×2 (se escriben al final)
+  const francoDobleMap = {};      // extras ya acreditadas por franco trasladado (para re-ajustar)
+  (extras || []).forEach(x => {
+    extrasMap[`${x.empleado_id}_${x.fecha}`] = x.minutos || 0;
+    if ((x.motivo || '').startsWith('[franco_doble]')) francoDobleMap[`${x.empleado_id}_${x.fecha}`] = x;
+  });
+  const francoDobleExtras = [];   // francos trasladados a acreditar/ajustar (se escriben al final)
 
   // 9) Tolerancias por local
   const { data: tolDb } = await sb.from('rrhh_config_tolerancias').select('*');
@@ -8782,11 +8786,22 @@ async function procesarMes(periodo, local = null) {
           // franco como "trabajado → trasladado a otro día", ese día computa
           // DOBLE. La marca ES la autorización: el cruce carga la extra ×2 al
           // banco solo (idempotente: si ya hay extra ese día, no repite).
-          if (turno.doble && fichs.length >= 2 && !extrasMap[k]) {
+          // (9-sep, regla JP) El ×2 es bruto: como el día al que se traslada
+          // el franco NO se trabaja, se descuentan los minutos REALES del turno
+          // de ese día (turno − buffer). Neto = 2×fichados − turno destino.
+          // Ej. 376 min ×2 = 752 − 360 (miércoles 15:00-21:00) = 392 min.
+          // Si la extra ya existe con otro monto (se definió el día destino
+          // después del cruce), se AJUSTA en vez de duplicar.
+          if (turno.doble && fichs.length >= 2 && (!extrasMap[k] || francoDobleMap[k])) {
             const trab = horaToMin(salida) - horaToMin(entrada);
             if (trab > 0) {
-              minExtra = trab * 2;
-              francoDobleExtras.push({ empleado_id: emp.id, fecha, trab, minutos: trab * 2, trasladado_a: turno.franco_trasladado_a });
+              const desc = Math.max(0, parseInt(turno.minutos_franco_destino, 10) || 0);
+              const neto = Math.max(0, trab * 2 - desc);
+              minExtra = neto;
+              const prev = francoDobleMap[k];
+              if (!prev || (prev.minutos || 0) !== neto) {
+                francoDobleExtras.push({ empleado_id: emp.id, fecha, trab, desc, minutos: neto, trasladado_a: turno.franco_trasladado_a, extra_id: prev ? prev.id : null });
+              }
             }
           } else if (extrasMap[k]) {
             minExtra = extrasMap[k];
@@ -8930,7 +8945,17 @@ async function procesarMes(periodo, local = null) {
   // 10.4) Francos trasladados (día doble): extra automática al banco
   for (const fd of francoDobleExtras) {
     const _fc = (f) => f ? f.split('-').reverse().join('/') : '?';
-    const motivo = `[franco_doble] Franco trabajado y trasladado al ${_fc(fd.trasladado_a)} — ${fd.trab} min fichados ×2 = ${fd.minutos} min`;
+    const motivo = `[franco_doble] Franco trabajado y trasladado al ${_fc(fd.trasladado_a)} — ${fd.trab} min fichados ×2 = ${fd.trab * 2}`
+      + (fd.desc ? ` − ${fd.desc} min del turno del ${_fc(fd.trasladado_a)} = ${fd.minutos} min` : (fd.trasladado_a ? ` min (día destino sin turno: no se descuenta nada)` : ` min (día de franco a definir: se descuenta al definirlo)`));
+    if (fd.extra_id) {
+      // ajuste de una extra ya acreditada (cambió el día destino o el turno)
+      const { error: eU } = await sb.from('rrhh_horas_extras').update({ minutos: fd.minutos, motivo }).eq('id', fd.extra_id);
+      if (eU) { console.warn('[procesarMes] ajuste franco doble', eU.message); continue; }
+      const { data: bm } = await sb.from('rrhh_banco_minutos').select('id').eq('referencia_tipo', 'horas_extras').eq('referencia_id', fd.extra_id).maybeSingle();
+      if (bm) await sb.from('rrhh_banco_minutos').update({ minutos: fd.minutos, observaciones: motivo }).eq('id', bm.id);
+      else await sb.from('rrhh_banco_minutos').insert({ empleado_id: fd.empleado_id, fecha: fd.fecha, minutos: fd.minutos, tipo: 'hora_extra', referencia_tipo: 'horas_extras', referencia_id: fd.extra_id, observaciones: motivo, creado_por: 'sistema-cruce' });
+      continue;
+    }
     const { data: hx, error: eHx } = await sb.from('rrhh_horas_extras').insert({
       empleado_id: fd.empleado_id, fecha: fd.fecha, minutos: fd.minutos,
       motivo, autorizado_por: 'sistema-cruce', compensacion: 'banco',
@@ -9350,7 +9375,7 @@ async function marcarFrancoTrasladado(empId, fecha) {
   if (!t || !t.es_franco) { toast('Ese día no es franco: primero cambiá el turno a Franco', 'error'); return; }
   if (t.doble) {
     if (!confirm(`Este franco ya está marcado como trabajado (trasladado al ${t.franco_trasladado_a || '?'}).\n¿Quitar la marca?`)) return;
-    const { error } = await sb.from('rrhh_turnos').update({ doble: false, franco_trasladado_a: null }).eq('id', t.id);
+    const { error } = await sb.from('rrhh_turnos').update({ doble: false, franco_trasladado_a: null, minutos_franco_destino: null }).eq('id', t.id);
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     toast('Marca quitada. Recalculando mes...', 'info');
     try { await procesarMes(fecha.substring(0,7), null); } catch(_) {}
@@ -9364,14 +9389,35 @@ async function marcarFrancoTrasladado(empId, fecha) {
   // el día destino pasa a franco (upsert sobre el turno de ese día)
   const { data: td } = await sb.from('rrhh_turnos').select('id, es_franco').eq('empleado_id', empId).eq('fecha', destino).maybeSingle();
   if (td && td.es_franco) { toast('El día elegido ya es franco — elegí otro', 'error'); return; }
+  // (9-sep, regla JP) minutos REALES del turno que deja de trabajar el día
+  // destino (turno − buffer de entrada): se restan del ×2 al acreditar.
+  // Fuente: el turno cargado ese día; si no tiene, el horario habitual de ese
+  // día de la semana; si tampoco, 0 (avisa).
+  let minDest = 0;
+  try {
+    const { data: e0 } = await sb.from('rrhh_empleados').select('local').eq('id', empId).single();
+    const { data: tolD } = await sb.from('rrhh_config_tolerancias').select('buffer_entrada').eq('local', e0?.local).maybeSingle();
+    const buf = tolD?.buffer_entrada ?? 15;
+    const { data: tdFull } = await sb.from('rrhh_turnos').select('hora_inicio, hora_fin, es_franco').eq('empleado_id', empId).eq('fecha', destino).maybeSingle();
+    let hi = tdFull && !tdFull.es_franco ? tdFull.hora_inicio : null, hf = tdFull && !tdFull.es_franco ? tdFull.hora_fin : null;
+    if (!hi || !hf) {
+      const dow = new Date(destino + 'T12:00:00').getDay();
+      const { data: def } = await sb.from('rrhh_turnos_default').select('hora_inicio, hora_fin, es_franco, template:rrhh_templates_turno(hora_inicio, hora_fin)')
+        .eq('empleado_id', empId).eq('dia_semana', dow).maybeSingle();
+      if (def && !def.es_franco) { hi = def.hora_inicio || def.template?.hora_inicio; hf = def.hora_fin || def.template?.hora_fin; }
+    }
+    const _hm = (h) => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
+    if (hi && hf) minDest = Math.max(0, _hm(hf) - _hm(hi) - buf);
+  } catch (e) { console.warn('[franco trasladado] minutos destino', e); }
+  if (!minDest && !confirm(`No encontré turno cargado ni habitual para el ${destino.split('-').reverse().join('/')}: el franco trabajado se acreditaría ×2 completo, sin descontar nada.\n¿Seguir igual? (Cancelá y cargale el turno de ese día primero si corresponde)`)) return;
   const filaDest = { empleado_id: empId, fecha: destino, es_franco: true, template_id: null, hora_inicio: null, hora_fin: null, tipo: 'franco', planificado_por: session.email };
   const rDest = td ? await sb.from('rrhh_turnos').update(filaDest).eq('id', td.id)
                    : await sb.from('rrhh_turnos').insert(filaDest);
   if (rDest.error) { toast('Error al mover el franco: ' + rDest.error.message, 'error'); return; }
-  const { error } = await sb.from('rrhh_turnos').update({ doble: true, franco_trasladado_a: destino }).eq('id', t.id);
+  const { error } = await sb.from('rrhh_turnos').update({ doble: true, franco_trasladado_a: destino, minutos_franco_destino: minDest }).eq('id', t.id);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  await auditLog('franco_trasladado', 'rrhh_turnos', t.id, fecha, 'franco', `franco trabajado (doble) → franco el ${destino}`);
-  toast(`Franco trasladado al ${destino.split('-').reverse().join('/')}. Recalculando mes (el día trabajado computa doble)...`, 'info');
+  await auditLog('franco_trasladado', 'rrhh_turnos', t.id, fecha, 'franco', `franco trabajado (doble) → franco el ${destino} (descuenta ${minDest} min del turno destino)`);
+  toast(`Franco trasladado al ${destino.split('-').reverse().join('/')}. Recalculando mes (×2 − ${minDest} min del turno de ese día)...`, 'info');
   try { await procesarMes(fecha.substring(0,7), null); toast('Mes recalculado ✓', 'success'); } catch (e) { toast('Falló el recálculo: ' + e.message, 'warning'); }
   try { await renderDetalleEmpDia(empId); await renderResumenContent(); } catch(_) {}   // (9-sep) también se llama desde el calendario
 }
@@ -23750,7 +23796,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=11"></script>
+<script src="manuales.js?v=12"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

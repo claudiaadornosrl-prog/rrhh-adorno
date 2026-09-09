@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v338-franco-visible';
+const CACHE_VERSION = 'rrhh-v339-franco-doble-neto';
 const ASSETS = [
   './',
   './index.html',
