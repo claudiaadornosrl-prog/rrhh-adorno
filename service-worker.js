@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v336-vac-solap-tope';
+const CACHE_VERSION = 'rrhh-v337-iconos-v2';
 const ASSETS = [
   './',
   './index.html',
