@@ -9368,6 +9368,94 @@ async function abrirMenuCambiarTurno(detalleId, empId, fecha) {
 // toma otro día. El día trabajado queda como franco con doble=true (el cruce
 // acredita los minutos fichados ×2 al banco, sin pago); el día elegido pasa a
 // franco. Si ya era franco, se avisa y no se toca.
+// Calendario para elegir a qué día se traslada el franco trabajado.
+// Muestra el mes del franco (con flechas para moverse), el turno cargado de
+// cada día y el horario habitual cuando no hay turno. Los francos no se
+// pueden elegir. Devuelve 'AAAA-MM-DD' o null si cancela.
+function elegirDiaFrancoDestino(empId, fechaFranco) {
+  return new Promise(async (resolve) => {
+    const [y0, m0] = fechaFranco.split('-').map(Number);
+    let anio = y0, mes = m0;   // mes 1-12
+    const DN = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const MN = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const hhmm = (h) => h ? String(h).substring(0, 5) : '';
+    const { data: defs } = await sb.from('rrhh_turnos_default')
+      .select('dia_semana, hora_inicio, hora_fin, es_franco, template:rrhh_templates_turno(hora_inicio, hora_fin)').eq('empleado_id', empId);
+    const defMap = {};
+    (defs || []).forEach(d => { defMap[d.dia_semana] = d; });
+    let ov = document.getElementById('franco-dest-modal');
+    if (ov) ov.remove();
+    ov = document.createElement('div');
+    ov.id = 'franco-dest-modal';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:10001;';
+    document.body.appendChild(ov);
+    const cerrar = (v) => { ov.remove(); document.removeEventListener('keydown', onKey); resolve(v || null); };
+    const onKey = (e) => { if (e.key === 'Escape') cerrar(null); };
+    document.addEventListener('keydown', onKey);
+    ov.onclick = (e) => { if (e.target === ov) cerrar(null); };
+    const pintar = async () => {
+      const desde = `${anio}-${String(mes).padStart(2,'0')}-01`;
+      const ult = new Date(anio, mes, 0).getDate();
+      const hasta = `${anio}-${String(mes).padStart(2,'0')}-${String(ult).padStart(2,'0')}`;
+      const { data: turnos } = await sb.from('rrhh_turnos').select('fecha, hora_inicio, hora_fin, es_franco, doble')
+        .eq('empleado_id', empId).gte('fecha', desde).lte('fecha', hasta);
+      const tMap = {};
+      (turnos || []).forEach(t => { tMap[t.fecha] = t; });
+      const primerDow = new Date(anio, mes - 1, 1).getDay();   // 0=Dom
+      const offset = (primerDow + 6) % 7;                       // semana arranca lunes
+      let celdas = '';
+      for (let i = 0; i < offset; i++) celdas += '<div></div>';
+      for (let d = 1; d <= ult; d++) {
+        const iso = `${anio}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const dow = new Date(anio, mes - 1, d).getDay();
+        const t = tMap[iso], def = defMap[dow];
+        let esFranco = false, txt = '', sub = '';
+        if (t) {
+          esFranco = !!t.es_franco;
+          txt = esFranco ? (t.doble ? '🔁 Trabajado' : '🛌 Franco') : `${hhmm(t.hora_inicio)}–${hhmm(t.hora_fin)}`;
+        } else if (def) {
+          esFranco = !!def.es_franco;
+          const hi = def.hora_inicio || def.template?.hora_inicio, hf = def.hora_fin || def.template?.hora_fin;
+          txt = esFranco ? '🛌 Franco' : (hi && hf ? `${hhmm(hi)}–${hhmm(hf)}` : 'sin turno');
+          sub = 'habitual';
+        } else { txt = 'sin turno'; }
+        const esOrigen = iso === fechaFranco;
+        const bloqueado = esOrigen || esFranco;
+        const bg = esOrigen ? '#fff7ed' : (esFranco ? '#f3f4f6' : '#fff');
+        const bd = esOrigen ? '#fdba74' : '#e5e7eb';
+        celdas += `<div data-iso="${iso}" ${bloqueado ? '' : 'class="fd-dia"'} style="border:1px solid ${bd};border-radius:8px;padding:6px 4px;min-height:54px;background:${bg};text-align:center;${bloqueado ? 'opacity:.55;' : 'cursor:pointer;'}">
+          <div style="font-weight:600;font-size:13px;">${d}</div>
+          <div style="font-size:11px;color:${esFranco ? 'var(--muted)' : '#111'};">${txt}</div>
+          ${sub ? `<div style="font-size:9px;color:var(--muted);">${sub}</div>` : ''}
+          ${esOrigen ? '<div style="font-size:9px;color:#c2410c;">franco trabajado</div>' : ''}
+        </div>`;
+      }
+      ov.innerHTML = `<div style="background:#fff;border-radius:12px;padding:20px;width:min(560px,94vw);max-height:92vh;overflow:auto;position:relative;">
+        <button id="fd-x" style="position:absolute;top:8px;right:10px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);">✕</button>
+        <h3 style="margin:0 0 4px;">🔁 ¿A qué día se traslada el franco?</h3>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Trabaja el franco del <strong>${fechaFranco.split('-').reverse().join('/')}</strong>. Tocá el día que se va a tomar en su lugar (ese día pasa a franco y sus horas se descuentan del ×2).</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <button class="btn" id="fd-prev">‹</button>
+          <strong style="text-transform:capitalize;">${MN[mes-1]} ${anio}</strong>
+          <button class="btn" id="fd-next">›</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px;color:var(--muted);text-align:center;margin-bottom:4px;">${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(x => `<div>${x}</div>`).join('')}</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">${celdas}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;">Los francos (gris) no se pueden elegir. "habitual" = no hay turno cargado ese día, se muestra el horario habitual.</div>
+      </div>`;
+      ov.querySelector('#fd-x').onclick = () => cerrar(null);
+      ov.querySelector('#fd-prev').onclick = () => { mes--; if (mes < 1) { mes = 12; anio--; } pintar(); };
+      ov.querySelector('#fd-next').onclick = () => { mes++; if (mes > 12) { mes = 1; anio++; } pintar(); };
+      ov.querySelectorAll('.fd-dia').forEach(el => {
+        el.onclick = () => cerrar(el.dataset.iso);
+        el.onmouseenter = () => { el.style.background = '#ede9fe'; };
+        el.onmouseleave = () => { el.style.background = '#fff'; };
+      });
+    };
+    await pintar();
+  });
+}
+
 async function marcarFrancoTrasladado(empId, fecha) {
   if (!['admin','gerente'].includes(session.rol)) { toast('Solo encargada/admin', 'error'); return; }
   const { data: t } = await sb.from('rrhh_turnos').select('id, es_franco, doble, franco_trasladado_a')
@@ -9382,10 +9470,9 @@ async function marcarFrancoTrasladado(empId, fecha) {
     try { await renderDetalleEmpDia(empId); await renderResumenContent(); } catch(_) {}   // (9-sep) también se llama desde el calendario
     return;
   }
-  const dest = prompt(`Trabaja el franco del ${fecha.split('-').reverse().join('/')}.\n¿A qué día lo traslada? (AAAA-MM-DD)`);
-  if (!dest) return;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dest.trim())) { toast('Fecha inválida (AAAA-MM-DD)', 'error'); return; }
-  const destino = dest.trim();
+  // (9-sep, JP) se elige el día destino en un calendario, no escribiendo la fecha
+  const destino = await elegirDiaFrancoDestino(empId, fecha);
+  if (!destino) return;
   // el día destino pasa a franco (upsert sobre el turno de ese día)
   const { data: td } = await sb.from('rrhh_turnos').select('id, es_franco').eq('empleado_id', empId).eq('fecha', destino).maybeSingle();
   if (td && td.es_franco) { toast('El día elegido ya es franco — elegí otro', 'error'); return; }
@@ -23796,7 +23883,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=12"></script>
+<script src="manuales.js?v=13"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
