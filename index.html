@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 
@@ -2046,7 +2046,7 @@ async function renderTabTurnos() {
   ];
   const puedeEditar = ['admin','gerente'].includes(session.rol);
   const opciones = (sel) => {
-    let html = `<option value="none">— Sin asignar —</option>`;
+    let html = `<option value="none">— Sin asignar (= franco) —</option>`;
     html += `<option value="franco" ${sel && sel.es_franco ? 'selected' : ''}>❌ Franco</option>`;
     templates.filter(t => !t.es_franco).forEach(t => {
       const isSel = sel && !sel.es_franco && sel.template_id === t.id;
@@ -7292,7 +7292,7 @@ async function renderCalendarioGrid() {
   // Antes corrían en serie (~7 round-trips). Ahora en Promise.all (1 round-trip).
   const [turnosRes, feriadosRes, vacsRes, licsRes, detSospRes, fichsRes] = await Promise.all([
     sb.from('rrhh_turnos')
-      .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, template:rrhh_templates_turno(codigo, nombre, color, icono)')
+      .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, doble, franco_trasladado_a, template:rrhh_templates_turno(codigo, nombre, color, icono)')
       .gte('fecha', desdeISO).lte('fecha', hastaISO),
     sb.from('rrhh_feriados')
       .select('fecha, nombre, cierra_oficina, cierra_shoppings')
@@ -7446,7 +7446,19 @@ async function renderCalendarioGrid() {
       } else if (turno) {
         if (turno.tipo === 'vacaciones')  { cls.push('vacaciones'); content = '🌴'; tooltip = `${e.nombre_completo} — Vacaciones`; }
         else if (turno.tipo === 'licencia') { cls.push('licencia');   content = '📋'; tooltip = `${e.nombre_completo} — Licencia`; }
-        else if (turno.es_franco)         { cls.push('franco');     content = '—'; }
+        else if (turno.es_franco) {
+          // (9-sep, JP) el franco tiene que VERSE como franco, no como casilla vacía
+          cls.push('franco');
+          if (turno.doble) {
+            content = `<div class="turno-icon">🔁</div><div class="turno-time">Franco<br>trabajado</div>`;
+            tooltip = `${e.nombre_completo} — Franco trabajado (cuenta doble)` + (turno.franco_trasladado_a ? ` · franco trasladado al ${_fmtCorta(turno.franco_trasladado_a)}` : ' · día de franco a definir');
+          } else {
+            content = `<div class="turno-icon">🛌</div><div class="turno-time">Franco</div>`;
+            tooltip = `${e.nombre_completo} — Franco`;
+          }
+          const fichF = fichMap[`${e.id}_${fecha}`];
+          if (fichF && fichF.length) content += `<div class="cal-fichadas" title="Fichó en su franco">✓ ${fichF[0]}${fichF.length > 1 ? ' · ' + fichF[fichF.length-1] : ''}</div>`;
+        }
         else {
           cls.push('has-turno');
           style = `background:${turno.template?.color || '#6366f1'};`;
@@ -7565,6 +7577,12 @@ async function abrirPopoverTurno(cellEl) {
       <span style="font-size:14px;">✏️</span>
       <div class="label">Horario personalizado…</div>
     </div>
+    ${cellEl.classList.contains('franco') ? `
+    <hr>
+    <div class="tpl-option" data-doble="1" title="La chica trabaja este franco y lo toma otro día: el día trabajado cuenta DOBLE al banco">
+      <span style="font-size:14px;">🔁</span>
+      <div class="label">Trabaja este franco → trasladarlo (cuenta doble)</div>
+    </div>` : ''}
     <hr>
     <div class="tpl-option danger" data-clear="1">
       <span style="font-size:14px;">🗑️</span>
@@ -7610,6 +7628,7 @@ async function abrirPopoverTurno(cellEl) {
   pop.querySelectorAll('.tpl-option').forEach(opt => {
     opt.addEventListener('click', async () => {
       if (opt.dataset.clear) await quitarTurno(emp_id, fecha);
+      else if (opt.dataset.doble) await marcarFrancoTrasladado(emp_id, fecha);
       else if (opt.dataset.custom) await asignarTurnoCustom(emp_id, fecha);
       else await asignarTurno(emp_id, fecha, parseInt(opt.dataset.tpl, 10));
       pop.remove();
@@ -7724,7 +7743,8 @@ async function generarMesDesdeDefault() {
     .in('empleado_id', (colaboradores||[]).map(e => e.id));
   // Map (emp_id × dia_semana) → default
   const defMap = {};
-  (defaults || []).forEach(d => { defMap[`${d.empleado_id}_${d.dia_semana}`] = d; });
+  const tieneHabitual = new Set();
+  (defaults || []).forEach(d => { defMap[`${d.empleado_id}_${d.dia_semana}`] = d; tieneHabitual.add(d.empleado_id); });
 
   // Turnos ya cargados (para no pisar)
   const { data: ya } = await sb.from('rrhh_turnos')
@@ -7741,8 +7761,14 @@ async function generarMesDesdeDefault() {
       const fecha = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       if (yaSet.has(`${e.id}_${fecha}`)) continue;
       const dow = new Date(y, m-1, d).getDay();
-      const def = defMap[`${e.id}_${dow}`];
-      if (!def) continue;
+      let def = defMap[`${e.id}_${dow}`];
+      // (9-sep, JP) en el horario habitual, un día "sin asignar" ES su franco:
+      // se genera como franco para que figure en el calendario. Si la empleada
+      // no tiene NINGÚN horario habitual cargado, se saltea como antes.
+      if (!def) {
+        if (!tieneHabitual.has(e.id)) continue;
+        def = { template_id: null, hora_inicio: null, hora_fin: null, es_franco: true, template: null };
+      }
       inserts.push({
         empleado_id: e.id, fecha,
         template_id: def.template_id,
@@ -9328,7 +9354,7 @@ async function marcarFrancoTrasladado(empId, fecha) {
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     toast('Marca quitada. Recalculando mes...', 'info');
     try { await procesarMes(fecha.substring(0,7), null); } catch(_) {}
-    await renderDetalleEmpDia(empId); await renderResumenContent();
+    try { await renderDetalleEmpDia(empId); await renderResumenContent(); } catch(_) {}   // (9-sep) también se llama desde el calendario
     return;
   }
   const dest = prompt(`Trabaja el franco del ${fecha.split('-').reverse().join('/')}.\n¿A qué día lo traslada? (AAAA-MM-DD)`);
@@ -9347,7 +9373,7 @@ async function marcarFrancoTrasladado(empId, fecha) {
   await auditLog('franco_trasladado', 'rrhh_turnos', t.id, fecha, 'franco', `franco trabajado (doble) → franco el ${destino}`);
   toast(`Franco trasladado al ${destino.split('-').reverse().join('/')}. Recalculando mes (el día trabajado computa doble)...`, 'info');
   try { await procesarMes(fecha.substring(0,7), null); toast('Mes recalculado ✓', 'success'); } catch (e) { toast('Falló el recálculo: ' + e.message, 'warning'); }
-  await renderDetalleEmpDia(empId); await renderResumenContent();
+  try { await renderDetalleEmpDia(empId); await renderResumenContent(); } catch(_) {}   // (9-sep) también se llama desde el calendario
 }
 
 async function cambiarTurnoPersonalizado(detalleId, empId, fecha) {
@@ -23724,7 +23750,7 @@ const salaryWorkflow = (() => {
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=10"></script>
+<script src="manuales.js?v=11"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

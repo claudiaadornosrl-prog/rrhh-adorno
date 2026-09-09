@@ -323,7 +323,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .cal-cell-day .turno-time { font-size: 10px; line-height: 1.2; }
 .cal-cell-day .turno-icon { font-size: 14px; }
 .cal-cell-day .cal-fichadas { font-size: 8px; line-height: 1.15; margin-top: 2px; padding: 1px 2px; border-radius: 3px; background: rgba(255,255,255,0.85); color: #065f46; font-weight: 600; white-space: nowrap; }
-.cal-cell-day.franco { background: #f3f4f6; color: var(--muted); }
+.cal-cell-day.franco { background: #e5e7eb; color: #4b5563; }
+.cal-cell-day.franco .turno-time { font-weight: 600; letter-spacing: 0.02em; }
 .cal-cell-day.vacaciones { background: #d1faf1; color: #0d9488; }
 .cal-cell-day.licencia   { background: #fef3c7; color: #92400e; }
 .cal-cell-day.feriado-cerrado { background: #fee2e2; }
