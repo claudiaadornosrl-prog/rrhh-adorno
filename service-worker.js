@@ -81,8 +81,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'RRHH Adorno';
   const options = {
     body:    payload.body  || '',
-    icon:    payload.icon  || './icon-192.png',
-    badge:   payload.badge || './icon-192.png',
+    icon:    payload.icon  || './icon-192-v2.png',
+    badge:   payload.badge || './icon-192-v2.png',
     tag:     payload.tag   || 'rrhh-default',     // notifs con mismo tag se reemplazan
     data:    { url: payload.url || './' },
     requireInteraction: false,
