@@ -42,3 +42,9 @@ Firma JP.png
 *.csv
 google_credentials.json
 google_token*.json
+
+# (10-sep) scripts internos: no los sirve Pages y el repo es PÚBLICO
+sync_ipc/
+*.py
+*.sql
+CLAUDE.md
