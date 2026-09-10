@@ -23954,6 +23954,18 @@ const salaryWorkflow = (() => {
   return { liquidarEmpleada, liquidarMes, calcularPuntosMes };
 })();
 
+// ════════════════════════════════════════════════════════════
+// ARRANQUE (10-sep-2026) — 🚨 BUG DE FONDO, no del SSO
+// `init()` estaba DEFINIDA pero NUNCA se llamaba: la sesión guardada no se
+// restauraba jamás y el login aparecía siempre, aunque hubiera sesión válida.
+// Estaba tapado porque al loguearse a mano se entra por otro camino
+// (doLogin → onLoggedIn), así que nadie notó que la restauración no corría.
+// Los otros módulos arrancan con una función que se autoejecuta; a RRHH le
+// faltaba la invocación. Sin esto, el SSO no puede funcionar acá.
+// ════════════════════════════════════════════════════════════
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => init());
+else init();
+
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
