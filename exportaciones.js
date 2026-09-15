@@ -5,12 +5,90 @@
 //  Se carga después del script principal; nada de esto corre al arrancar.
 // ═══════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════
+//  TEMPLATE DEL BANCO GALICIA — UNA sola definición para todos los archivos
+//
+//  (31-jul) Formato EXACTO del template del Galicia (GO → Haberes →
+//  Acreditaciones): libro .xls (BIFF8) con DOS hojas — "Ayuda" (las
+//  instrucciones del banco, tal cual vienen) y "Template Liquidaciones" con
+//  Cuenta · Nombre · Importe · Concepto.
+//
+//  🚨 (15-sep) Sueldos y adelantos comparten este armado a propósito. Estaban
+//  duplicados y se fueron de tema: el de adelantos producía un .xlsx con
+//  columnas inventadas (CBU/CUIL/Referencia) que el banco NO toma. Si alguna
+//  vez cambia el template, se cambia ACÁ y valen los dos.
+//
+//  Reglas del formato, verificadas contra el .xls real que el banco aceptó:
+//  · Cuenta   → TEXTO, 14 dígitos con ceros a la izquierda. NO es el CBU:
+//               sale de `rrhh_empleados.cuenta_galicia`.
+//  · Nombre   → "APELLIDO, NOMBRE" en mayúsculas.
+//  · Importe  → NÚMERO con formato '0' (sin centavos).
+//  · Concepto → TEXTO "01" (acreditamiento de haberes) — también en adelantos.
+// ═══════════════════════════════════════════════════════════════════════
+
+const GALICIA_AYUDA = [
+  ['', 'Ayuda : Planilla Excel Liquidaciones', ''],
+  ['', '1. Completar la hoja de este excel llamada "Template Liquidaciones" según las siguientes definiciones de campos', '.'],
+  ['', '2. Guardar y Enviar por GO (Menú: Haberes/Acreditaciones/Archivos/Envío Archivo de Acreditaciones). ', ''],
+  ['', '', ''],
+  ['', '', ''],
+  ['CUENTA', 'El campo cuenta debe contener 12 digitos sin guiones. La misma debe comenzar con 0 (si es Cuenta Corriente) ó 4 (si es Caja de Ahorro). Formato de Celda: NÚMERO - Posiciones Decimales: 0.', ''],
+  ['', '', ''],
+  ['NOMBRE', 'Debe introducirse en el siguiente orden: Apellido y Nombre.  Sin comas.  No hay limite de caracteres. Formato de Celda: TEXTO', ''],
+  ['', '', ''],
+  ['IMPORTE', 'El campo importe admite un máximo de 14 caracteres. Sin signo monetario. Con coma decimal, incluyendo dos decimales. Formato de Celda: NÚMERO - Posiciones Decimales: 2.', ''],
+  ['', '', ''],
+  ['CONCEPTO', 'Se deberá colocar el Código que figura en la "Tabla de Conceptos" de acuerdo con la descripción que se quiera mostrar para cada monto a acreditar.  El campo requiere un mínimo de 2 caracteres. Formato de Celda: TEXTO. CAMPO OPCIONAL. Por default aparecerá siempre el Código 01, significa Acreditamiento de Haberes.', ''],
+  ['', '', ''],
+  ['', '', ''],
+  ['Tabla de Conceptos', '', ''],
+  ['', '', ''],
+  ['Código', 'Descripción', ''],
+  ['01', 'ACREDITAMIENTO DE HABERES', ''],
+  ['02', 'HORAS EXTRAS', ''],
+  ['03', 'REINTEGRO POR VIATICOS', ''],
+  ['04', 'SUELDO ANUAL COMPLEMENTARIO', ''],
+  ['05', 'SUBSIDIO VACACIONAL', ''],
+  ['06', 'GASTOS DE REPRESENTACION', ''],
+  ['07', 'HONORARIOS DE PROFESIONALES', ''],
+  ['08', 'ASIGNACION PERSONAL CONTRATADO', ''],
+  ['09', 'ASIGNACION BECAS/PASANTIAS', ''],
+  [10, 'PREMIO POR PRODUCTIVIDAD/CALIDAD', ''],
+  [11, 'REEMBOLSO GASTOS', ''],
+  [12, 'INDEMNIZACION/LIQUIDACION FINAL', ''],
+];
+
+// "APELLIDO, NOMBRE" — el banco lo tomó así (su propia Ayuda dice "sin comas",
+// pero el archivo que funciona las lleva; manda el archivo que funciona).
+const _galiciaNombre = (e) => e
+  ? `${(e.apellido || '').toUpperCase()}, ${(e.nombre || '').toUpperCase()}`.trim()
+  : '';
+
+// filas = [[cuenta, nombre, importe, concepto], ...] · devuelve el workbook listo
+function _galiciaWorkbook(filas) {
+  const wb = XLSX.utils.book_new();
+
+  const wsAyuda = XLSX.utils.aoa_to_sheet(GALICIA_AYUDA);
+  wsAyuda['!cols'] = [{ wch: 18 }, { wch: 110 }, { wch: 4 }];
+  XLSX.utils.book_append_sheet(wb, wsAyuda, 'Ayuda');
+
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['Cuenta', 'Nombre', 'Importe', 'Concepto'],
+    ...filas,
+  ]);
+  // Cuenta y Concepto como TEXTO (preservar ceros a la izquierda);
+  // Importe como número con formato '0'.
+  for (let r = 1; r <= filas.length; r++) {
+    const cCta = ws['A' + (r + 1)]; if (cCta) cCta.t = 's';
+    const cCon = ws['D' + (r + 1)]; if (cCon) cCon.t = 's';
+    const cImp = ws['C' + (r + 1)]; if (cImp) { cImp.t = 'n'; cImp.z = '0'; }
+  }
+  ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Template Liquidaciones');
+  return wb;
+}
+
 async function exportarGaliciaXLSX(local, periodo) {
-  // (31-jul) Formato EXACTO del template del banco Galicia (GO → Haberes →
-  // Acreditaciones): hoja "Template Liquidaciones" con columnas
-  // Cuenta (texto, 14 dígitos con ceros a la izquierda — NO es el CBU, se
-  // guarda en rrhh_empleados.cuenta_galicia) · Nombre (APELLIDO, NOMBRE) ·
-  // Importe (número, 2 decimales) · Concepto ("01" = haberes).
   try {
     if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
 
@@ -22,10 +100,7 @@ async function exportarGaliciaXLSX(local, periodo) {
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'warning'); return; }
 
-    const fmtNombre = (e) => {
-      if (!e) return '';
-      return `${(e.apellido || '').toUpperCase()}, ${(e.nombre || '').toUpperCase()}`.trim();
-    };
+    const fmtNombre = _galiciaNombre;
 
     const filas = [];
     const sinCuenta = [];
@@ -55,56 +130,7 @@ async function exportarGaliciaXLSX(local, periodo) {
       if (!confirm(`⚠ ${sinCuenta.length} empleada(s) sin cuenta Galicia cargada quedan fuera del archivo:\n\n  • ${lista}\n\n¿Generar el archivo con las ${filas.length} restantes?`)) return;
     }
 
-    const wb = XLSX.utils.book_new();
-
-    // Hoja 1: "Ayuda" — instrucciones del banco, copiadas del template oficial
-    const AYUDA = [
-      ['', 'Ayuda : Planilla Excel Liquidaciones', ''],
-      ['', '1. Completar la hoja de este excel llamada "Template Liquidaciones" según las siguientes definiciones de campos', '.'],
-      ['', '2. Guardar y Enviar por GO (Menú: Haberes/Acreditaciones/Archivos/Envío Archivo de Acreditaciones). ', ''],
-      ['', '', ''],
-      ['', '', ''],
-      ['CUENTA', 'El campo cuenta debe contener 12 digitos sin guiones. La misma debe comenzar con 0 (si es Cuenta Corriente) ó 4 (si es Caja de Ahorro). Formato de Celda: NÚMERO - Posiciones Decimales: 0.', ''],
-      ['', '', ''],
-      ['NOMBRE', 'Debe introducirse en el siguiente orden: Apellido y Nombre.  Sin comas.  No hay limite de caracteres. Formato de Celda: TEXTO', ''],
-      ['', '', ''],
-      ['IMPORTE', 'El campo importe admite un máximo de 14 caracteres. Sin signo monetario. Con coma decimal, incluyendo dos decimales. Formato de Celda: NÚMERO - Posiciones Decimales: 2.', ''],
-      ['', '', ''],
-      ['CONCEPTO', 'Se deberá colocar el Código que figura en la "Tabla de Conceptos" de acuerdo con la descripción que se quiera mostrar para cada monto a acreditar.  El campo requiere un mínimo de 2 caracteres. Formato de Celda: TEXTO. CAMPO OPCIONAL. Por default aparecerá siempre el Código 01, significa Acreditamiento de Haberes.', ''],
-      ['', '', ''],
-      ['', '', ''],
-      ['Tabla de Conceptos', '', ''],
-      ['', '', ''],
-      ['Código', 'Descripción', ''],
-      ['01', 'ACREDITAMIENTO DE HABERES', ''],
-      ['02', 'HORAS EXTRAS', ''],
-      ['03', 'REINTEGRO POR VIATICOS', ''],
-      ['04', 'SUELDO ANUAL COMPLEMENTARIO', ''],
-      ['05', 'SUBSIDIO VACACIONAL', ''],
-      ['06', 'GASTOS DE REPRESENTACION', ''],
-      ['07', 'HONORARIOS DE PROFESIONALES', ''],
-      ['08', 'ASIGNACION PERSONAL CONTRATADO', ''],
-      ['09', 'ASIGNACION BECAS/PASANTIAS', ''],
-      [10, 'PREMIO POR PRODUCTIVIDAD/CALIDAD', ''],
-      [11, 'REEMBOLSO GASTOS', ''],
-      [12, 'INDEMNIZACION/LIQUIDACION FINAL', ''],
-    ];
-    const wsAyuda = XLSX.utils.aoa_to_sheet(AYUDA);
-    wsAyuda['!cols'] = [{ wch: 18 }, { wch: 110 }, { wch: 4 }];
-    XLSX.utils.book_append_sheet(wb, wsAyuda, 'Ayuda');
-
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['Cuenta', 'Nombre', 'Importe', 'Concepto'],
-      ...filas,
-    ]);
-    // Cuenta y Concepto como TEXTO (preservar ceros a la izquierda)
-    for (let r = 1; r <= filas.length; r++) {
-      const cCta = ws['A' + (r + 1)]; if (cCta) cCta.t = 's';
-      const cCon = ws['D' + (r + 1)]; if (cCon) cCon.t = 's';
-      const cImp = ws['C' + (r + 1)]; if (cImp) { cImp.t = 'n'; cImp.z = '0'; }
-    }
-    ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 14 }, { wch: 10 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'Template Liquidaciones');
+    const wb = _galiciaWorkbook(filas);
 
     const localTxt = (local && local !== 'todos') ? local.toUpperCase() : 'TODOS';
     const [py, pm] = periodo.split('-');
@@ -114,6 +140,75 @@ async function exportarGaliciaXLSX(local, periodo) {
   } catch(e) {
     console.error(e);
     toast('Error al exportar: ' + e.message, 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Adelantos del mes en curso → mismo template del Galicia que los sueldos.
+//
+// 🚨 (15-sep) Antes esto generaba un .xlsx con columnas CBU / CUIL /
+// "Apellido y Nombre" / Referencia — un formato inventado que el banco NO
+// toma. Ahora sale por `_galiciaWorkbook`, igual que sueldos. Verificado
+// contra el archivo real que JP subió al Office Banking: mismas 4 columnas,
+// misma cuenta de 14 dígitos, mismo concepto "01".
+//
+// Vive acá (y ya no en index.html) para que no se vuelvan a ir de tema:
+// los dos archivos del banco se arman en el mismo lugar.
+// ─────────────────────────────────────────────────────────────────────
+async function exportarAdelantosGalicia() {
+  // Admin + la lista de emails habilitados (Marisa, con sus dos usuarios).
+  // Este chequeo es solo para dar un mensaje claro: quien decide de verdad es
+  // la RPC, que valida lo mismo del lado del servidor.
+  if (session.rol !== 'admin' && !session.puedeAdelantos) {
+    toast('No tenés permiso para bajar este archivo', 'error'); return;
+  }
+  try {
+    if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
+
+    const { data: rows, error } = await sb.rpc('rrhh_adelantos_galicia');
+    if (error) throw error;
+    if (!rows || rows.length === 0) {
+      toast('No hay adelantos cargados este mes', 'info'); return;
+    }
+
+    const filas = [];
+    const sinCuenta = [];
+    const conCentavos = [];
+    let total = 0;
+    for (const r of rows) {
+      const nombre = _galiciaNombre(r);
+      const monto = Number(r.monto || 0);
+      if (monto <= 0) continue;
+      if (!r.cuenta_galicia) { sinCuenta.push(nombre); continue; }
+      // El template va sin centavos (formato '0'). Si alguno tuviera, se avisa
+      // en vez de redondear en silencio.
+      if (Math.abs(monto - Math.round(monto)) > 0.004) conCentavos.push(nombre);
+      const imp = Math.round(monto);
+      filas.push([String(r.cuenta_galicia).padStart(14, '0'), nombre, imp, '01']);
+      total += imp;
+    }
+
+    if (filas.length === 0) {
+      toast('Ninguna colaboradora con cuenta Galicia cargada y monto > 0', 'error');
+      return;
+    }
+    if (sinCuenta.length > 0) {
+      const lista = sinCuenta.join('\n  • ');
+      if (!confirm(`⚠ ${sinCuenta.length} colaboradora(s) sin cuenta Galicia cargada quedan FUERA del archivo:\n\n  • ${lista}\n\nCargale la cuenta en su legajo o pagale aparte.\n\n¿Generar el archivo con las ${filas.length} restantes?`)) return;
+    }
+    if (conCentavos.length > 0) {
+      if (!confirm(`⚠ ${conCentavos.length} adelanto(s) tienen centavos y el archivo del banco va sin centavos:\n\n  • ${conCentavos.join('\n  • ')}\n\nSe redondean al peso. ¿Sigo?`)) return;
+    }
+
+    const wb = _galiciaWorkbook(filas);
+    const hoy = new Date();
+    const nombreArch = `ANTICIPOS ${hoy.getMonth() + 1}-${hoy.getFullYear()}.xls`;
+    XLSX.writeFile(wb, nombreArch, { bookType: 'biff8' });
+
+    toast(`✓ ${filas.length} adelantos — total ${'$' + total.toLocaleString('es-AR')}`, 'success');
+  } catch (e) {
+    console.error(e);
+    toast('Error al exportar: ' + (e.message || e), 'error');
   }
 }
 

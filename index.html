@@ -20501,7 +20501,7 @@ async function renderPrestamos() {
       <h3 style="margin:0 0 12px;">➕ Otorgar nuevo préstamo</h3>
       <button class="btn primary" onclick="prestamoAbrirNuevo()">📤 Crear préstamo</button>
       <button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;margin-left:8px;" onclick="adelantoAbrirNuevo()">💵 Nuevo adelanto</button>
-      <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;margin-left:8px;" onclick="exportarAdelantosGalicia()" title="Descargar Excel con todos los adelantos del mes para subir a Galicia Office">📊 Exportar Galicia adelantos</button>
+      <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;margin-left:8px;" onclick="exportarAdelantosGalicia()" title="Descargar el .xls con los adelantos del mes, en el formato que toma el Office Banking del Galicia">📊 Exportar Galicia adelantos</button>
       <button class="btn" style="background:#6366f1;color:white;border-color:#6366f1;margin-left:8px;" onclick="activarPropuestasBulk()" title="Activar todas las propuestas pendientes (las que cargaste con 'Esperar confirmación' tildado pero ya están acordadas)">🔓 Activar propuestas</button>
     </div>
 
@@ -22063,45 +22063,9 @@ async function activarPropuestasBulk() {
   switchTab('prestamos');
 }
 
-async function exportarAdelantosGalicia() {
-  // (15-sep) Admin + la lista de emails habilitados (Marisa, con sus dos usuarios).
-  // Este chequeo es solo para dar un mensaje claro: quien decide de verdad es la
-  // RPC, que valida lo mismo del lado del servidor. El archivo trae CBU y CUIL de
-  // todo el personal, así que la puerta NO puede quedar solo en el navegador.
-  if (session.rol !== 'admin' && !session.puedeAdelantos) {
-    toast('No tenés permiso para bajar este archivo', 'error'); return;
-  }
-  try {
-    const { data: rows, error } = await sb.rpc('rrhh_adelantos_galicia');
-    if (error) throw error;
-    if (!rows || rows.length === 0) {
-      toast('No hay adelantos cargados este mes', 'info'); return;
-    }
-    const filas = rows.map(r => ({
-      'CBU':           r.cbu || '',
-      'CUIL':          r.cuil || '',
-      'Apellido y Nombre': (r.apellido || '') + ', ' + (r.nombre || ''),
-      'Importe':       Number(r.monto || 0),
-      'Concepto':      'ADELANTO',
-      'Referencia':    'ADL ' + new Date().toLocaleDateString('es-AR'),
-    }));
-    const ws = XLSX.utils.json_to_sheet(filas);
-    ws['!cols'] = [{wch:25},{wch:14},{wch:32},{wch:14},{wch:12},{wch:22}];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Adelantos');
-    const hoy = new Date();
-    const nombre = `Adelantos_Galicia_${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}.xlsx`;
-    XLSX.writeFile(wb, nombre);
-    const sinCbu = rows.filter(r => !r.cbu || String(r.cbu).length < 22);
-    if (sinCbu.length > 0) {
-      toast(`⚠ ${sinCbu.length} colaboradoras sin CBU válido — revisalas en su legajo`, 'warning');
-    } else {
-      toast(`Excel descargado ✓ · ${rows.length} adelantos`, 'success');
-    }
-  } catch (e) {
-    toast('Error: ' + (e.message || e), 'error');
-  }
-}
+// exportarAdelantosGalicia() se mudó a exportaciones.js (15-sep): comparte el
+// armado del template del banco con el export de sueldos, para que los dos
+// archivos del Galicia no se vuelvan a ir de tema.
 
 // ─────────────────────────────────────────────────────────────────────
 // Admin: crear propuesta de refinanciación
@@ -23993,8 +23957,8 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=16"></script>
-<script src="exportaciones.js?v=5"></script>
+<script src="manuales.js?v=17"></script>
+<script src="exportaciones.js?v=6"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

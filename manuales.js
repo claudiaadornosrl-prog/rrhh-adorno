@@ -214,8 +214,9 @@ const MANUAL_ADELANTOS = {
   desc: 'El Excel con los adelantos del mes para subir al Office Banking del Galicia.',
   pasos: [
     'El ítem 📊 "Adelantos Galicia" del menú no abre una pantalla: baja el archivo directo.',
-    'Trae TODOS los adelantos otorgados en el mes en curso, con CBU, CUIL, apellido y nombre, importe y la referencia.',
-    'Si alguna colaboradora no tiene CBU cargado o está incompleto, el sistema te avisa cuántas son para que las revises en su legajo antes de subir el archivo.',
+    'Es el .xls con el formato del Office Banking (hojas "Ayuda" y "Template Liquidaciones", columnas Cuenta · Nombre · Importe · Concepto) — el mismo que sale para los sueldos. Se sube por GO → Haberes → Acreditaciones → Envío Archivo de Acreditaciones.',
+    'Trae TODOS los adelantos otorgados en el mes en curso. La cuenta es la de 14 dígitos del Galicia (no el CBU) y el concepto va "01".',
+    'Si a alguna colaboradora le falta la cuenta Galicia en su legajo, el sistema te lo dice ANTES de generar y te deja elegir si seguís con el resto: a esa hay que pagarle aparte.',
     'Desde administracion@ el mismo botón está adentro de 💵 Préstamos, arriba a la derecha.',
   ],
   img: null,
