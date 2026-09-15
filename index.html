@@ -792,6 +792,13 @@ async function onLoggedIn(user) {
   const RRHH_SOLO_BANCO_EMAILS = ['administracion@claudiaadorno.com'];
   // claudiaadorno@ no entra más a RRHH (usa Documentos, sin recibos):
   const RRHH_BLOQUEADOS = ['claudiaadorno@claudiaadorno.com'];
+  // (15-sep) Quién puede bajar el archivo de adelantos para Galicia Office.
+  // Marisa trabaja con DOS usuarios y lo necesita desde los dos. Va por EMAIL
+  // y no por rol: `empleado` es el rol de las 19 colaboradoras y el archivo
+  // trae el CBU y el CUIL de todo el personal.
+  // 🚨 Espejo de rrhh_puede_adelantos_galicia() en la DB — mantener sincronizado.
+  const RRHH_ADELANTOS_EMAILS = ['administracion@claudiaadorno.com',
+                                 'marisaisabel07@yahoo.com.ar'];
   session = {
     user,
     rol: usuarioRow.rol,
@@ -800,6 +807,7 @@ async function onLoggedIn(user) {
     empleadoData,
     email: usuarioRow.email,
     soloBanco: RRHH_SOLO_BANCO_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
+    puedeAdelantos: RRHH_ADELANTOS_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
   };
   // (4-ago) Bloqueo de acceso a RRHH para usuarios que solo usan Documentos:
   if (RRHH_BLOQUEADOS.includes((session.email || '').toLowerCase())) {
@@ -867,6 +875,12 @@ function renderSidebar() {
   // (26-ago) administracion@: ve los prestamos activos de todos (solo lectura)
   if (session.soloBanco && !items.some(i => i.id === 'prestamos'))
     items = items.concat([{ id: 'prestamos', label: 'Préstamos', icon: '💵', section: null }]);
+  // (15-sep) Marisa baja el archivo de adelantos desde sus dos usuarios. Con
+  // administracion@ el botón ya está dentro de Préstamos; con su cuenta personal
+  // (rol empleado, self-service) no existía en ningún lado, así que se le suma
+  // acá. NO abre la pantalla de préstamos: el ítem dispara la descarga y nada más.
+  if (session.puedeAdelantos && session.rol !== 'admin' && !session.soloBanco)
+    items = items.concat([{ id: 'adelantos-galicia', label: 'Adelantos Galicia', icon: '📊', section: null }]);
   if (esNavSimple()) items = items.filter(i => NAV_SIMPLE_TABS.includes(i.id)).map(i => ({ ...i, section: null }));
   let html = '';
   let lastSection = undefined;
@@ -910,6 +924,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleSideba
 // TABS / PÁGINAS
 // ════════════════════════════════════════════════════════════
 function switchTab(tabId) {
+  // (15-sep) Pseudo-pestaña: no abre ninguna pantalla, baja el Excel de adelantos.
+  // Va acá arriba de todo para que funcione igual desde el menú lateral que desde
+  // el manual, que también entra por switchTab.
+  if (tabId === 'adelantos-galicia') { exportarAdelantosGalicia(); return; }
   // Usuarios solo-Banco: no salen de Liquidación
   // (26-ago) administracion@ tambien puede ver Prestamos, en modo lectura
   if (session?.soloBanco && !['liquidaciones','prestamos'].includes(tabId)) tabId = 'liquidaciones';
@@ -22046,9 +22064,15 @@ async function activarPropuestasBulk() {
 }
 
 async function exportarAdelantosGalicia() {
-  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
+  // (15-sep) Admin + la lista de emails habilitados (Marisa, con sus dos usuarios).
+  // Este chequeo es solo para dar un mensaje claro: quien decide de verdad es la
+  // RPC, que valida lo mismo del lado del servidor. El archivo trae CBU y CUIL de
+  // todo el personal, así que la puerta NO puede quedar solo en el navegador.
+  if (session.rol !== 'admin' && !session.puedeAdelantos) {
+    toast('No tenés permiso para bajar este archivo', 'error'); return;
+  }
   try {
-    const { data: rows, error } = await sb.from('rrhh_adelantos_mes_actual').select('*');
+    const { data: rows, error } = await sb.rpc('rrhh_adelantos_galicia');
     if (error) throw error;
     if (!rows || rows.length === 0) {
       toast('No hay adelantos cargados este mes', 'info'); return;
@@ -23969,7 +23993,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=15"></script>
+<script src="manuales.js?v=16"></script>
 <script src="exportaciones.js?v=5"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

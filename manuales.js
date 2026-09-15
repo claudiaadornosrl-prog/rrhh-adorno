@@ -206,9 +206,25 @@ const MANUAL_EMPLEADO = [
   },
 ];
 
+// (15-sep) Sección que ve SOLO quien tiene habilitado el archivo de adelantos
+// (hoy Marisa, con sus dos usuarios). No se suma al manual de todas porque el
+// resto de las colaboradoras no tiene ese botón.
+const MANUAL_ADELANTOS = {
+  tab: 'adelantos-galicia', icon: '📊', titulo: 'Adelantos Galicia',
+  desc: 'El Excel con los adelantos del mes para subir al Office Banking del Galicia.',
+  pasos: [
+    'El ítem 📊 "Adelantos Galicia" del menú no abre una pantalla: baja el archivo directo.',
+    'Trae TODOS los adelantos otorgados en el mes en curso, con CBU, CUIL, apellido y nombre, importe y la referencia.',
+    'Si alguna colaboradora no tiene CBU cargado o está incompleto, el sistema te avisa cuántas son para que las revises en su legajo antes de subir el archivo.',
+    'Desde administracion@ el mismo botón está adentro de 💵 Préstamos, arriba a la derecha.',
+  ],
+  img: null,
+};
+
 async function renderManual() {
   const isGerente = session.rol === 'gerente';
-  const items = isGerente ? MANUAL_GERENTE : MANUAL_EMPLEADO;
+  let items = isGerente ? MANUAL_GERENTE : MANUAL_EMPLEADO;
+  if (session.puedeAdelantos) items = items.concat([MANUAL_ADELANTOS]);
   const tituloRol = isGerente ? 'Manual de la encargada' : 'Manual de la empleada';
   const subtitulo = isGerente
     ? 'Guía rápida de cada herramienta del sistema. Click en una sección para ir directo.'
