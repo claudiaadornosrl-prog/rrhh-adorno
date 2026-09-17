@@ -53,140 +53,11 @@ async function _loadForumFont(doc) {
 // Muestra un modal con: días trabajados, faltas (compensadas y sin),
 // tardanzas acumuladas, préstamos y descuentos. Solo si el usuario
 // confirma, se genera el PDF (delegando a verReciboPDF).
-async function abrirConfirmacionRecibo(liqId) {
-  try {
-    // Cargar liquidación + empleado
-    const { data: liq, error } = await sb.from('rrhh_liquidacion')
-      .select('*, empleado:rrhh_empleados(id, nombre_completo, local, categoria:rrhh_categorias_cct(nombre))')
-      .eq('id', liqId).maybeSingle();
-    if (error || !liq) { toast('No se pudo cargar la liquidación', 'error'); return; }
+// 🗑 abrirConfirmacionRecibo — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_recibos-pdf_pre-borrado_20260917.*
 
-    const periodo = (liq.periodo || '').substring(0,7);
-    const [y, m] = periodo.split('-').map(Number);
-    const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
-    const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
-
-    // Permisos día completo aprobados del mes (faltas compensadas/justificadas)
-    const { data: permisos } = await sb.from('rrhh_permisos_puntuales')
-      .select('id, fecha, tipo, motivo, descontar_banco, minutos_descontar, descontar_vacaciones, dias_descontar, estado')
-      .eq('empleado_id', liq.empleado_id)
-      .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
-      .eq('estado', 'aprobado');
-
-    // Asistencias del mes (para tardanzas + ausencias sin compensar)
-    const { data: detalles } = await sb.from('rrhh_asistencias_detalle')
-      .select('fecha, estado, minutos_tarde, minutos_salida_temp, error_salvado')
-      .eq('empleado_id', liq.empleado_id)
-      .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
-
-    // Excluir salvadas: si la encargada las salvó (problema de fichada), no
-    // deben aparecer como "sin justificar" ni descontar del sueldo.
-    const ausentes = (detalles || []).filter(d => d.estado === 'ausente' && !d.error_salvado);
-    const permisosByFecha = {};
-    (permisos || []).forEach(p => { permisosByFecha[p.fecha] = p; });
-
-    // Clasificar ausencias: con compensación vs sin compensar
-    const faltasCompensadas = [];
-    const faltasSinCompensar = [];
-    ausentes.forEach(d => {
-      const p = permisosByFecha[d.fecha];
-      if (p && (p.descontar_banco || p.descontar_vacaciones)) {
-        faltasCompensadas.push({ fecha: d.fecha, permiso: p });
-      } else if (p) {
-        // tiene permiso pero sin compensación (descuento de sueldo justificado)
-        faltasCompensadas.push({ fecha: d.fecha, permiso: p, descontaSueldo: true });
-      } else {
-        // sin permiso = injustificada
-        faltasSinCompensar.push(d);
-      }
-    });
-
-    // Tardanzas + salidas tempranas acumuladas
-    const acumTarde = (detalles || []).reduce((s,d) => {
-      if (d.error_salvado) return s;
-      return s + (d.minutos_tarde || 0) + (d.minutos_salida_temp || 0);
-    }, 0);
-
-    // Cargar config umbral
-    const { data: tol } = await sb.from('rrhh_config_tolerancias')
-      .select('umbral_mensual_tardanzas').eq('local', liq.empleado.local).maybeSingle();
-    const umbralMensual = tol?.umbral_mensual_tardanzas || 60;
-
-    const fmtFechaCorta = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) : '';
-
-    const compHtml = faltasCompensadas.length === 0
-      ? '<div style="color:#94a3b8;font-style:italic;">— sin faltas compensadas —</div>'
-      : faltasCompensadas.map(f => {
-          let cómo = '';
-          if (f.permiso.descontar_banco) cómo = `🏦 banco (-${f.permiso.minutos_descontar} min)`;
-          else if (f.permiso.descontar_vacaciones) cómo = `🌴 vacaciones (-${f.permiso.dias_descontar} día)`;
-          else cómo = `📝 justificada (descuenta sueldo, NO cuenta como falta de fichada)`;
-          return `<div style="padding:6px;border-left:3px solid #0d9488;background:#f0fdfa;margin-bottom:4px;font-size:13px;">
-            ${fmtFechaCorta(f.fecha)} → ${cómo}
-            ${f.permiso.motivo ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">"${escapeHtml(f.permiso.motivo)}"</div>` : ''}
-          </div>`;
-        }).join('');
-
-    const sinCompHtml = faltasSinCompensar.length === 0
-      ? '<div style="color:#16a34a;font-weight:600;">✅ Sin faltas pendientes</div>'
-      : `<div style="padding:8px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;">
-          <div style="color:#991b1b;font-weight:600;margin-bottom:4px;">⚠️ ${faltasSinCompensar.length} falta(s) INJUSTIFICADAS</div>
-          ${faltasSinCompensar.map(d => `<div style="font-size:13px;">• ${fmtFechaCorta(d.fecha)}</div>`).join('')}
-          <div style="font-size:11px;color:#7f1d1d;margin-top:6px;">Estas faltas descuentan del sueldo Y suman 2 faltas de fichada (entrada + salida) que afectan el premio.</div>
-        </div>`;
-
-    const tardanzaHtml = acumTarde === 0
-      ? '<div style="color:#16a34a;">✅ Sin tardanzas/salidas tempranas en el mes</div>'
-      : acumTarde > umbralMensual
-        ? `<div style="color:#dc2626;font-weight:600;">⚠️ ${acumTarde} min acumulados (> umbral ${umbralMensual}) → se descuenta TODO del banco al cerrar el mes</div>`
-        : `<div style="color:#16a34a;">${acumTarde} min acumulados (≤ ${umbralMensual} → perdonados)</div>`;
-
-    const fmt = (n) => '$' + (Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
-
-    const html = `
-      <div class="modal-bg" id="conf-recibo-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;">
-        <div style="background:white;border-radius:12px;padding:24px;max-width:560px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,0.3);max-height:90vh;overflow:auto;">
-          <h2 style="margin:0 0 6px 0;font-size:18px;color:#0d9488;">📋 Revisión previa al recibo</h2>
-          <div style="font-size:14px;font-weight:600;margin-bottom:12px;">${escapeHtml(liq.empleado.nombre_completo)} · ${LOCALES[liq.empleado.local]?.nombre || liq.empleado.local} · ${periodo}</div>
-
-          <div style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;">
-            <div style="font-size:12px;color:#64748b;text-transform:uppercase;margin-bottom:6px;">FALTAS DEL MES</div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">✅ Compensadas / justificadas:</div>
-            ${compHtml}
-            <div style="font-size:13px;font-weight:600;margin:10px 0 4px;">⚠️ Sin compensar:</div>
-            ${sinCompHtml}
-          </div>
-
-          <div style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;">
-            <div style="font-size:12px;color:#64748b;text-transform:uppercase;margin-bottom:6px;">TARDANZAS + SALIDAS TEMPRANAS</div>
-            ${tardanzaHtml}
-          </div>
-
-          <div style="background:#fef3c7;border-radius:8px;padding:12px;margin-bottom:14px;">
-            <div style="font-size:12px;color:#92400e;text-transform:uppercase;margin-bottom:4px;">RECIBO CCT (lo que va al estudio)</div>
-            <div style="font-size:18px;font-weight:700;color:#92400e;">${fmt(liq.recibo_neto)}</div>
-            ${(m === 6 || m === 12) && Number(liq.sac_recibo_neto || 0) > 0 ? `
-              <div style="border-top:1px dashed #d97706;margin-top:10px;padding-top:8px;">
-                <div style="font-size:12px;color:#92400e;text-transform:uppercase;margin-bottom:4px;">1er SAC ${periodo}</div>
-                <div style="font-size:18px;font-weight:700;color:#92400e;">${fmt(liq.sac_recibo_neto)}</div>
-              </div>` : ''}
-          </div>
-
-          <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
-            <button class="btn" onclick="document.getElementById('conf-recibo-modal').remove()">← Volver</button>
-            ${(m === 6 || m === 12) && Number(liq.sac_recibo_neto || 0) > 0 ? `
-              <button class="btn" style="background:#fef3c7;border-color:#d97706;color:#92400e;" onclick="document.getElementById('conf-recibo-modal').remove(); verSacPDF(${liqId}); auditLog('ver_sac_pdf', 'rrhh_liquidacion', ${liqId}, null, null, 'PDF SAC generado');">🎁 PDF SAC</button>` : ''}
-            <button class="btn primary" style="background:#0d9488;border-color:#0f766e;" onclick="document.getElementById('conf-recibo-modal').remove(); verReciboPDF(${liqId}); auditLog('confirmar_recibo', 'rrhh_liquidacion', ${liqId}, null, null, 'PDF generado tras confirmación de faltas');">✅ Confirmar y ver PDF</button>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', html);
-  } catch (e) {
-    console.error('[abrirConfirmacionRecibo]', e);
-    toast('Error: ' + (e.message || e), 'error');
-  }
-}
 
 
 // Visor embebido (31-jul): el window.open lo bloqueaban los popup-blockers y
@@ -832,107 +703,17 @@ async function generarPDFRecibo(liqId, opts = {}) {
 //  La colaboradora firma a mano (o desde su Drive) y reenvía por mail.
 //  El script 11_procesar_recibos_firmados.py lo procesa automáticamente.
 // ═══════════════════════════════════════════════════════════════════
-async function enviarReciboFirma(liqId) {
-  try {
-    // 1. Levantar datos de la liquidación + empleada
-    const { data: liq, error } = await sb.from('rrhh_liquidacion')
-      .select('id, periodo, recibo_neto, empleado:rrhh_empleados(id, apellido, nombre, nombre_completo, email)')
-      .eq('id', liqId).single();
-    if (error || !liq) { toast('No se pudo cargar la liquidación', 'error'); return; }
-    const emp = liq.empleado;
-    if (!emp) { toast('Liquidación sin colaboradora asociada', 'error'); return; }
+// 🗑 enviarReciboFirma — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_recibos-pdf_pre-borrado_20260917.*
 
-    // 2. Asunto + cuerpo del mail
-    const periodo = (liq.periodo || '').slice(0, 7);
-    const labelMes = (() => {
-      const [y, m] = periodo.split('-').map(Number);
-      const mes = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-      return mes.charAt(0).toUpperCase() + mes.slice(1);
-    })();
-    const codigo = 'REC-' + String(liq.id).padStart(5, '0');
-    const apellido = (emp.apellido || '').toUpperCase();
-    const subject = `RECIBO ${periodo} ${apellido} ${codigo}`;
-    const body = [
-      `Hola ${emp.nombre || ''},`,
-      '',
-      `Te adjunto el recibo de haberes correspondiente a ${labelMes}.`,
-      '',
-      'Para confirmar la recepción, por favor:',
-      '  1. Imprimilo, firmalo y escaneá la versión firmada (o firmalo digitalmente).',
-      `  2. Respondé este mismo mail con el PDF firmado adjunto.`,
-      '',
-      `Importante: mantené el código ${codigo} en el subject del mail de respuesta.`,
-      '',
-      'Cualquier consulta, avisame.',
-      '',
-      'Saludos,',
-      'Juan Pablo · Claudia Adorno SRL',
-    ].join('\n');
 
-    // 3. Descargar el PDF (sin marcar pdf_enviado_at todavía — eso se marca cuando confirme el envío)
-    await generarPDFRecibo(liqId);
+// 🗑 marcarReciboEnviado — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_recibos-pdf_pre-borrado_20260917.*
 
-    // 4. Mostrar modal con la info del mail + botones
-    const mailTo = emp.email || '';
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(mailTo)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    const html = `
-      <h3 style="margin:0 0 14px;">📧 Enviar recibo a ${escapeHtml(emp.nombre_completo || '')}</h3>
-      <div style="background:#f9fafb;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;">
-        <div><strong>Período:</strong> ${escapeHtml(labelMes)}</div>
-        <div><strong>Código:</strong> <code>${codigo}</code></div>
-        <div><strong>Para:</strong> ${mailTo ? escapeHtml(mailTo) : '<span style="color:#dc2626;">⚠ Sin email cargado en el legajo</span>'}</div>
-        <div><strong>Asunto:</strong> ${escapeHtml(subject)}</div>
-      </div>
-
-      <div style="background:#eef2ff;padding:10px 12px;border-radius:6px;font-size:12px;color:#3730a3;margin-bottom:14px;">
-        <strong>Cómo seguir:</strong>
-        <ol style="margin:4px 0 0 18px;padding:0;">
-          <li>Cliquéa <strong>Abrir Gmail</strong> abajo.</li>
-          <li>Arrastrá el PDF descargado al draft.</li>
-          <li>Revisá / completá el destinatario y envialo.</li>
-          <li>Volvé acá y cliquéa <strong>Marcar como enviado</strong>.</li>
-        </ol>
-      </div>
-
-      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
-        <button class="btn" onclick="closeModal()">Cancelar</button>
-        <a class="btn primary" href="${gmailUrl}" target="_blank" rel="noopener" style="text-decoration:none;">📨 Abrir Gmail</a>
-        <button class="btn" style="background:#16a34a;color:white;" onclick="marcarReciboEnviado(${liqId}); closeModal();">✓ Marcar como enviado</button>
-      </div>
-    `;
-    openModal(html, '600px');
-  } catch (e) {
-    console.error(e);
-    toast('Error: ' + e.message, 'error');
-  }
-}
-
-async function marcarReciboEnviado(liqId) {
-  const { error } = await sb.from('rrhh_liquidacion').update({
-    pdf_enviado_at: new Date().toISOString(),
-    pdf_enviado_por: session.user?.email || 'admin',
-  }).eq('id', liqId);
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-  toast('Marcado como enviado ✓', 'success');
-  // 🔔 Push a la colaboradora — recibo listo para firmar
-  const { data: liq } = await sb.from('rrhh_liquidacion').select('empleado_id, periodo').eq('id', liqId).single();
-  if (liq && liq.empleado_id) {
-    const periodo = (liq.periodo || '').slice(0, 7);
-    const mesTxt = (() => {
-      const [y, m] = periodo.split('-').map(Number);
-      if (!y || !m) return '';
-      const txt = new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
-      return txt.charAt(0).toUpperCase() + txt.slice(1);
-    })();
-    enviarPush(
-      liq.empleado_id,
-      'Recibo listo para firmar ✏️',
-      `Te llegó al mail el recibo de ${mesTxt}. Por favor firmalo y respondé con el PDF.`,
-      { url: './#mis-recibos', tag: 'recibo-' + liqId }
-    );
-  }
-  switchTab('liquidaciones');
-}
 
 
 

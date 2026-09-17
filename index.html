@@ -2,6 +2,12 @@
 <html lang="es">
 <head>
 <script>
+// 🚨 FECHA DE HOY EN HORA ARGENTINA (UTC−3).
+// `new Date().toISOString()` devuelve el día SIGUIENTE a partir de las 21:00,
+// así que todo lo que se guardaba o comparaba con "hoy" después de esa hora
+// quedaba corrido un día (fecha_baja, fecha de pago de vacaciones, ajustes,
+// faltas "hasta hoy"...). Ventas ya usaba esta forma; el resto no.
+const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
 // ═══ SESIÓN COMPARTIDA ENTRE MÓDULOS · SSO Adorno (10-sep-2026) ═══
 // Todos los módulos viven en el mismo origen (claudiaadornosrl-prog.github.io),
 // así que pueden compartir la sesión: se guarda bajo la clave 'adorno-auth' en
@@ -2052,7 +2058,7 @@ async function openEmpleadoModal(empleadoId) {
     empModalState.empleadoData = {
       apellido: '', nombre: '', dni: '', cuil: '',
       local: '', categoria_cct_id: null, tipo_contrato: 'relacion_dependencia',
-      estado: 'activo', fecha_ingreso: new Date().toISOString().split('T')[0],
+      estado: 'activo', fecha_ingreso: hoyISO(),
     };
     empModalState.formData = { ...empModalState.empleadoData };
     renderModalTabs();
@@ -2312,7 +2318,7 @@ async function renderTabDatos() {
     <div class="section-title">🤱 Período de lactancia
       ${editing ? `<button type="button" class="btn small" style="margin-left:12px;font-size:11px;" onclick="limpiarLactancia()">Limpiar (terminó)</button>` : ''}
     </div>
-    <div class="form-grid" style="background:${(d.lactancia_hasta && d.lactancia_hasta >= new Date().toISOString().split('T')[0])?'#fce7f3':'#f9fafb'};padding:14px;border-radius:10px;">
+    <div class="form-grid" style="background:${(d.lactancia_hasta && d.lactancia_hasta >= hoyISO())?'#fce7f3':'#f9fafb'};padding:14px;border-radius:10px;">
       <div class="form-row full" style="margin-bottom:4px;">
         <div style="font-size:12px;color:var(--muted);line-height:1.5;">
           Cuando una colaboradora está en período de lactancia, el sistema ajusta su turno automáticamente para no marcarla como "salida temprana" o "entrada tarde". La ley argentina permite 1 hora diaria reducida hasta 1 año desde el nacimiento (prorrogable a 6 meses más).
@@ -3371,7 +3377,7 @@ async function saveEmpleado() {
     categoria_cct_id: d.categoria_cct_id || null,
     tipo_contrato: d.tipo_contrato || 'relacion_dependencia',
     fecha_ingreso: d.fecha_ingreso || null,
-    fecha_baja: d.estado === 'baja' ? (d.fecha_baja || new Date().toISOString().split('T')[0]) : null,
+    fecha_baja: d.estado === 'baja' ? (d.fecha_baja || hoyISO()) : null,
     motivo_baja: d.estado === 'baja' ? (d.motivo_baja || null) : null,
     estado: d.estado || 'activo',
     cbu: d.cbu || null,
@@ -3707,7 +3713,7 @@ async function renderVacContent() {
     });
 
   } else if (vacState.tab === 'aprobadas') {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyISO();
     let q = sb.from('rrhh_vacaciones_movimientos')
       .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
       .in('estado', ['aprobada','tomada'])
@@ -4176,7 +4182,7 @@ async function decidirVacacion(movId, accion) {
 
     // Crear UN movimiento NUEVO por cada tramo con estado='pagada'
     // Y marcar el ORIGINAL como 'pagada' también (cerrando la solicitud)
-    const fecha = new Date().toISOString().split('T')[0];
+    const fecha = hoyISO();
     // Importe se guarda solo en el mov principal (no en los tramos extra) para no duplicar
     if (tramos.length === 1) {
       // Único tramo: update directo sobre la solicitud original
@@ -4357,7 +4363,7 @@ async function enviarSolicitudPago() {
 
   // Crear movimiento estado='solicitada' tipo_solicitud='pago'
   // Apuntamos al saldo más viejo elegible (al aprobar el sistema repartirá FIFO real)
-  const fecha = new Date().toISOString().split('T')[0];
+  const fecha = hoyISO();
   const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert({
     vacaciones_id: elegibles[0].vacId,
     empleado_id: session.empleado_id,
@@ -4581,7 +4587,7 @@ async function renderMiCalendario() {
   const fechaDesde = new Date(y, m-1, 1);
   const fechaHasta = new Date(y, m, 0);
   const diasMes = fechaHasta.getDate();
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = hoyISO();
 
   // Cargar turnos del colaborador del mes
   const { data: turnos } = await sb.from('rrhh_turnos')
@@ -5733,11 +5739,11 @@ async function renderMisVacaciones() {
       <div class="form-grid">
         <div class="form-row">
           <label>Desde *</label>
-          <input type="date" id="vac-desde" min="${new Date().toISOString().split('T')[0]}">
+          <input type="date" id="vac-desde" min="${hoyISO()}">
         </div>
         <div class="form-row">
           <label>Hasta *</label>
-          <input type="date" id="vac-hasta" min="${new Date().toISOString().split('T')[0]}">
+          <input type="date" id="vac-hasta" min="${hoyISO()}">
         </div>
         <div class="form-row full">
           <label>Observaciones (opcional)</label>
@@ -7143,18 +7149,11 @@ async function verReciboAdmin(path) {
   window.open(data.signedUrl, '_blank');
 }
 
-function abrirSubirSueldosBulk() {
-  abrirSubirRecibosBulk(); return;
-  // Legacy fallback (no se ejecuta):
-  toast('Bulk upload', '');
-  setTimeout(() => alert(
-    'Para subir muchos recibos a la vez:\n\n' +
-    '1) Poné todos los PDFs en C:\CRM_Adorno\rrhh-adorno\inbox\\\n' +
-    '2) Cada archivo nombrado: APELLIDO MM-YYYY.pdf\n' +
-    '3) Corré: python migrations/01_migrar_recibos.py\n\n' +
-    'El upload individual desde acá (drag&drop) se agrega en próxima iteración.'
-  ), 100);
-}
+// 🗑 abrirSubirSueldosBulk — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
+
 
 // ════════════════════════════════════════════════════════════
 // MÓDULO ASISTENCIAS (admin / encargada)
@@ -7331,7 +7330,7 @@ async function renderCalendario(cont) {
   const fechaDesde = new Date(y, m-1, 1);
   const fechaHasta = new Date(y, m, 0);   // último día del mes
   const diasMes = fechaHasta.getDate();
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = hoyISO();
 
   cont.innerHTML = `
     <div class="cal-toolbar">
@@ -7370,7 +7369,7 @@ async function renderCalendarioGrid() {
   const fechaDesde = new Date(y, m-1, 1);
   const fechaHasta = new Date(y, m, 0);
   const diasMes = fechaHasta.getDate();
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = hoyISO();
 
   // Colaboradores
   let qEmp = sb.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, foto_url').eq('estado', 'activo').order('local').order('apellido');
@@ -11298,7 +11297,7 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
   if (editandoPermisoId) {
     const { data: p, error } = await sb.from('rrhh_permisos_puntuales').select('*').eq('id', editandoPermisoId).single();
     if (error || !p) { toast('No se pudo cargar el permiso', 'error'); editandoPermisoId = null; return; }
-    const hoyStr = new Date().toISOString().split('T')[0];
+    const hoyStr = hoyISO();
     if (p.estado !== 'pendiente' && !(p.estado === 'aprobado' && p.fecha === hoyStr)) {
       toast('Solo podés modificar permisos pendientes (o aprobados del mismo día)', 'error');
       editandoPermisoId = null;
@@ -11316,7 +11315,7 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
     .order('fecha', { ascending: false })
     .limit(10);
 
-  const hoy = new Date().toISOString().split('T')[0];
+  const hoy = hoyISO();
   const tituloModal = editandoPermisoId ? 'Modificar permiso pendiente' : 'Pedir permiso';
   const textoBoton = editandoPermisoId ? 'Guardar cambios' : 'Enviar solicitud';
   const html = `
@@ -11692,7 +11691,7 @@ async function renderMisPermisos() {
                       </div>
                     ` : ''}
                     ${(() => {
-                      const hoyStr = new Date().toISOString().split('T')[0];
+                      const hoyStr = hoyISO();
                       const esPendiente = p.estado === 'pendiente';
                       const esAprobadoHoy = p.estado === 'aprobado' && p.fecha === hoyStr;
                       if (!esPendiente && !esAprobadoHoy) return '';
@@ -11733,7 +11732,7 @@ async function enviarPermisoEmpleado() {
   if (!motivo) { toast('Contá el motivo', 'error'); return; }
 
   // No permitir fechas pasadas
-  const hoy = new Date().toISOString().split('T')[0];
+  const hoy = hoyISO();
   if (fecha < hoy) {
     toast('No podés pedir un permiso para una fecha pasada. Hablálo con la encargada.', 'error');
     return;
@@ -12110,7 +12109,7 @@ async function guardarAsignarVacacion() {
   const opt = empSel.options[empSel.selectedIndex];
   const esOficina = opt?.dataset?.local === 'oficina';
   const dias = esOficina ? _diasHabilesUI(desde, hasta) : (Math.round((new Date(hasta+'T12:00:00') - new Date(desde+'T12:00:00')) / 86400000) + 1);
-  const hoy = new Date().toISOString().split('T')[0];
+  const hoy = hoyISO();
   const estado = (desde < hoy) ? 'tomada' : 'aprobada';
   const _solG = await _vacSolapadas(empId, desde, hasta, null);
   if (_solG.length) {
@@ -12199,7 +12198,7 @@ async function abrirPagarVacaciones() {
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha de pago / liquidación</label>
-            <input type="date" id="pag-fecha" value="${new Date().toISOString().split('T')[0]}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <input type="date" id="pag-fecha" value="${hoyISO()}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Observaciones (opcional)</label>
@@ -13473,7 +13472,7 @@ async function abrirAjusteBancoAdmin() {
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha del ajuste *</label>
-            <input type="date" id="ajus-fecha" value="${new Date().toISOString().split('T')[0]}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <input type="date" id="ajus-fecha" value="${hoyISO()}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos (positivo = sumar; negativo = restar) *</label>
@@ -13741,47 +13740,11 @@ async function renderMiBanco() {
 // Los PDFs de recibo (generación, confirmación, envío a firma y el
 // auditor) viven en recibos-pdf.js — se carga al final del <body>.
 // ═══════════════════════════════════════════════════════════════════
-async function abrirSubirRecibosBulk() {
-  if (!window.pdfjsLib) {
-    toast('Cargando PDF.js…', 'info');
-    await new Promise(r => setTimeout(r, 200));
-    if (!window.pdfjsLib) { toast('No se pudo cargar PDF.js. Recargá la página.', 'error'); return; }
-  }
-  // Configurar el worker de PDF.js (usa el mismo CDN)
-  if (window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
+// 🗑 abrirSubirRecibosBulk — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-  const html = `
-    <div style="background:white;border-radius:10px;max-width:880px;width:95vw;max-height:90vh;overflow:auto;padding:24px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h3 style="margin:0;">📎 Subir y auditar recibos del mes</h3>
-        <button class="btn" onclick="closeModal()">✕</button>
-      </div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
-        Arrastrá uno o varios PDFs de MEMOSOFT. El sistema parsea cada recibo, lo matchea con la colaboradora por el nombre que aparece adentro, y compara los importes contra el cálculo CCT 130/75 + paritaria vigente. Te avisa de discrepancias antes de guardar.
-      </div>
-
-      <div id="recibos-drop" style="border:2px dashed var(--border);border-radius:10px;padding:36px;text-align:center;color:var(--muted);cursor:pointer;margin-bottom:14px;">
-        <div style="font-size:36px;">📎</div>
-        <div style="margin-top:8px;font-size:14px;">Arrastrá los PDFs acá<br><span style="font-size:11px;">o cliqueá para elegirlos</span></div>
-      </div>
-      <input type="file" id="recibos-file" accept="application/pdf" multiple style="display:none;">
-
-      <div id="recibos-resultados"></div>
-    </div>
-  `;
-  openModal(html, '900px');
-
-  const drop = document.getElementById('recibos-drop');
-  const input = document.getElementById('recibos-file');
-  drop.onclick = () => input.click();
-  drop.ondragover = (e) => { e.preventDefault(); drop.style.background = '#f0fdf4'; };
-  drop.ondragleave = (e) => { drop.style.background = ''; };
-  drop.ondrop = async (e) => { e.preventDefault(); drop.style.background = ''; await procesarRecibos(e.dataTransfer.files); };
-  input.onchange = async () => { await procesarRecibos(input.files); };
-}
 
 async function procesarRecibos(fileList) {
   const archivos = [...fileList].filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
@@ -16029,167 +15992,17 @@ function liqOrdenarPor(col) {
 //  detectar QR en cada página → matchear con liquidacion_id → marcar
 //  pdf_firmado_at + subir página individual a Storage.
 // ═══════════════════════════════════════════════════════════════════
-function liqCargarFirmadosBulk() {
-  // Crear input file dinámico
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'application/pdf';
-  input.style.display = 'none';
-  input.onchange = async (ev) => {
-    const file = ev.target.files?.[0];
-    if (file) await procesarRecibosBulkPDF(file);
-    input.remove();
-  };
-  document.body.appendChild(input);
-  input.click();
-}
+// 🗑 liqCargarFirmadosBulk — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-async function procesarRecibosBulkPDF(file) {
-  if (typeof jsQR !== 'function') { toast('No se cargó la lib jsQR', 'error'); return; }
-  if (!window.pdfjsLib) { toast('No se cargó pdf.js', 'error'); return; }
-  if (window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
-  const { jsPDF } = window.jspdf;
 
-  // Modal de progreso
-  const modalHtml = `
-    <h3 style="margin:0 0 6px;">📥 Procesando recibos firmados</h3>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
-      Archivo: ${escapeHtml(file.name)} · ${(file.size/1024/1024).toFixed(2)} MB
-    </div>
-    <div id="bulk-progress" style="font-size:13px;line-height:1.7;max-height:60vh;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:10px;background:#f9fafb;">
-      <div>⏳ Leyendo PDF…</div>
-    </div>
-    <div style="margin-top:14px;text-align:right;">
-      <button class="btn" onclick="closeModal()">Cerrar</button>
-    </div>
-  `;
-  openModal(modalHtml, '600px');
-  const log = document.getElementById('bulk-progress');
-  const append = (msg, color) => {
-    if (!log) return;
-    const div = document.createElement('div');
-    if (color) div.style.color = color;
-    div.innerHTML = msg;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
-  };
+// 🗑 procesarRecibosBulkPDF — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-  try {
-    const buf = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-    append(`📄 ${pdf.numPages} página(s) detectada(s)`);
-    let okCount = 0, errCount = 0;
-
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      append(`<strong>— Página ${pageNum}/${pdf.numPages} —</strong>`);
-      try {
-        const page = await pdf.getPage(pageNum);
-        // Render a 2x para que el QR sea legible
-        const viewport = page.getViewport({ scale: 2 });
-        const canvas = document.createElement('canvas');
-        canvas.width  = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
-        // Detectar QR — buscamos en la esquina inferior izquierda principalmente,
-        // pero por simplicidad procesamos toda la página.
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const qrResult = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
-        if (!qrResult) {
-          append(`  ❌ Sin QR detectable`, '#dc2626');
-          errCount++;
-          continue;
-        }
-        const codigo = qrResult.data.trim();
-        // Reconoce REC-XXXXX (recibo mensual) o SAC-XXXXX (aguinaldo)
-        const m = codigo.match(/^(REC|SAC)-(\d+)$/);
-        if (!m) {
-          append(`  ❌ QR no reconocido: "${escapeHtml(codigo)}"`, '#dc2626');
-          errCount++;
-          continue;
-        }
-        const esSAC = m[1] === 'SAC';
-        const liqId = parseInt(m[2], 10);
-
-        // Buscar la liquidación + colaboradora + local
-        const { data: liq, error: e1 } = await sb.from('rrhh_liquidacion')
-          .select('id, empleado_id, periodo, pdf_firmado_at, sac_pdf_firmado_at, empleado:rrhh_empleados(apellido, nombre, nombre_completo, local)')
-          .eq('id', liqId).single();
-        if (e1 || !liq) {
-          append(`  ❌ ${codigo}: liquidación no encontrada en DB`, '#dc2626');
-          errCount++;
-          continue;
-        }
-        const nombreEmp = liq.empleado?.nombre_completo
-          || `${liq.empleado?.apellido || ''} ${liq.empleado?.nombre || ''}`.trim();
-
-        // Generar PDF individual con esta página (jpeg embebido)
-        const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-        const pdfPag = new jsPDF({ unit: 'mm', format: 'a4' });
-        const wMM = 210, hMM = 297;
-        pdfPag.addImage(jpegDataUrl, 'JPEG', 0, 0, wMM, hMM);
-        // Convertir a base64 (para mandarlo por JSON a la Edge Function)
-        const pdfArrayBuffer = pdfPag.output('arraybuffer');
-        const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(pdfArrayBuffer)));
-
-        // Llamar a la Edge Function que sube el PDF a OneDrive vía Graph API
-        // (el CLIENT_SECRET nunca sale del backend — está en los Supabase Secrets)
-        const _periodoStr = (liq.periodo || '').slice(0, 7); // "YYYY-MM"
-        const { data: onedriveResp, error: fnErr } = await sb.functions.invoke('subir-recibo-a-onedrive', {
-          body: {
-            pdf_base64:      pdfBase64,
-            tipo:            esSAC ? 'sac' : 'recibo',
-            liq_id:          liqId,
-            empleado_id:     liq.empleado_id,
-            apellido_nombre: nombreEmp,
-            local:           liq.empleado?.local || 'oficina',
-            periodo:         _periodoStr,
-          },
-        });
-        if (fnErr || !onedriveResp?.ok) {
-          const msg = fnErr?.message || onedriveResp?.error || 'error desconocido';
-          append(`  ❌ ${codigo} (${escapeHtml(nombreEmp)}): error subiendo a OneDrive — ${escapeHtml(msg)}`, '#dc2626');
-          errCount++;
-          continue;
-        }
-        const pathOneDrive = onedriveResp.path;
-        const webUrlOneDrive = onedriveResp.webUrl || pathOneDrive;  // webUrl = link SharePoint clickeable
-
-        // Marcar campo correspondiente en la liquidación
-        // pdf_firmado_path: path interno (para referencia). pdf_url_firmado: link clickeable a SharePoint.
-        const _updatePatch = esSAC
-          ? { sac_pdf_firmado_at: new Date().toISOString(), sac_pdf_firmado_path: webUrlOneDrive }
-          : { pdf_firmado_at:     new Date().toISOString(), pdf_firmado_path:     pathOneDrive,
-              pdf_url_firmado:    webUrlOneDrive };
-        const { error: upErr2 } = await sb.from('rrhh_liquidacion').update(_updatePatch).eq('id', liqId);
-        if (upErr2) {
-          append(`  ⚠️ ${codigo}: PDF subido a OneDrive pero error marcando firmado — ${escapeHtml(upErr2.message)}`, '#d97706');
-        }
-
-        const yaFirmadoPrev = esSAC ? !!liq.sac_pdf_firmado_at : !!liq.pdf_firmado_at;
-        const tipoLabel = esSAC ? '🎁 SAC' : '📄 Recibo';
-        append(`  ✅ ${codigo} → ${tipoLabel} <strong>${escapeHtml(nombreEmp)}</strong> · ${_periodoStr} → <span style="color:#64748b;">OneDrive: ${escapeHtml(pathOneDrive)}</span>${yaFirmadoPrev ? ' <span style="color:#d97706;">(reemplaza firma previa)</span>' : ''}`, '#16a34a');
-        okCount++;
-      } catch (e) {
-        append(`  ❌ Error: ${escapeHtml(e.message || String(e))}`, '#dc2626');
-        errCount++;
-      }
-    }
-
-    append(`<br><strong>Resumen:</strong> ✅ ${okCount} OK · ❌ ${errCount} con error`);
-    if (okCount > 0) toast(`${okCount} recibo(s) firmados procesados ✓`, 'success');
-    // Hot-reload del Liquidador (en background — el modal sigue abierto)
-    setTimeout(() => { if (currentTab === 'liquidaciones') switchTab('liquidaciones'); }, 1500);
-
-  } catch (e) {
-    console.error(e);
-    append(`<br>❌ Error general: ${escapeHtml(e.message || String(e))}`, '#dc2626');
-  }
-}
 
 async function liqGuardarVentas(local, periodo) {
   const monto = Number(document.getElementById('liq-ventas').value || 0);
@@ -16262,7 +16075,7 @@ async function liqGenerarProforma(local, periodo) {
   const empIds = (emps || []).map(e => e.id);
 
   // 2) Detectar faltas no justificadas hasta hoy (no incluir días futuros)
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = hoyISO();
   const periodoStart = periodo + '-01';
   const [yPer, mPer] = periodo.split('-').map(Number);
   const ultimoDiaMes = new Date(yPer, mPer, 0).toISOString().split('T')[0];
@@ -16477,7 +16290,7 @@ async function liqGenerarDefinitivo(local, periodo) {
     .eq('estado', 'activo').in('local', locales).order('apellido');
   const empIds = (emps || []).map(e => e.id);
 
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = hoyISO();
   const periodoStart = periodo + '-01';
   const [yPer, mPer] = periodo.split('-').map(Number);
   const ultimoDiaMes = new Date(yPer, mPer, 0).toISOString().split('T')[0];
@@ -17292,6 +17105,7 @@ async function liqCerrarMes(local, periodo) {
   const obs = prompt('Observación del cierre (opcional):') || null;
   const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   let okCount = 0;
+  const noFirmadas = [];
   for (const loc of locales) {
     const { error } = await sb.from('rrhh_meses_cerrados_sueldos').insert({
       periodo: periodo + '-01', local: loc,
@@ -17307,14 +17121,27 @@ async function liqCerrarMes(local, periodo) {
     } else {
       okCount++;
     }
-    // Marcar todas las liquidaciones del local como 'firmada' (cierre por empleado)
-    try {
-      await sb.from('rrhh_liquidacion')
-        .update({ estado: 'firmada' })
-        .eq('local', loc)
-        .eq('periodo', periodo + '-01')
-        .in('estado', ['borrador','revisada']);
-    } catch (_) {}
+    // Marcar las liquidaciones del local como 'firmada' (cierre por empleado).
+    // 🚨 UNA POR UNA, a propósito. El trigger trg_liq_guardian_mercaderia
+    // (16-sep) hace RAISE cuando `mercaderia` no coincide con la suma de sus
+    // cuotas, y un RAISE en un BEFORE UPDATE aborta la sentencia ENTERA: con
+    // el update masivo, una sola empleada desfasada dejaba a TODO el local sin
+    // firmar, con el mes ya registrado como cerrado y sin ningún aviso (el
+    // error caía en un `catch (_) {}`, que además nunca se ejecutaba porque
+    // supabase-js devuelve {error} en vez de tirar excepción).
+    const { data: _liqs } = await sb.from('rrhh_liquidacion')
+      .select('id, empleado_id, rrhh_empleados(apellido, nombre)')
+      .eq('local', loc).eq('periodo', periodo + '-01')
+      .in('estado', ['borrador','revisada']);
+    for (const _l of (_liqs || [])) {
+      const { error: _e } = await sb.from('rrhh_liquidacion')
+        .update({ estado: 'firmada' }).eq('id', _l.id);
+      if (_e) {
+        const _emp = _l.rrhh_empleados
+          ? `${_l.rrhh_empleados.apellido}, ${_l.rrhh_empleados.nombre}` : `legajo ${_l.empleado_id}`;
+        noFirmadas.push({ local: loc, empleado: _emp, motivo: _e.message });
+      }
+    }
   }
   // Notificar a las directoras: se cerró un mes (pueden ver el liquidador)
   try {
@@ -17449,7 +17276,17 @@ async function liqCerrarMes(local, periodo) {
   const msgCascada = cascadaCreadas > 0
     ? `\n📅 ${cascadaCreadas} borrador(es) del mes siguiente pre-cargado(s) con los fijos actuales`
     : '';
-  toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)${msgExtra}${msgCascada}`, 'success');
+  // 🚨 Si alguna liquidación no se pudo firmar, NO se dice "cerrado ✓" y ya.
+  // El guardián de mercadería frena a propósito; frenar sin avisar es el bug.
+  if (noFirmadas.length) {
+    const det = noFirmadas.map(f => `• ${f.empleado} (${f.local}): ${f.motivo}`).join('\n');
+    alert(`⚠ El mes ${periodo} quedó cerrado, pero ${noFirmadas.length} liquidación(es) NO se `
+        + `pudieron firmar:\n\n${det}\n\nLo más común es que la mercadería no coincida con la `
+        + `suma de sus cuotas. Entrá a la liquidación, corregila y volvé a firmarla desde la grilla.`);
+    toast(`Mes cerrado, pero ${noFirmadas.length} sin firmar — ver el detalle`, 'warning');
+  } else {
+    toast(`✓ Mes ${periodo} cerrado para ${okCount} local(es)${msgExtra}${msgCascada}`, 'success');
+  }
   switchTab('liquidaciones');
 }
 
@@ -17743,7 +17580,7 @@ async function renderRetirosMercaderia() {
         <div class="form-row"><label>Colaboradora</label>
           <select id="ret-emp"><option value="">— Elegir —</option>${opcionesEmp}</select>
         </div>
-        <div class="form-row"><label>Fecha</label><input type="date" id="ret-fecha" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="form-row"><label>Fecha</label><input type="date" id="ret-fecha" value="${hoyISO()}"></div>
         <div class="form-row"><label>Importe</label><input type="number" id="ret-monto" placeholder="0" min="0" step="any"></div>
         <div class="form-row"><label>Descripción</label><input type="text" id="ret-desc" placeholder="Ej: SET MANTELES"></div>
         <div class="form-row"><label>Cuotas</label><input type="number" id="ret-cuotas" value="1" min="1" max="12" step="1"></div>
@@ -18499,7 +18336,7 @@ let _aumPuntualConfigs = []; // cache de configs vigentes por empleada
 async function aumPuntualCargarSelect() {
   const sel = document.getElementById('aum-puntual-emp');
   if (!sel) return;
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = hoyISO();
   const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
     .select('empleado_id, fijo, vigente_desde, rrhh_empleados!inner(id, apellido, nombre, local, estado, monotributista)')
     .lte('vigente_desde', hoy)
@@ -18998,84 +18835,17 @@ async function _aumAbrirPedido_DEPRECATED() {
   switchTab('aumentos');
 }
 
-async function aumCancelar(pedidoId) {
-  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
-  if (!confirm('¿Cancelar y eliminar este pedido? Se pierden los % cargados.')) return;
-  const { error } = await sb.from('rrhh_aumento_pedido').delete().eq('id', pedidoId);
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-  toast('Pedido eliminado', 'success');
-  switchTab('aumentos');
-}
+// 🗑 aumCancelar — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-async function aumAbrirDetalle(pedidoId) {
-  const { data: ped } = await sb.from('rrhh_aumento_pedido').select('*').eq('id', pedidoId).single();
-  if (!ped) { toast('Pedido no encontrado', 'error'); return; }
-  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle')
-    .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo)')
-    .eq('pedido_id', pedidoId)
-    .order('empleado(apellido)');
 
-  const isAdmin = session.rol === 'admin';
-  const isGerente = session.rol === 'gerente';
-  const editable = (ped.estado === 'abierto' && (isGerente || isAdmin)) || (ped.estado === 'propuesto' && isAdmin);
-  const fmt$ = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+// 🗑 aumAbrirDetalle — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-  const html = `
-    <div style="background:white;border-radius:10px;max-width:880px;width:95vw;max-height:90vh;overflow:auto;padding:24px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <h3 style="margin:0;">Pedido #${ped.id} — ${escapeHtml(ped.local)}</h3>
-        <button class="btn" onclick="closeModal()">✕</button>
-      </div>
-      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-bottom:14px;">
-        <div><strong>Vigente desde:</strong> ${fmtFecha(ped.fecha_vigencia)}</div>
-        <div><strong>Rango:</strong> ${Number(ped.pct_min).toFixed(2)}% – ${Number(ped.pct_max).toFixed(2)}%</div>
-        <div><strong>Estado:</strong> ${ped.estado}</div>
-        ${ped.notas ? `<div><strong>Notas:</strong> ${escapeHtml(ped.notas)}</div>` : ''}
-      </div>
-
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;">Colaboradora</th>
-          <th style="padding:8px;text-align:right;">Fijo anterior</th>
-          <th style="padding:8px;text-align:right;">% propuesto</th>
-          <th style="padding:8px;text-align:right;">Fijo nuevo</th>
-          <th style="padding:8px;">Notas</th>
-        </tr></thead>
-        <tbody>
-          ${(det||[]).map(d => {
-            const fijoNuevo = (d.pct_propuesto != null && d.fijo_anterior != null)
-              ? Number(d.fijo_anterior) * (1 + Number(d.pct_propuesto)/100)
-              : null;
-            return `<tr style="border-top:1px solid var(--border);">
-              <td style="padding:8px;">${escapeHtml((d.empleado?.apellido||'') + ', ' + (d.empleado?.nombre||''))}</td>
-              <td style="padding:8px;text-align:right;font-family:monospace;">${fmt$(d.fijo_anterior)}</td>
-              <td style="padding:8px;text-align:right;">
-                ${editable
-                  ? `<input type="number" id="aum-pct-${d.id}" value="${d.pct_propuesto ?? ''}" min="${ped.pct_min}" max="${ped.pct_max}" step="0.5" style="width:80px;padding:4px;text-align:right;" oninput="aumActualizarFijoNuevo(${d.id}, ${d.fijo_anterior}, ${ped.pct_min}, ${ped.pct_max})">`
-                  : `<span style="font-family:monospace;">${d.pct_propuesto != null ? Number(d.pct_propuesto).toFixed(2)+'%' : '—'}</span>`}
-              </td>
-              <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;" id="aum-nuevo-${d.id}">${fijoNuevo != null ? fmt$(fijoNuevo) : '—'}</td>
-              <td style="padding:8px;">
-                ${editable
-                  ? `<input type="text" id="aum-notas-${d.id}" value="${escapeHtml(d.notas_encargada||'')}" placeholder="(opcional)" style="width:100%;padding:4px;">`
-                  : `<span style="color:var(--muted);">${escapeHtml(d.notas_encargada||'')}</span>`}
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap;">
-        ${editable ? `<button class="btn primary" onclick="aumGuardarDetalle(${ped.id})">💾 Guardar % cargados</button>` : ''}
-        ${ped.estado === 'abierto' && (isGerente || isAdmin) ? `<button class="btn" onclick="aumMarcarPropuesto(${ped.id})">📤 Marcar como propuesto (al admin)</button>` : ''}
-        ${ped.estado === 'propuesto' && isAdmin ? `<button class="btn" style="background:#16a34a;color:white;" onclick="aumAprobar(${ped.id})">✓ Aprobar</button>` : ''}
-        ${ped.estado === 'propuesto' && isAdmin ? `<button class="btn" style="background:#dc2626;color:white;" onclick="aumRechazar(${ped.id})">✗ Rechazar</button>` : ''}
-        ${ped.estado === 'aprobado' && isAdmin ? `<button class="btn" style="background:#7c3aed;color:white;" onclick="aumAplicar(${ped.id})">🚀 Aplicar (crear nuevos fijos)</button>` : ''}
-      </div>
-    </div>
-  `;
-  openModal(html);
-}
 
 function aumActualizarFijoNuevo(detId, fijoAnt, pmin, pmax) {
   const inp = document.getElementById('aum-pct-' + detId);
@@ -19522,153 +19292,35 @@ async function aumEnviarRangosAEncargadas() {
   window._aumPlanillaPreview = null;
 }
 
-async function aumGuardarDetalle(pedidoId) {
-  const { data: ped } = await sb.from('rrhh_aumento_pedido').select('pct_min, pct_max').eq('id', pedidoId).single();
-  if (!ped) { toast('Pedido no encontrado', 'error'); return; }
-  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle').select('id, fijo_anterior').eq('pedido_id', pedidoId);
+// 🗑 aumGuardarDetalle — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-  const updates = [];
-  for (const d of (det||[])) {
-    const inp = document.getElementById('aum-pct-' + d.id);
-    const inpN = document.getElementById('aum-notas-' + d.id);
-    if (!inp) continue;
-    const raw = inp.value.trim();
-    const pct = raw === '' ? null : Number(raw);
-    if (pct != null) {
-      if (isNaN(pct) || pct < Number(ped.pct_min) || pct > Number(ped.pct_max)) {
-        toast(`% fuera de rango (${ped.pct_min}-${ped.pct_max}%) en una empleada`, 'error');
-        return;
-      }
-    }
-    const fijo_nuevo = pct != null ? Math.round(Number(d.fijo_anterior) * (1 + pct/100) * 100) / 100 : null;
-    updates.push({ id: d.id, pct_propuesto: pct, fijo_nuevo, notas_encargada: (inpN?.value || '').trim() || null });
-  }
-  for (const u of updates) {
-    const { error } = await sb.from('rrhh_aumento_pedido_detalle').update({
-      pct_propuesto: u.pct_propuesto, fijo_nuevo: u.fijo_nuevo, notas_encargada: u.notas_encargada,
-    }).eq('id', u.id);
-    if (error) { toast('Error guardando: ' + error.message, 'error'); return; }
-  }
-  toast(`${updates.length} % guardados ✓`, 'success');
-  closeModal();
-  switchTab('aumentos');
-}
 
-async function aumMarcarPropuesto(pedidoId) {
-  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle').select('id, pct_propuesto').eq('pedido_id', pedidoId);
-  const faltan = (det||[]).filter(d => d.pct_propuesto == null);
-  if (faltan.length > 0) {
-    if (!confirm(`Hay ${faltan.length} empleada(s) sin % cargado. ¿Marcar igual como propuesto? Esas colaboradoras quedarán sin aumento.`)) return;
-  }
-  const { error } = await sb.from('rrhh_aumento_pedido').update({
-    estado: 'propuesto', propuesto_at: new Date().toISOString(),
-  }).eq('id', pedidoId);
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-  toast('Marcado como propuesto. El admin lo va a revisar.', 'success');
-  closeModal();
-  switchTab('aumentos');
-}
+// 🗑 aumMarcarPropuesto — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-async function aumAprobar(pedidoId) {
-  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
-  if (!confirm('¿Aprobar este pedido? Después podrás aplicarlo para que los nuevos fijos entren en vigor.')) return;
-  const { error } = await sb.from('rrhh_aumento_pedido').update({
-    estado: 'aprobado', aprobado_at: new Date().toISOString(),
-    aprobado_por: session.user?.email || 'admin',
-  }).eq('id', pedidoId);
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-  toast('Pedido aprobado ✓', 'success');
-  closeModal();
-  switchTab('aumentos');
-}
 
-async function aumRechazar(pedidoId) {
-  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
-  if (!confirm('¿Rechazar este pedido? La encargada tendrá que rehacerlo.')) return;
-  const { error } = await sb.from('rrhh_aumento_pedido').update({
-    estado: 'rechazado', aprobado_at: new Date().toISOString(),
-    aprobado_por: session.user?.email || 'admin',
-  }).eq('id', pedidoId);
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
-  toast('Pedido rechazado', 'success');
-  closeModal();
-  switchTab('aumentos');
-}
+// 🗑 aumAprobar — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-async function aumAplicar(pedidoId) {
-  if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
-  if (!confirm('¿Aplicar el aumento? Se van a crear filas nuevas en sueldo_empleada_config con vigencia a la fecha del pedido.')) return;
-  const { data: ped } = await sb.from('rrhh_aumento_pedido').select('*').eq('id', pedidoId).single();
-  if (!ped) { toast('Pedido no encontrado', 'error'); return; }
-  if (ped.estado !== 'aprobado') { toast('El pedido tiene que estar en estado "aprobado"', 'error'); return; }
 
-  const { data: det } = await sb.from('rrhh_aumento_pedido_detalle')
-    .select('empleado_id, fijo_nuevo, pct_propuesto')
-    .eq('pedido_id', pedidoId)
-    .not('fijo_nuevo', 'is', null);
+// 🗑 aumRechazar — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-  let aplicadas = 0, errores = 0;
-  for (const d of (det||[])) {
-    const { data: cfgVieja } = await sb.from('rrhh_sueldo_empleada_config')
-      .select('*')
-      .eq('empleado_id', d.empleado_id)
-      .lte('vigente_desde', ped.fecha_vigencia)
-      .order('vigente_desde', { ascending: false })
-      .limit(1).maybeSingle();
-    if (!cfgVieja) { errores++; continue; }
-    const nuevaCfg = { ...cfgVieja };
-    delete nuevaCfg.id;
-    delete nuevaCfg.creado_at;
-    // Columna real es 'fijo', no 'fijo_mensual'. Bug histórico: si el INSERT
-    // no falla, la nueva fila quedaba con el fijo VIEJO (porque {...cfgVieja}
-    // ya trae fijo) y el aumento no se aplicaba realmente.
-    nuevaCfg.fijo = d.fijo_nuevo;
-    delete nuevaCfg.fijo_mensual;
-    nuevaCfg.vigente_desde = ped.fecha_vigencia;
-    const { error: eIns } = await sb.from('rrhh_sueldo_empleada_config').insert(nuevaCfg);
-    if (eIns) { errores++; continue; }
-    aplicadas++;
-  }
 
-  const { error: eEst } = await sb.from('rrhh_aumento_pedido').update({
-    estado: 'aplicado', aplicado_at: new Date().toISOString(),
-  }).eq('id', pedidoId);
-  if (eEst) { toast('Fijos aplicados pero falló cambio de estado: ' + eEst.message, 'warning'); return; }
+// 🗑 aumAplicar — eliminada el 17-sep-2026. Workflow sin punto de entrada:
+// ningún botón, handler ni tab la llamaba (verificado: el identificador
+// aparecía solo dentro de su propio grupo). Decisión de JP: borrar.
+// Backup: backups/rrhh_index_pre-borrado_20260917.*
 
-  // ── Borrar liquidaciones BORRADOR desde fecha_vigencia en adelante (recálculo automático futuro) ──
-  let liqsBorradas = 0;
-  if (aplicadas > 0) {
-    try {
-      const empIdsAplicados = (det || []).map(x => x.empleado_id).filter(Boolean);
-      if (empIdsAplicados.length > 0) {
-        const periodoVig = (ped.fecha_vigencia || '').slice(0, 10);
-        const { data: mesesCerr } = await sb.from('rrhh_meses_cerrados_sueldos')
-          .select('periodo, local').gte('periodo', periodoVig);
-        const cerradosSet = new Set((mesesCerr || []).map(m => `${m.local}|${m.periodo}`));
-
-        const { data: liqsBorrador } = await sb.from('rrhh_liquidacion')
-          .select('id, empleado_id, local, periodo, estado')
-          .in('empleado_id', empIdsAplicados)
-          .gte('periodo', periodoVig)
-          .eq('estado', 'borrador');
-
-        const idsABorrar = (liqsBorrador || [])
-          .filter(l => !cerradosSet.has(`${l.local}|${l.periodo}`))
-          .map(l => l.id);
-
-        if (idsABorrar.length > 0) {
-          const { error: eDel } = await sb.from('rrhh_liquidacion').delete().in('id', idsABorrar);
-          if (!eDel) liqsBorradas = idsABorrar.length;
-        }
-      }
-    } catch (_) {}
-  }
-
-  const msgRecalc = liqsBorradas > 0 ? ` · ♻️ ${liqsBorradas} liq. para recalcular` : '';
-  toast(`✓ ${aplicadas} fijos nuevos aplicados${errores ? ` (${errores} errores)` : ''}${msgRecalc}`, 'success');
-  closeModal();
-  switchTab('aumentos');
-}
 
 
 
@@ -20803,7 +20455,7 @@ async function prestamoAbrirNuevo(prefill = {}) {
     .eq('estado', 'activo')
     .order('apellido');
   const opts = (emps||[]).map(e => `<option value="${e.id}">${escapeHtml(e.apellido + ', ' + e.nombre)} — ${escapeHtml(e.local)}</option>`).join('');
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = hoyISO();
   const proxMes = new Date(); proxMes.setMonth(proxMes.getMonth()+1, 1);
   const proxIso = proxMes.toISOString().slice(0,10);
 
@@ -21868,7 +21520,7 @@ Van todas con capital ${capital.toLocaleString('es-AR')} y CFT ${cftPct}% anual.
 La colaboradora elige una y la acepta.`)) return;
 
   try {
-    const _hoy = new Date().toISOString().slice(0,10);
+    const _hoy = hoyISO();
     const idsCreados = [];
     for (const plan of st.planes) {
       // 1. Insert cabecera del préstamo (estado='propuesto')
