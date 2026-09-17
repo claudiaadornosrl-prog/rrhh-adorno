@@ -13586,29 +13586,42 @@ async function renderMiBanco() {
     .order('created_at', { ascending: false })
     .limit(100);
 
-  // ── Movimientos PENDIENTES DE CIERRE: días con minutos_banco != 0 que aún
-  // no se materializaron como rows de rrhh_banco_minutos (porque el mes no
-  // se cerró). Mostramos como "pendientes" para que la colaboradora vea su saldo
-  // proyectado sin esperar al cierre. ──
+  // ── Días del MES EN CURSO que todavía no impactaron en el banco ──
+  // 🚨 (16-sep) Esto contaba de MÁS y por eso la empleada veía un saldo distinto
+  // al que ve su encargada: Godoy -220 contra 145 reales, Donzelli 5357 contra
+  // 6491. Le pasaba a 14 de 19, y para los dos lados (Sánchez y Copa veían de más).
+  // Tres causas, las tres confirmadas contra la base:
+  //  1. Solo descartaba los días materializados por el CIERRE (referencia_tipo
+  //     'asistencia'). Una falta compensada con permiso deja su movimiento como
+  //     'permiso_puntual' → se contaba DOS veces. 42 días así.
+  //  2. Días de meses ya cerrados quedaban "pendientes" para siempre. Si el cierre
+  //     no los materializó fue a propósito: el pool del mes no superó los 60 min.
+  //  3. Los positivos el cierre no los acredita desde el 4-ago (toda extra pasa por
+  //     la encargada) → mostrarlos como pendientes promete algo que no va a llegar.
+  // Regla: mes en curso · negativo · sin NINGÚN movimiento ese día. Comparar por
+  // importe no alcanza: hay un permiso "corregido de 600 a 180 min" cuyo día ya
+  // está contabilizado aunque el detalle siga diciendo -600.
   const { data: dets } = await sb.from('rrhh_asistencias_detalle')
     .select('id, fecha, estado, minutos_banco, error_salvado')
     .eq('empleado_id', session.empleado_id)
-    .neq('minutos_banco', 0)
+    .lt('minutos_banco', 0)
     .order('fecha', { ascending: false })
     .limit(100);
+  const { data: fechasMov } = await sb.from('rrhh_banco_minutos')
+    .select('fecha').eq('empleado_id', session.empleado_id);
 
-  const idsConMovimiento = new Set((movs||[])
-    .filter(m => m.referencia_tipo === 'asistencia' && m.referencia_id)
-    .map(m => m.referencia_id));
+  const diasConMovimiento = new Set((fechasMov || []).map(m => m.fecha));
+  const _hoyAR = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+  const _mesEnCurso = `${_hoyAR.getFullYear()}-${String(_hoyAR.getMonth() + 1).padStart(2, '0')}`;
   const pendientes = (dets || []).filter(d =>
     !d.error_salvado &&
-    !idsConMovimiento.has(d.id) &&
-    Number(d.minutos_banco || 0) !== 0
+    Number(d.minutos_banco || 0) < 0 &&
+    String(d.fecha).slice(0, 7) === _mesEnCurso &&
+    !diasConMovimiento.has(d.fecha)
   );
 
   const saldoMin = saldo?.saldo_minutos || 0;
   const pendientesSum = pendientes.reduce((s, d) => s + Number(d.minutos_banco || 0), 0);
-  const saldoProyectado = saldoMin + pendientesSum;
 
   const positivos = (movs||[]).filter(m => (m.minutos||0) > 0).reduce((s,m) => s + m.minutos, 0);
   const negativos = (movs||[]).filter(m => (m.minutos||0) < 0).reduce((s,m) => s + m.minutos, 0);
@@ -13624,16 +13637,16 @@ async function renderMiBanco() {
       <div class="subtitle">Saldo de minutos a favor / en contra</div>
     </div>
 
-    <div class="card" style="background:${saldoProyectado>=0?'linear-gradient(135deg, #d1faf1, #a7f3d0)':'linear-gradient(135deg, #fee2e2, #fecaca)'};padding:30px;text-align:center;">
-      <div style="font-size:12px;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Tu saldo actual</div>
-      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${saldoProyectado} min</div>
+    <div class="card" style="background:${saldoMin>=0?'linear-gradient(135deg, #d1faf1, #a7f3d0)':'linear-gradient(135deg, #fee2e2, #fecaca)'};padding:30px;text-align:center;">
+      <div style="font-size:12px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">Tu saldo actual</div>
+      <div style="font-size:48px;font-weight:800;font-family:monospace;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;">${saldoMin} min</div>
       ${pendientes.length > 0 ? `
-        <div style="font-size:11px;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};margin-top:6px;">
-          Confirmado: ${saldoMin} min · Pendiente de cierre: ${pendientesSum >= 0 ? '+' : ''}${pendientesSum} min
+        <div style="font-size:11px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:6px;">
+          Este mes llevás ${pendientesSum} min que todavía no impactaron en el banco
         </div>
       ` : ''}
-      <div style="font-size:13px;color:${saldoProyectado>=0?'#0d9488':'#b91c1c'};margin-top:8px;font-style:italic;">
-        ${saldoProyectado >= 480 ? `≈ ${Math.floor(saldoProyectado/480)} día${Math.floor(saldoProyectado/480)!==1?'s':''} a favor` : (saldoProyectado <= -480 ? `≈ ${Math.floor(Math.abs(saldoProyectado)/480)} día${Math.floor(Math.abs(saldoProyectado)/480)!==1?'s':''} en contra` : '')}
+      <div style="font-size:13px;color:${saldoMin>=0?'#0d9488':'#b91c1c'};margin-top:8px;font-style:italic;">
+        ${saldoMin >= 480 ? `≈ ${Math.floor(saldoMin/480)} día${Math.floor(saldoMin/480)!==1?'s':''} a favor` : (saldoMin <= -480 ? `≈ ${Math.floor(Math.abs(saldoMin)/480)} día${Math.floor(Math.abs(saldoMin)/480)!==1?'s':''} en contra` : '')}
       </div>
     </div>
 
