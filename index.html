@@ -19546,21 +19546,26 @@ function _toleranciaPrestamoPorAntig(meses) {
   return                   { permite: true,  maxSueldos: 3, etiqueta: 'más de 4 años' };
 }
 
-// Promedio de los últimos N recibos netos (sin SAC) de una empleada
+// Promedio de los últimos N SUELDOS COMPLETOS de una empleada (regla JP, 22-sep):
+//   sueldo = recibo neto + efectivo (= total_negro), SIN el SAC.
+//   Solo liquidaciones firmadas/revisadas: un borrador del mes en curso tiene
+//   recibo_neto en 0 y hundía el promedio (caso Bianchi: (0+1,33M+1,30M)/3).
+//   Antes sumaba solo recibo_neto → el tope de "3 sueldos" era 3 recibos CCT.
 async function _promedioSueldosUltimosN(empleadoId, n) {
   const { data } = await sb.from('rrhh_liquidacion')
-    .select('recibo_neto, periodo')
+    .select('recibo_neto, efectivo, total_negro, sac_recibo_neto, periodo, estado')
     .eq('empleado_id', empleadoId)
+    .in('estado', ['firmada', 'revisada'])
     .order('periodo', { ascending: false })
-    .limit(n + 2);  // 2 extras por si filtramos algún SAC
-  // Filtrar SAC: en Argentina se paga junio y diciembre
-  const sinSac = (data || []).filter(d => {
-    const mes = parseInt((d.periodo || '').slice(5, 7), 10);
-    return mes !== 6 && mes !== 12;
-  }).slice(0, n);
-  if (sinSac.length === 0) return null;
-  const suma = sinSac.reduce((a, d) => a + Number(d.recibo_neto || 0), 0);
-  return suma / sinSac.length;
+    .limit(n);
+  const filas = (data || []).map(d => {
+    // total_negro = recibo + efectivo del mes (sin SAC). Si no está, se arma.
+    const tn = Number(d.total_negro);
+    const sueldo = (tn > 0) ? tn : Number(d.recibo_neto || 0) + Number(d.efectivo || 0) - Number(d.sac_recibo_neto || 0);
+    return sueldo;
+  }).filter(v => v > 0);
+  if (filas.length === 0) return null;
+  return filas.reduce((a, v) => a + v, 0) / filas.length;
 }
 
 // Valida topes de préstamo según política Adorno:
@@ -19619,7 +19624,7 @@ async function _validarTopesPrestamo(empleadoId, capital, cuotas, tasaPctAnual) 
   // Info de contexto siempre
   warnings.push(`────`);
   warnings.push(`Antigüedad: ${Math.floor(mesesAntig/12)} años ${mesesAntig%12} meses (${reglaAntig.etiqueta})`);
-  warnings.push(`Promedio últimos 3 recibos netos: $${Math.round(promedio).toLocaleString('es-AR')}`);
+  warnings.push(`Promedio últimos 3 sueldos completos (recibo + efectivo, sin SAC): $${Math.round(promedio).toLocaleString('es-AR')}`);
   warnings.push(`Tope monto: $${Math.round(topeMonto).toLocaleString('es-AR')} (${reglaAntig.maxSueldos} sueldos)`);
   warnings.push(`Tope cuota mensual (30%): $${Math.round(tope30).toLocaleString('es-AR')}`);
 
@@ -20728,7 +20733,7 @@ async function verTopesPrestamo() {
   } else {
     const topeMonto = regla.maxSueldos * promedio;
     const topeCuota = promedio * 0.30;
-    html += `Promedio últimos 3 recibos (sin SAC): <strong>${fmt(promedio)}</strong><br>`;
+    html += `Promedio últimos 3 sueldos completos (recibo + efectivo, sin SAC): <strong>${fmt(promedio)}</strong><br>`;
     html += `Tope monto máximo: <strong>${fmt(topeMonto)}</strong> (${regla.maxSueldos} sueldo${regla.maxSueldos>1?'s':''})<br>`;
     html += `Tope cuota mensual (30%): <strong>${fmt(topeCuota)}</strong><br>`;
     html += `Tope cuotas: <strong>12</strong>`;
