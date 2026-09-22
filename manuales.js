@@ -45,6 +45,7 @@ const MANUAL_GERENTE = [
       'Si una colaboradora tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
       'Los permisos solo se pueden cargar con fecha de hoy en adelante — los de fecha pasada los carga el admin.',
       'Ajuste manual del banco (pestaña Banco → "+ Ajuste manual"): elegís primero ➕ Sumar o ➖ Restar y después los minutos SIEMPRE en positivo. Restar = se fue antes, entró más tarde, permiso que no se cargó a tiempo; Sumar = se quedó de más o vino un día que no le tocaba. Antes de guardar te muestra en rojo o verde qué le pasa al banco. Ojo: si cargás "se fue una hora antes" como Sumar, el banco SUBE en vez de bajar.',
+      'Corregir un ajuste manual: en Banco, tocá la colaboradora y en la fila del ajuste (🔧 Ajuste manual) apretá ✏️. Cambiás Sumar/Restar, minutos y motivo; al guardar, a la colaboradora le llega una notificación con el cambio y su saldo nuevo — siempre, no se puede corregir en silencio. El ajuste queda marcado "✏️ editado" con lo que decía antes. Solo se editan los ajustes manuales: lo que genera el sistema (cierre de mes, extras del cruce, permisos) no.',
       'Cuando todo está OK, apretás el botón rojo "🔒 Cerrar mes" — esto materializa el banco de minutos y aplica las cuotas de préstamo.',
       'Importante: una vez cerrado, las modificaciones quedan registradas con aviso.',
     ],
@@ -166,6 +167,7 @@ const MANUAL_EMPLEADO = [
     tab: 'mi-banco', icon: '🏦', titulo: 'Mi banco',
     desc: 'Saldo de minutos a favor o en contra. Si te quedaste más, ganás banco; si te fuiste antes, te descuenta.',
     pasos: [
+      'Si tu encargada te carga o corrige un ajuste manual del banco, te llega una notificación con el motivo y tu saldo nuevo, y el movimiento aparece marcado "✏️ corregido" con lo que decía antes. Si no estás de acuerdo, hablalo con ella o con JP.',
       'Tu saldo actual aparece arriba en grande.',
       'Tus horas extra se suman al banco. Cuando las extras acumuladas llegan a una semana entera de trabajo (tus horas semanales), aparece el botón "💵 Pedir pago de extras": JP lo aprueba y se te paga en efectivo con el sueldo; esos minutos se descuentan del banco.',
       'Si estás en contra (negativo), se descuenta del sueldo o de las vacaciones.',

@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v349-ajuste-banco-signo';
+const CACHE_VERSION = 'rrhh-v350-editar-ajuste-banco';
 const ASSETS = [
   './',
   './index.html',

@@ -13250,6 +13250,7 @@ async function abrirDetalleBanco(empleadoId) {
     if (!mm) return '0 min';
     return (mm<0?'-':'+') + Math.abs(mm) + ' min';
   };
+  const puedeEditar = session.rol === 'admin' || (session.rol === 'gerente' && session.local_gerencia === emp.local);
 
   const html = `
     <div class="modal-bg" id="banco-detalle-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
@@ -13274,16 +13275,22 @@ async function abrirDetalleBanco(empleadoId) {
               <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Tipo</th>
               <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Minutos</th>
               <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Detalle</th>
+              <th style="padding:6px 10px;"></th>
             </tr>
           </thead>
           <tbody>
             ${movs.map(m => {
               const t = TIPOS_BANCO[m.tipo] || { label: m.tipo, color: '#6b7280', icon: '•' };
+              // (22-sep, JP) Los ajustes MANUALES se pueden editar (admin o encargada
+              // del local); la RPC valida y le avisa a la colaboradora por push.
+              const editable = m.referencia_tipo === 'manual' && puedeEditar;
+              const editado = m.editado_at ? ` <span title="Editado por ${escapeHtml(m.editado_por||'')} el ${String(m.editado_at).slice(0,10)} — antes: ${escapeHtml(String((m.historial&&m.historial[0]&&m.historial[0].minutos_antes)??''))} min" style="color:#9333ea;font-size:10px;">✏️ editado</span>` : '';
               return `<tr style="border-top:1px solid var(--border);">
                 <td style="padding:6px 10px;font-family:monospace;font-size:11px;">${m.fecha}</td>
-                <td style="padding:6px 10px;">${t.icon} ${t.label}</td>
+                <td style="padding:6px 10px;">${t.icon} ${t.label}${editado}</td>
                 <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;color:${(m.minutos||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(m.minutos)}</td>
                 <td style="padding:6px 10px;font-size:11px;color:var(--muted);">${escapeHtml(m.observaciones || '')}</td>
+                <td style="padding:6px 4px;white-space:nowrap;">${editable ? `<button class="btn" style="padding:2px 8px;font-size:11px;" onclick="editarAjusteBanco(${m.id}, ${empleadoId})" title="Corregir este ajuste manual (se le avisa a la colaboradora)">✏️</button>` : ''}</td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -13564,6 +13571,76 @@ async function guardarAjusteBanco() {
   renderAsisTab();
 }
 
+// (22-sep, JP) Editar un ajuste MANUAL ya cargado. La puerta es la RPC
+// rrhh_banco_ajuste_editar (admin o encargada del local, solo referencia_tipo
+// 'manual', motivo obligatorio, tope -42 h) y el aviso a la colaboradora sale
+// desde la base — no depende de este navegador.
+async function editarAjusteBanco(id, empleadoId) {
+  const { data: m, error: e1 } = await sb.from('rrhh_banco_minutos').select('*').eq('id', id).single();
+  if (e1 || !m) { toast('No encontré el ajuste', 'error'); return; }
+  if (m.referencia_tipo !== 'manual') { toast('Solo se editan los ajustes manuales', 'error'); return; }
+  const { data: emp } = await sb.from('rrhh_empleados').select('nombre_completo').eq('id', m.empleado_id).single();
+  const html = `
+    <div class="modal-bg" id="ajuste-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal" style="background:white;border-radius:12px;padding:24px;max-width:500px;width:100%;">
+        <h3 style="margin:0 0 4px;">Corregir ajuste manual</h3>
+        <p style="margin:0 0 4px;font-size:13px;"><b>${escapeHtml(emp?.nombre_completo || '')}</b> · ${m.fecha}</p>
+        <p style="margin:0 0 14px;color:var(--muted);font-size:13px;">Hoy dice <b style="color:${m.minutos>=0?'#0d9488':'#dc2626'};">${m.minutos>=0?'+':'−'}${Math.abs(m.minutos)} min</b> — "${escapeHtml(m.observaciones||'')}". Al guardar, <b>a la colaboradora le llega un aviso</b> con el cambio y su saldo nuevo.</p>
+        <div style="display:grid;gap:12px;">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">¿Qué hace este ajuste con el banco? *</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <label id="ajus-lbl-sumar" style="display:flex;gap:8px;align-items:flex-start;padding:10px;border:2px solid var(--border);border-radius:8px;cursor:pointer;">
+                <input type="radio" name="ajus-signo" value="1" ${m.minutos>0?'checked':''} onchange="_ajusSignoUI()" style="margin-top:3px;">
+                <span><b style="color:#0d9488;">➕ Sumar</b><br><span style="font-size:11px;color:var(--muted);">Se quedó de más, vino un día que no le tocaba.</span></span>
+              </label>
+              <label id="ajus-lbl-restar" style="display:flex;gap:8px;align-items:flex-start;padding:10px;border:2px solid var(--border);border-radius:8px;cursor:pointer;">
+                <input type="radio" name="ajus-signo" value="-1" ${m.minutos<0?'checked':''} onchange="_ajusSignoUI()" style="margin-top:3px;">
+                <span><b style="color:#dc2626;">➖ Restar</b><br><span style="font-size:11px;color:var(--muted);">Se fue antes, entró más tarde, permiso.</span></span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos *</label>
+            <input type="number" id="ajus-mins" min="1" step="1" inputmode="numeric" value="${Math.abs(m.minutos)}" oninput="_ajusSignoUI()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+            <div id="ajus-preview" style="font-size:12px;margin-top:6px;min-height:16px;color:var(--muted);"></div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo de la corrección *</label>
+            <textarea id="ajus-motivo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;" placeholder="Por qué se corrige…">${escapeHtml(m.observaciones||'')}</textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn" onclick="document.getElementById('ajuste-modal').remove()">Cancelar</button>
+          <button class="btn primary" onclick="guardarEdicionAjusteBanco(${id}, ${empleadoId})">Guardar y avisar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  _ajusSignoUI();
+}
+
+async function guardarEdicionAjusteBanco(id, empleadoId) {
+  const rSigno = document.querySelector('input[name="ajus-signo"]:checked');
+  const signo = rSigno ? parseInt(rSigno.value, 10) : 0;
+  const cant = Math.abs(parseInt(document.getElementById('ajus-mins').value, 10));
+  const motivo = document.getElementById('ajus-motivo').value.trim();
+  if (!signo) { toast('Elegí si el ajuste SUMA o RESTA minutos', 'error'); return; }
+  if (!cant || isNaN(cant)) { toast('Indicá los minutos (en positivo)', 'error'); return; }
+  if (!motivo) { toast('Contá el motivo de la corrección', 'error'); return; }
+  const minutos = signo * cant;
+  if (!confirm((signo === 1 ? 'Dejar el ajuste en +' : 'Dejar el ajuste en −') + cant + ' min y AVISARLE a la colaboradora.\n\n¿Confirmás?')) return;
+  const { data, error } = await sb.rpc('rrhh_banco_ajuste_editar', { p_id: id, p_minutos: minutos, p_motivo: motivo });
+  if (error) { alert('No se pudo corregir: ' + error.message); return; }
+  if (data && data.ok === false) { toast('Sin cambios', 'info'); document.getElementById('ajuste-modal').remove(); return; }
+  await auditLog('editar_ajuste_banco', 'rrhh_banco_minutos', id, null, null, `${data.antes} → ${data.despues} min - ${motivo}`);
+  toast(`Ajuste corregido ✓ · saldo ${data.saldo} min · aviso enviado`, 'success');
+  document.getElementById('ajuste-modal').remove();
+  const det = document.getElementById('banco-detalle-modal'); if (det) det.remove();
+  await abrirDetalleBanco(empleadoId);
+  renderAsisTab();
+}
+
 // ════════════════════════════════════════════════════════════
 // Self-service vendedora: Mi banco
 // ════════════════════════════════════════════════════════════
@@ -13722,9 +13799,12 @@ async function renderMiBanco() {
         <tbody>
           ${movs.map(m => {
             const t = TIPOS_BANCO[m.tipo] || { label: m.tipo, color: '#6b7280', icon: '•' };
+            // (22-sep) Si la encargada corrigió el ajuste, la colaboradora lo ve acá también.
+            const h0 = m.historial && m.historial[0];
+            const editado = m.editado_at ? ` <span style="color:#9333ea;font-size:10px;" title="Corregido el ${String(m.editado_at).slice(0,10)}${h0 ? ' — antes era ' + (h0.minutos_antes>=0?'+':'') + h0.minutos_antes + ' min' : ''}">✏️ corregido</span>` : '';
             return `<tr style="border-top:1px solid var(--border);">
               <td style="padding:8px 10px;font-family:monospace;font-size:12px;">${m.fecha}</td>
-              <td style="padding:8px 10px;">${t.icon} ${t.label}</td>
+              <td style="padding:8px 10px;">${t.icon} ${t.label}${editado}</td>
               <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:600;color:${(m.minutos||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(m.minutos)}</td>
               <td style="padding:8px 10px;font-size:11px;color:var(--muted);">${escapeHtml(m.observaciones || '')}</td>
             </tr>`;
@@ -23667,7 +23747,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=18"></script>
+<script src="manuales.js?v=19"></script>
 <script src="exportaciones.js?v=6"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
