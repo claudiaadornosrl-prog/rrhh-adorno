@@ -44,6 +44,7 @@ const MANUAL_GERENTE = [
       'Tardanzas — cómo funciona (dos sistemas separados): (1) ERROR de fichada: entrar pasada la tolerancia (Oficina 25 min desde el turno cargado, locales 20) quema 1 error contra el premio. (2) MINUTOS al banco: TODOS los minutos desde el horario real (turno + 15) suman a un pool mensual, haya error o no; si el pool pasa los 60 minutos en el mes, se descuenta TODO del banco al cerrar. Ejemplo: llegar 7 min tarde no quema error pero suma 7 minutos.',
       'Si una colaboradora tiene un día mal cargado (turno equivocado), click en "⋮ Otro turno" para corregirlo.',
       'Los permisos solo se pueden cargar con fecha de hoy en adelante — los de fecha pasada los carga el admin.',
+      'Ajuste manual del banco (pestaña Banco → "+ Ajuste manual"): elegís primero ➕ Sumar o ➖ Restar y después los minutos SIEMPRE en positivo. Restar = se fue antes, entró más tarde, permiso que no se cargó a tiempo; Sumar = se quedó de más o vino un día que no le tocaba. Antes de guardar te muestra en rojo o verde qué le pasa al banco. Ojo: si cargás "se fue una hora antes" como Sumar, el banco SUBE en vez de bajar.',
       'Cuando todo está OK, apretás el botón rojo "🔒 Cerrar mes" — esto materializa el banco de minutos y aplica las cuotas de préstamo.',
       'Importante: una vez cerrado, las modificaciones quedan registradas con aviso.',
     ],

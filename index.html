@@ -13475,9 +13475,22 @@ async function abrirAjusteBancoAdmin() {
             <input type="date" id="ajus-fecha" value="${hoyISO()}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
           <div>
-            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos (positivo = sumar; negativo = restar) *</label>
-            <input type="number" id="ajus-mins" value="0" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
-            <div style="font-size:11px;color:var(--muted);margin-top:4px;">Ej: 60 = 1h a favor · -90 = 1h30min en contra · 480 = 1 día (8h)</div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">¿Qué hacés con el banco? *</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <label id="ajus-lbl-sumar" style="display:flex;gap:8px;align-items:flex-start;padding:10px;border:2px solid var(--border);border-radius:8px;cursor:pointer;">
+                <input type="radio" name="ajus-signo" value="1" onchange="_ajusSignoUI()" style="margin-top:3px;">
+                <span><b style="color:#0d9488;">➕ Sumar</b><br><span style="font-size:11px;color:var(--muted);">Se quedó de más, vino un día que no le tocaba, extra sin fichada.</span></span>
+              </label>
+              <label id="ajus-lbl-restar" style="display:flex;gap:8px;align-items:flex-start;padding:10px;border:2px solid var(--border);border-radius:8px;cursor:pointer;">
+                <input type="radio" name="ajus-signo" value="-1" onchange="_ajusSignoUI()" style="margin-top:3px;">
+                <span><b style="color:#dc2626;">➖ Restar</b><br><span style="font-size:11px;color:var(--muted);">Se fue antes, entró más tarde, permiso que no se cargó.</span></span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Minutos *</label>
+            <input type="number" id="ajus-mins" min="1" step="1" placeholder="0" inputmode="numeric" oninput="_ajusSignoUI()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:monospace;">
+            <div id="ajus-preview" style="font-size:12px;margin-top:6px;min-height:16px;color:var(--muted);">Ej: 60 = 1 h · 90 = 1 h 30 min · 480 = 1 día (8 h). Siempre en positivo: el signo lo pone la opción de arriba.</div>
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Motivo *</label>
@@ -13494,16 +13507,48 @@ async function abrirAjusteBancoAdmin() {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
+// (21-sep, JP) El signo lo decide una opción explícita Sumar/Restar, no el
+// "-" tipeado. Antes el campo aceptaba negativos pero en la tablet nadie los
+// tipeaba: la encargada cargaba "se fue una hora antes" como +60 y el banco
+// SUBÍA en vez de bajar. Los minutos van siempre en positivo.
+function _ajusSignoUI() {
+  const r = document.querySelector('input[name="ajus-signo"]:checked');
+  const signo = r ? parseInt(r.value, 10) : 0;
+  const lS = document.getElementById('ajus-lbl-sumar'), lR = document.getElementById('ajus-lbl-restar');
+  if (lS) { lS.style.borderColor = signo === 1  ? '#0d9488' : 'var(--border)'; lS.style.background = signo === 1  ? '#f0fdfa' : ''; }
+  if (lR) { lR.style.borderColor = signo === -1 ? '#dc2626' : 'var(--border)'; lR.style.background = signo === -1 ? '#fef2f2' : ''; }
+  const n = Math.abs(parseInt(document.getElementById('ajus-mins')?.value, 10) || 0);
+  const pv = document.getElementById('ajus-preview');
+  if (!pv) return;
+  if (signo && n) {
+    const h = Math.floor(n / 60), m = n % 60;
+    const dur = (h ? h + ' h' : '') + (h && m ? ' ' : '') + (m ? m + ' min' : '');
+    pv.style.color = signo === 1 ? '#0d9488' : '#dc2626';
+    pv.textContent = (signo === 1 ? '➕ Se le SUMAN ' : '➖ Se le RESTAN ') + n + ' min (' + dur + ') al banco.';
+  } else {
+    pv.style.color = 'var(--muted)';
+    pv.textContent = 'Ej: 60 = 1 h · 90 = 1 h 30 min · 480 = 1 día (8 h). Siempre en positivo: el signo lo pone la opción de arriba.';
+  }
+}
+
 async function guardarAjusteBanco() {
   const empleado_id = parseInt(document.getElementById('ajus-emp').value, 10);
   const fecha = document.getElementById('ajus-fecha').value;
-  const minutos = parseInt(document.getElementById('ajus-mins').value, 10);
+  const rSigno = document.querySelector('input[name="ajus-signo"]:checked');
+  const signo = rSigno ? parseInt(rSigno.value, 10) : 0;
+  const cant = Math.abs(parseInt(document.getElementById('ajus-mins').value, 10));
   const motivo = document.getElementById('ajus-motivo').value.trim();
 
   if (!empleado_id) { toast('Falta empleado', 'error'); return; }
   if (!fecha) { toast('Falta fecha', 'error'); return; }
-  if (!minutos || isNaN(minutos)) { toast('Indicá los minutos (positivo o negativo)', 'error'); return; }
+  if (!signo) { toast('Elegí si el ajuste SUMA o RESTA minutos', 'error'); return; }
+  if (!cant || isNaN(cant)) { toast('Indicá los minutos (en positivo)', 'error'); return; }
   if (!motivo) { toast('Contá el motivo del ajuste', 'error'); return; }
+  const minutos = signo * cant;
+  const h = Math.floor(cant / 60), m = cant % 60;
+  const dur = (h ? h + ' h' : '') + (h && m ? ' ' : '') + (m ? m + ' min' : '');
+  if (!confirm((signo === 1 ? 'SUMAR ' : 'RESTAR ') + cant + ' min (' + dur + ') al banco de ' +
+      (document.getElementById('ajus-emp').selectedOptions[0]?.textContent || 'la colaboradora') + '.\n\n¿Confirmás?')) return;
 
   const { data, error } = await sb.from('rrhh_banco_minutos').insert({
     empleado_id, fecha, minutos,
@@ -23622,7 +23667,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=12"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=17"></script>
+<script src="manuales.js?v=18"></script>
 <script src="exportaciones.js?v=6"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
