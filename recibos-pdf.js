@@ -559,11 +559,11 @@ async function generarPDFRecibo(liqId, opts = {}) {
         const qr = qrcode(0, 'H');  // (5-ago) corrección ALTA: sobrevive impresión+escaneo malo
         qr.addData(codigoQR);
         qr.make();
-        const qrDataUrl = qr.createDataURL(4, 0);  // celdas de 4px, sin margen
+        const qrDataUrl = qr.createDataURL(4, 8);  // (23-sep) margen blanco de 2 módulos: sin él una firma que roza el QR impide leerlo
         // (31-jul) Banda inferior reordenada: QR 20mm arriba-izquierda de la
         // zona de firmas, caption centrada debajo — ya no pisa "Recibí conforme".
-        const qrSize = 24;  // (5-ago) más grande = más tolerante al escaneo
-        const qrX = W / 2 - 12;   // columna del medio: no pisa ninguna firma
+        const qrSize = 26;  // (23-sep) 26mm con el margen blanco adentro: el módulo queda casi igual que antes (0,90 vs 0,96 mm)
+        const qrX = W / 2 - 13;   // columna del medio: no pisa ninguna firma
         const qrY = H - 55;       // más despegado del banner del neto
         doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
         doc.setFont('helvetica', 'normal');
@@ -609,7 +609,8 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.text('Firma y sello', (mitad + 16 + W - margen - 6) / 2, yFirma + 8, { align: 'center' });
 
     // 12. Bloque CÓDIGO DE SEGUIMIENTO + asunto del mail (estilo vacaciones)
-    const codigoSeg = 'REC-' + String(liq.id).padStart(5, '0');
+    // (23-sep) En el SAC decía REC-: el asunto sugerido apuntaba al recibo MENSUAL del mismo id
+    const codigoSeg = (esSAC ? 'SAC-' : 'REC-') + String(liq.id).padStart(5, '0');
     const periodoCorto = (liq.periodo || '').slice(0, 7);
 
     // Cuadro destacado a la derecha con el código (encima del QR)
@@ -630,7 +631,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     doc.setTextColor(...COLOR_MUTED);
-    doc.text(`Asunto del mail: "RECIBO ${periodoCorto} ${codigoSeg}"`, segBoxX + segBoxW/2, segBoxY + 14, { align: 'center' });
+    doc.text(`Asunto del mail: "${esSAC ? 'SAC' : 'RECIBO'} ${periodoCorto} ${codigoSeg}"`, segBoxX + segBoxW/2, segBoxY + 14, { align: 'center' });
 
     // Frase + mail (estilo vacaciones)
     doc.setDrawColor(...COLOR_BORDER);
