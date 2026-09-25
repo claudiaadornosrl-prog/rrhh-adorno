@@ -3925,7 +3925,7 @@ async function renderVacContent() {
           <tbody>
             ${lista.map(m => {
               const fSol = m.fecha_solicitud
-                ? new Date(m.fecha_solicitud).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
+                ? new Date(m.fecha_solicitud).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' })
                 : '—';
               const periodo = m.fecha_desde === m.fecha_hasta
                 ? fmtFecha(m.fecha_desde)
@@ -5073,7 +5073,7 @@ async function enviarCompensarFalta(fecha, saldoBanco, diasDisp, empleadoId) {
   if (_esAdminMode && _empTarget) {
     try {
       const _fmtMin = (m) => Math.floor(m/60) + 'h' + String(m%60).padStart(2,'0') + 'm';
-      const _fechaFmt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+      const _fechaFmt = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
       const _descTxt = descontar_banco
         ? `${_fmtMin(minutos_descontar)} de tu banco de minutos`
         : `${dias_descontar} día${dias_descontar > 1 ? 's' : ''} de tus vacaciones`;
@@ -19694,7 +19694,7 @@ async function renderPrestamosGerente() {
   const fmtFechaCorta = (iso) => {
     if (!iso) return '—';
     const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso);
-    return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+    return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
   };
 
   // ── Cargar adelantos OTORGADOS del local (rrhh_prestamo con 1 cuota sin interés) ──
