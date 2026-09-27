@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v353-fechas-aaaa';
+const CACHE_VERSION = 'rrhh-v354-escala-faecys';
 const ASSETS = [
   './',
   './index.html',

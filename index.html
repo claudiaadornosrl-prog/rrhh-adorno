@@ -22642,22 +22642,64 @@ const salaryWorkflow = (() => {
   //  escala propia cargada — el sistema frena y lo dice, no adivina.
   //  Solo aplica desde abr-2026 (antes no existía la tabla de escalas).
   // ══════════════════════════════════════════════════════════════════════
+  // (26-sep) La escala se busca SOLA en FAECYS cuando falta el mes (proforma o
+  // definitivo), y en el definitivo se vuelve a mirar la circular si la escala
+  // del mes vino de ahí (puede haber salido un acuerdo nuevo). Lo cargado a mano
+  // (origen='manual', las del estudio) nunca se pisa.
+  // Circuito: Edge Function rrhh-escala-faecys (lee el PDF) → RPC
+  // rrhh_escala_importar (admin, valida y guarda categorías + no remunerativo).
   const _escalaMesOk = {};
-  async function verificarEscalaDelMes(periodo) {
+  const _escalaBuscando = {};
+  const _MESES_ES = ['','enero','febrero','marzo','abril','mayo','junio','julio',
+                     'agosto','septiembre','octubre','noviembre','diciembre'];
+  const _$ar = n => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+  async function verificarEscalaDelMes(periodo, tipo) {
     if (periodo < '2026-04') return;                    // legacy: sin tabla
-    if (_escalaMesOk[periodo]) return;
+    const esDef = tipo === 'definitivo';
+    const key = periodo + (esDef ? '|def' : '');
+    if (_escalaMesOk[key] || (!esDef && _escalaMesOk[periodo + '|def'])) return;
     const { data } = await sb.from('rrhh_categorias_cct')
-      .select('id').eq('fecha_vigencia', periodo + '-01').limit(1);
-    if (!data || !data.length) {
-      const [y, m] = periodo.split('-');
-      const MES = ['','enero','febrero','marzo','abril','mayo','junio','julio',
-                   'agosto','septiembre','octubre','noviembre','diciembre'][Number(m)];
-      throw new Error(
-        `No hay escala CCT cargada para ${MES} ${y}. ` +
-        `Cargala en Configuración → Categorías CCT antes de liquidar — ` +
-        `sin eso el sistema usaría la escala del mes anterior en silencio.`);
+      .select('id, origen').eq('fecha_vigencia', periodo + '-01');
+    const hay  = (data || []).length > 0;
+    const auto = (data || []).some(r => r.origen && r.origen !== 'manual');
+    if (!hay || (esDef && auto)) {
+      if (!_escalaBuscando[key]) _escalaBuscando[key] = _importarEscalaFaecys(periodo, tipo, hay);
+      try { await _escalaBuscando[key]; } finally { delete _escalaBuscando[key]; }
     }
-    _escalaMesOk[periodo] = true;
+    _escalaMesOk[key] = true;
+  }
+
+  async function _importarEscalaFaecys(periodo, tipo, hay) {
+    const [y, m] = periodo.split('-');
+    const MES = `${_MESES_ES[Number(m)]} ${y}`;
+    try { toast(`🔎 Buscando la escala de ${MES} en FAECYS…`); } catch (_) {}
+    let r = null;
+    try {
+      const { data, error } = await sb.functions.invoke('rrhh-escala-faecys', { body: { periodo } });
+      if (error) throw error;
+      r = data;
+    } catch (e) {
+      if (hay) { try { toast(`⚠ No pude revisar FAECYS (${e.message || e}). Sigo con la escala cargada.`, 'warn'); } catch (_) {} return; }
+      throw new Error(`No hay escala CCT para ${MES} y no pude consultar FAECYS (${e.message || e}). Probá de nuevo en un rato.`);
+    }
+    if (!r || !r.ok) {
+      if (hay) return;                                   // definitivo: se queda con la que está
+      throw new Error(`No hay escala CCT para ${MES}: FAECYS todavía no publicó una circular que incluya ese mes. ` +
+        `Volvé a generar cuando salga (o pasale a Claude la escala del estudio).`);
+    }
+    const { data: res, error: e2 } = await sb.rpc('rrhh_escala_importar',
+      { p_periodo: periodo, p_datos: r, p_modo: tipo === 'definitivo' ? 'definitivo' : 'proforma' });
+    if (e2) throw new Error(`No se pudo cargar la escala de ${MES}: ${e2.message}`);
+    const lineas = [];
+    if (res.insertadas) lineas.push(`✓ Cargué la escala de ${MES} desde FAECYS (acuerdo ${res.acuerdo || '—'}).`);
+    (res.cambios || []).forEach(c => lineas.push(`• ${c.codigo}: ${_$ar(c.antes)} → ${_$ar(c.ahora)} (cambió la circular)`));
+    if (res.no_remunerativo) lineas.push(`• No remunerativo del mes: ${_$ar(res.no_remunerativo.antes)} → ${_$ar(res.no_remunerativo.ahora)}`);
+    if ((res.estimadas || []).length) {
+      lineas.push('', '⚠ Estas categorías no están en la circular; las estimé con el mismo % que Vendedor B. Confirmalas con el estudio:');
+      res.estimadas.forEach(x => lineas.push(`• ${x.codigo}: ${_$ar(x.mes_anterior)} → ${_$ar(x.basico)} (+${String(x.pct).replace('.', ',')}%)`));
+    }
+    (res.avisos || []).forEach(a => lineas.push('⚠ ' + a));
+    if (lineas.length) alert(lineas.join('\n') + `\n\nFuente: ${r.fuente}`);
   }
 
   async function cargarParitaria(periodo) {
@@ -22826,7 +22868,7 @@ const salaryWorkflow = (() => {
    * Si no se pasan, se infieren (días = 30 - dias_no_trabajados, uniforme_ok = true, etc.)
    */
   async function liquidarEmpleada(empleadoId, periodo, inputs = {}) {
-    await verificarEscalaDelMes(periodo);   // frena si el mes no tiene escala propia
+    await verificarEscalaDelMes(periodo, inputs.tipo);   // frena si el mes no tiene escala propia (y la busca en FAECYS)
     // Cargas
     const _cache = inputs._cache || {};
     const [emp, configLocal, configEmp, paritaria] = await Promise.all([
@@ -23644,6 +23686,10 @@ const salaryWorkflow = (() => {
     const tipo = opts.tipo || null;
     const descuentosEspeciales = opts.descuentosEspeciales || {};
     const inputsPorEmpleado = opts.inputsPorEmpleado || (Object.keys(opts).some(k => /^\d+$/.test(k)) ? opts : {});
+
+    // (26-sep) La escala (y el no remunerativo) se resuelven ANTES de la precarga:
+    // si hay que traerla de FAECYS, la paritaria cacheada tiene que ser la nueva.
+    await verificarEscalaDelMes(periodo, tipo);
 
     // ── PRECARGA: datos del mes que son IGUALES para todas las colaboradoras ──
     // Se cargan UNA vez antes del for-loop y se pasan en `opts._cache`
