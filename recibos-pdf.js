@@ -743,6 +743,7 @@ const reciboAuditor = (() => {
   // Cada patrón es un set de keywords que deben TODOS aparecer en el nombre normalizado.
   const REGLAS = [
     { keys: ['sueldo','basico'],            campo: 'basico',        es_descuento: false },
+    { keys: ['dia','gremio'],               campo: 'dia_gremio',    es_descuento: false },
     { keys: ['adic','antiguedad'],          campo: 'antiguedad',    es_descuento: false },
     { keys: ['antiguedad'],                 campo: 'antiguedad',    es_descuento: false },
     { keys: ['presentismo','rem'],          campo: 'pres_nr',       es_descuento: false, no_si: ['nr'] },
@@ -868,7 +869,7 @@ const reciboAuditor = (() => {
 
     // Sumar por campo del salaryEngine los importes del PDF
     const declarado = {
-      basico: 0, antiguedad: 0, presentismo: 0,
+      basico: 0, dia_gremio: 0, antiguedad: 0, presentismo: 0,
       sumafija_nr: 0, ant_nr: 0, pres_nr: 0, recompos_nr: 0, otros_rem: 0,
       jubilacion: 0, ley19032: 0, sec: 0, faecys: 0, obra_social: 0,
     };
@@ -884,7 +885,7 @@ const reciboAuditor = (() => {
 
     // Comparar campo por campo
     const labels = {
-      basico: 'Sueldo Básico', antiguedad: 'Antigüedad', presentismo: 'Presentismo',
+      basico: 'Sueldo Básico', dia_gremio: 'Día del Gremio', antiguedad: 'Antigüedad', presentismo: 'Presentismo',
       sumafija_nr: 'Suma fija no rem', ant_nr: 'Antig no rem', pres_nr: 'Presentismo no rem',
       recompos_nr: 'Recompos no rem', otros_rem: 'Otros remunerativos',
       jubilacion: 'Jubilación 11%', ley19032: 'Ley 19032 (3%)',

@@ -17501,7 +17501,7 @@ async function liqEditarGuardar(liqId) {
     puntos_mes: puntos, observaciones: obs,
     fijo, comision, premio_cobra: premio > 0, premio_monto: premio,
     viaticos, extras, feriado_monto, vacaciones_pago: vacacionesPagoLE, total_negro: total_negro_esperado, efectivo, ajuste_blanco: 0,
-    recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
+    recibo_basico: t.basico, recibo_dia_gremio: t.dia_gremio || 0, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
     recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
     recibo_recompos_nr: t.recompos_nr, recibo_otros_rem: t.otros_rem,
     recibo_jubilacion: t.jubilacion, recibo_ley19032: t.ley19032,
@@ -22020,6 +22020,18 @@ function openModal(html, maxWidth) {
 const salaryEngine = (() => {
   const PCT = { JUB: 0.11, LEY19032: 0.03, OS: 0.03, SEC: 0.02, FAECYS: 0.005, PRES: 0.0833 };
 
+  // (26-sep-2026, JP) Día del Empleado de Comercio (26 de septiembre, CCT 130/75):
+  // todos los años, en la liquidación de SEPTIEMBRE, el estudio (MEMOSOFT) paga
+  // 1 día de "Día del Gremio" (código 0004) = básico ÷ 25 y el básico va por
+  // (días − 1)/30. El día de gremio entra en la base de antigüedad y presentismo.
+  // Verificado al centavo contra los recibos del estudio de sep-2026 (19/19).
+  const DIA_GREMIO = { mes: 9, dias: 1, divisor: 25 };
+  function diasGremioDelPeriodo(periodo, dias_trabajados) {
+    const m = Number(String(periodo || '').slice(5, 7));
+    if (m !== DIA_GREMIO.mes || !(Number(dias_trabajados) >= DIA_GREMIO.dias)) return 0;
+    return DIA_GREMIO.dias;
+  }
+
   // Devuelve años COMPLETOS de antigüedad al ÚLTIMO DÍA del mes del período
   function aniosCumplidosAlPeriodo(fechaIngresoISO, periodoISO) {
     if (!fechaIngresoISO) return 0;
@@ -22075,6 +22087,8 @@ const salaryEngine = (() => {
       // opcional: { codigo, nombre, unidades_pct } reemplaza el código 0073 default.
       // Usado por doble_blanco para imprimir 'Comisiones' código 0018.
       otros_rem_concepto = null,
+      // opcional: forzar los días de Día del Gremio (null = según el período)
+      dias_gremio = null,
     } = input;
 
     const periodoFull = /^\d{4}-\d{2}$/.test(periodo) ? `${periodo}-01` : periodo;
@@ -22082,21 +22096,32 @@ const salaryEngine = (() => {
     const fraccionNR = (fraccion_no_rem_override != null) ? fraccion_no_rem_override : fraccion;
     const anios = aniosCumplidosAlPeriodo(fecha_ingreso, periodoFull);
     const conceptos = [];
+    const gremioDias = (dias_gremio != null) ? Number(dias_gremio) || 0 : diasGremioDelPeriodo(periodoFull, dias_trabajados);
+    const fraccionBasico = gremioDias > 0
+      ? Math.min(1, Math.max(0, ((dias_trabajados || 0) - gremioDias) / 30))
+      : fraccion;
 
     // ── Remunerativos ──
-    const basico = (basico_escala || 0) * fraccion;
-    conceptos.push(concepto(10, '0001', 'Sueldo Básico', basico_escala, fraccion * 100, basico, true));
+    const basico = (basico_escala || 0) * fraccionBasico;
+    conceptos.push(concepto(10, '0001', 'Sueldo Básico', basico_escala, fraccionBasico * 100, basico, true));
+
+    let dia_gremio = 0;
+    if (gremioDias > 0) {
+      dia_gremio = (basico_escala || 0) / DIA_GREMIO.divisor * gremioDias;
+      conceptos.push(concepto(15, '0004', 'Día del Gremio', null, null, dia_gremio, true));
+    }
+    const baseAntig = basico + dia_gremio;
 
     let antiguedad = 0;
     if (anios > 0) {
-      antiguedad = basico * (anios / 100);
-      conceptos.push(concepto(20, '0022', 'Adicional Antigüedad', basico, anios, antiguedad, true));
+      antiguedad = baseAntig * (anios / 100);
+      conceptos.push(concepto(20, '0022', 'Adicional Antigüedad', baseAntig, anios, antiguedad, true));
     }
 
     let presentismo = 0;
     if (!fuera_convenio) {
-      presentismo = (basico + antiguedad) * PCT.PRES;
-      conceptos.push(concepto(30, '0025', 'Presentismo', basico + antiguedad, PCT.PRES * 100, presentismo, true));
+      presentismo = (baseAntig + antiguedad) * PCT.PRES;
+      conceptos.push(concepto(30, '0025', 'Presentismo', baseAntig + antiguedad, PCT.PRES * 100, presentismo, true));
     }
 
     const otrosRem = otros_remunerativos || 0;
@@ -22110,7 +22135,7 @@ const salaryEngine = (() => {
       }
     }
 
-    const total_rem = basico + antiguedad + presentismo + otrosRem;
+    const total_rem = basico + dia_gremio + antiguedad + presentismo + otrosRem;
 
     // ── No remunerativos ──
     const sumafija_nr = (suma_fija_nr || 0) * fraccionNR;
@@ -22164,6 +22189,7 @@ const salaryEngine = (() => {
       conceptos: conceptos.map(c => ({ ...c, importe: round2(c.importe) })),
       totales: {
         basico: round2(basico),
+        dia_gremio: round2(dia_gremio),
         antiguedad: round2(antiguedad),
         presentismo: round2(presentismo),
         otros_rem: round2(otrosRem),
@@ -22210,11 +22236,17 @@ const salaryEngine = (() => {
       fuera_convenio = false,
       otros_remunerativos = 0,
       fraccion_no_rem_override = null,
+      dias_gremio = null,
     } = input;
 
     const periodoFull = /^\d{4}-\d{2}$/.test(periodo) ? `${periodo}-01` : periodo;
     const fraccion = Math.min(1, Math.max(0, (dias_trabajados || 0) / 30));
     const fraccionNR = (fraccion_no_rem_override != null) ? fraccion_no_rem_override : fraccion;
+    const gremioDias = (dias_gremio != null) ? Number(dias_gremio) || 0 : diasGremioDelPeriodo(periodoFull, dias_trabajados);
+    // Factor del básico escala que entra al recibo: (días − gremio)/30 + gremio/25
+    const factorBasico = gremioDias > 0
+      ? Math.min(1, Math.max(0, ((dias_trabajados || 0) - gremioDias) / 30)) + gremioDias / DIA_GREMIO.divisor
+      : fraccion;
     const anios = aniosCumplidosAlPeriodo(fecha_ingreso, periodoFull);
     const a = anios / 100;
     const p = fuera_convenio ? 0 : PCT.PRES;
@@ -22239,7 +22271,7 @@ const salaryEngine = (() => {
     const basico_lleno = (total_rem_obj - O) / denomBasico;
     // basico_lleno está prorrateado por días (porque total_rem_obj sí lo está implícitamente vía el módulo).
     // Para devolver el "básico escala" (full mes), dividir por fracción.
-    const basico_escala = fraccion > 0 ? (basico_lleno / fraccion) : basico_lleno;
+    const basico_escala = factorBasico > 0 ? (basico_lleno / factorBasico) : basico_lleno;
     // Guard: el neto objetivo podría ser tan bajo que arroje un básico negativo o inválido.
     // Eso indica inputs mal cargados (ej: total_negro_esperado < descuentos no removibles).
     if (!isFinite(basico_escala) || basico_escala <= 0) {
@@ -22284,7 +22316,7 @@ const salaryEngine = (() => {
     return delta_neto / denom;
   }
 
-  return { calcularReciboCCT, aniosCumplidosAlPeriodo, calcularBasicoParaNeto, calcularComisionVentaParaNeto, PCT };
+  return { calcularReciboCCT, aniosCumplidosAlPeriodo, calcularBasicoParaNeto, calcularComisionVentaParaNeto, diasGremioDelPeriodo, PCT, DIA_GREMIO };
 })();
 
 
@@ -23124,6 +23156,7 @@ const salaryWorkflow = (() => {
             }
             const t = recibo.totales;
             t.basico       = Number(t.basico||0)       * f;
+            t.dia_gremio   = Number(t.dia_gremio||0)   * f;
             t.antiguedad   = Number(t.antiguedad||0)   * f;
             t.presentismo  = Number(t.presentismo||0)  * f;
             t.sumafija_nr  = Number(t.sumafija_nr||0)  * f;
@@ -23567,7 +23600,7 @@ const salaryWorkflow = (() => {
       prestamo_capital, prestamo_interes,
       modo_liquidacion: configEmp.modo_liquidacion || 'cct_negro',
       // recibo
-      recibo_basico: t.basico, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
+      recibo_basico: t.basico, recibo_dia_gremio: t.dia_gremio || 0, recibo_antiguedad: t.antiguedad, recibo_presentismo: t.presentismo,
       recibo_sumafija_nr: t.sumafija_nr, recibo_antig_nr: t.ant_nr, recibo_pres_nr: t.pres_nr,
       recibo_recompos_nr: t.recompos_nr, recibo_otros_rem: t.otros_rem,
       recibo_jubilacion: t.jubilacion, recibo_ley19032: t.ley19032,
@@ -23796,9 +23829,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else init();
 
 </script>
-<script src="recibos-pdf.js?v=13"></script>
+<script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=19"></script>
+<script src="manuales.js?v=20"></script>
 <script src="exportaciones.js?v=6"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

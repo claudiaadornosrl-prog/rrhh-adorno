@@ -101,6 +101,7 @@ const MANUAL_GERENTE = [
       'Solo lectura para vos — el cálculo lo hace el admin.',
       'Click en la celda amarilla "Recibo" para ver el desglose completo del recibo CCT.',
       'Click sobre los íconos de Acciones para descargar el PDF de cada recibo.',
+      'En SEPTIEMBRE el recibo trae el "Día del Gremio" (26/9, Día del Empleado de Comercio): el básico va por 29 días y se suma 1 día pagado como básico ÷ 25. Lo calcula solo el sistema, igual que el estudio.',
     ],
     img: null,
   },
