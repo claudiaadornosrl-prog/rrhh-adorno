@@ -18346,27 +18346,23 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
       const prev = cfgs && cfgs[0];
       if (!prev) throw new Error('Sin config previa');
 
-      const payload = {
-        empleado_id:               it.empId,
-        vigente_desde:             periodoAplica,
-        fijo:                      it.nuevoFijo,
-        viaticos:                  prev.viaticos,
-        premio_fichadas_uniforme:  prev.premio_fichadas_uniforme,
-        fraccion_comision:         prev.fraccion_comision,
-        modo_prorrateo_comision:   prev.modo_prorrateo_comision,
-        // Reglas especiales (preservar Escasany etc)
-        max_errores_premio_override: prev.max_errores_premio_override,
-        feriado_multiplicador:     prev.feriado_multiplicador,
-        dias_prorrateo_modo:       prev.dias_prorrateo_modo,
-        activa_en_modulo:          prev.activa_en_modulo,
-        // Conservar la nota previa (puede contener info de aumentos V+P u otros)
-        // y agregar la marca de este envío para que la heurística la detecte
-        notas:                     ((prev.notas || '').trim() ? (prev.notas.trim() + ' | ') : '') +
-                                   `Fijo aumentado por ${session.email || 'encargada'} (envío #${envioId})`,
-      };
-      // Campos opcionales (doble_blanco)
-      if (prev.modo_liquidacion !== undefined) payload.modo_liquidacion = prev.modo_liquidacion;
-      if (prev.fraccion_no_rem  !== undefined) payload.fraccion_no_rem  = prev.fraccion_no_rem;
+      // (28-sep) Copiar TODA la config vigente y cambiar solo lo que cambia.
+      // Antes se armaba con una lista fija de campos y se perdían jornada_parcial
+      // y comision_dia_por_venta (caso Escasany sep-2026: el recibo 92 ter salió
+      // por jornada completa). Mismo criterio que el aumento puntual y el de V+P.
+      const payload = { ...prev };
+      delete payload.id;
+      delete payload.creado_at;
+      Object.keys(payload).forEach(k => { if (k.startsWith('_') || (payload[k] && typeof payload[k] === 'object' && !Array.isArray(payload[k]))) delete payload[k]; });
+      payload.empleado_id   = it.empId;
+      payload.vigente_desde = periodoAplica;
+      payload.fijo          = it.nuevoFijo;
+      // El objetivo de neto es de UN período puntual: no se hereda a la vigencia nueva
+      payload.recibo_neto_objetivo = null;
+      payload.recibo_neto_objetivo_periodo = null;
+      // Conservar la nota previa y agregar la marca de este envío (la heurística la detecta)
+      payload.notas = ((prev.notas || '').trim() ? (prev.notas.trim() + ' | ') : '') +
+                      `Fijo aumentado por ${session.email || 'encargada'} (envío #${envioId})`;
 
       // Upsert: si ya hay config con (empleado_id, vigente_desde), la sobreescribimos.
       // Esto permite re-aplicar un envío sin chocar con el UNIQUE constraint.
