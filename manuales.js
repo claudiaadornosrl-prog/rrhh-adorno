@@ -102,6 +102,7 @@ const MANUAL_GERENTE = [
       'Click en la celda amarilla "Recibo" para ver el desglose completo del recibo CCT.',
       'Click sobre los íconos de Acciones para descargar el PDF de cada recibo.',
       'En SEPTIEMBRE el recibo trae el "Día del Gremio" (26/9, Día del Empleado de Comercio): el básico va por 29 días y se suma 1 día pagado como básico ÷ 25. Lo calcula solo el sistema, igual que el estudio.',
+      '👤 Personal eventual (Nora): aparece en la grilla con el chip "eventual", una fila por cada local donde cubrió ese mes. No se liquida acá: sale de los recibos que la encargada carga en Tesorería con la categoría "Pago Nora", según los DÍAS que cubre cada recibo (no la fecha de pago) y la caja que pagó. Suma al Total (costo del mes) pero no al Efectivo, porque ya se le pagó en mano. Click en el nombre → los recibos del mes, con ✏️ para corregir los días.',
     ],
     img: null,
   },

@@ -14781,6 +14781,22 @@ async function renderLiquidaciones() {
     return true;
   });
 
+  // ── (28-sep, JP) Personal eventual pagado por caja (Nora) ──────────────
+  // No tiene fila en rrhh_liquidacion: sale de los recibos de Tesorería con la
+  // categoría "Pago Nora", repartidos por los días que cubren (mes) y la caja
+  // que pagó (local). Una fila por local. Ya está pagado: suma al Total del
+  // costo pero NO al Efectivo a pagar.
+  let eventualesLiq = [];
+  if (liqState.subTab === 'sueldo' && (!liqState.estado || liqState.estado === 'todos')
+      && (!liqState.categoria || liqState.categoria === 'todas') && !liqState.soloAlertas) {
+    try {
+      const { data: evData, error: evErr } = await sb.rpc('rrhh_eventuales_liquidacion', { p_periodo: periodo + '-01' });
+      if (evErr) console.warn('[eventuales]', evErr.message);
+      eventualesLiq = (evData || []).filter(e => local === 'todos' || e.local === local);
+    } catch (e) { console.warn('[eventuales]', e); }
+  }
+  window._liqEventuales = eventualesLiq;
+
 
   // ─── Revisión Ganancias: leer última corrida + auto-refresh si stale ──
   let gananciasRevisiones = [];
@@ -15800,13 +15816,14 @@ async function renderLiquidaciones() {
           const bodyHtml = (liqs||[]).map(l => {
             const nombreNorm = ((l.empleado?.apellido || '') + ' ' + (l.empleado?.nombre || '')).toLowerCase();
             return `<tr data-search="${escapeHtml(nombreNorm)}" style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`;
-          }).join('');
+          }).join('') + eventualesLiq.map((e, i) => liqEventualFila(e, i, cols, fmt)).join('');
 
           // ─── TFOOT con totales de columnas numéricas ───
           const sumCol = (sel) => (liqs || []).reduce((s, l) => s + (sel(l) || 0), 0);
-          const totDias = sumCol(l => Number(l.dias_trabajados || 0));
+          const totDias = sumCol(l => Number(l.dias_trabajados || 0)) + eventualesLiq.reduce((s, e) => s + Number(e.dias || 0), 0);
           const totPts  = sumCol(l => Number(l.puntos_mes || 0));
-          const totTotal = sumCol(l => Number(l.total_negro || 0) + (sacPorEmp[l.empleado_id] || 0));
+          const totTotal = sumCol(l => Number(l.total_negro || 0) + (sacPorEmp[l.empleado_id] || 0))
+                         + eventualesLiq.reduce((s, e) => s + Number(e.importe || 0), 0);
           const totRecibo = sumCol(l => Number(l.recibo_neto || 0) + (esMesSAC ? Number(l.sac_recibo_neto || 0) : 0));
           const totBanco = sumCol(l => Number(l.recibo_neto || 0) + (esMesSAC ? Number(l.sac_recibo_neto || 0) : 0) - (prestamosPorEmpLiq[l.empleado_id] || 0) - (adelantosPorEmpLiq[l.empleado_id] || 0));
           const totMerc = sumCol(l => Number(l.mercaderia || 0));
@@ -15838,7 +15855,7 @@ async function renderLiquidaciones() {
           const totExtras  = sumCol(l => Number(l.extras || 0));
           // Mapa por id-de-columna → contenido del td en el footer
           const totalsByCol = {
-            empleada: `<strong>TOTAL (${(liqs||[]).length})</strong>`,
+            empleada: `<strong>TOTAL (${(liqs||[]).length}${eventualesLiq.length ? ' + ' + eventualesLiq.length + ' eventual' : ''})</strong>`,
             dias: totDias,
             puntos: totPts,
             fijo:     fmt(totFijo),
@@ -15883,6 +15900,99 @@ async function renderLiquidaciones() {
       </details>
     `}
   `;
+}
+
+// ─── (28-sep) Filas de personal eventual (Nora) en la grilla ─────────────
+function _liqNum(n) { const v = Number(n || 0); return Number.isInteger(v) ? String(v) : v.toLocaleString('es-AR', { maximumFractionDigits: 2 }); }
+function liqEventualFila(e, i, cols, fmt) {
+  const nombre = `${e.apellido || ''} ${(e.nombre || '').split(' ')[0]}`.trim();
+  const avisos = [];
+  if (e.sin_rango) avisos.push('hay pagos sin los días cargados (se tomó el día del pago)');
+  if (e.inferido)  avisos.push('hay un rango SUPUESTO del histórico — confirmalo');
+  if (e.rechazado) avisos.push('hay un recibo rechazado por administración');
+  if (e.sin_firmar) avisos.push('hay recibos todavía sin firmar');
+  const warn = avisos.length ? ` <span title="${escapeHtml('⚠ ' + avisos.join('\n⚠ '))}" style="color:#b45309;">⚠</span>` : '';
+  const bg = '#fff7ed';
+  const td = (col) => {
+    switch (col.id) {
+      case 'empleada':
+        return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;position:sticky;left:0;background:${bg};z-index:2;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);" onclick="liqVerEventual(${i})" title="Personal eventual pagado por caja — click para ver los recibos">${escapeHtml(e.apellido || '')} <span style="color:var(--muted);font-weight:400;">${escapeHtml((e.nombre || '').split(' ')[0])}</span> <span style="background:#ffedd5;color:#9a3412;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;font-weight:600;">👤 eventual</span>${warn}</td>`;
+      case 'local':
+        return `<td style="padding:8px;text-align:left;font-size:11px;background:${bg};"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${escapeHtml(LOCALES[e.local]?.nombre || e.local)}</span></td>`;
+      case 'dias':
+        return `<td style="padding:8px;background:${bg};" title="Días que cubren los recibos de este mes en este local">${_liqNum(e.dias)}</td>`;
+      case 'total':
+        return `<td style="padding:8px;font-family:monospace;background:#eef2ff;font-weight:600;" title="Suma de los recibos de caja que corresponden a este mes y local">${fmt(e.importe)}</td>`;
+      case 'efectivo':
+        return `<td style="padding:8px;background:#dcfce7;color:#166534;font-size:11px;font-weight:600;white-space:nowrap;" title="Ya se le pagó en mano por caja con recibo firmado: NO suma al efectivo a pagar a fin de mes.">✔ pagado por caja</td>`;
+      case 'detalle':
+        return `<td style="padding:8px;white-space:nowrap;background:${bg};"><button class="btn small" onclick="liqVerEventual(${i})" title="Ver los recibos de caja de este mes">🧾 ${(e.pagos || []).length} pago${(e.pagos || []).length === 1 ? '' : 's'}</button></td>`;
+      default:
+        return `<td style="padding:8px;color:var(--muted);background:${bg};">—</td>`;
+    }
+  };
+  const busq = `${e.apellido || ''} ${e.nombre || ''}`.toLowerCase();
+  return `<tr data-search="${escapeHtml(busq)}" style="border-top:1px solid var(--border);text-align:right;">${cols.map(td).join('')}</tr>`;
+}
+
+function liqVerEventual(i) {
+  const e = (window._liqEventuales || [])[i]; if (!e) return;
+  const fmt = (n) => '$' + Math.round(Number(n || 0)).toLocaleString('es-AR');
+  const fch = (d) => d ? d.split('-').reverse().join('/') : '—';
+  const puedeEditar = session.rol === 'admin' || session.rol === 'gerente';
+  const filas = (e.pagos || []).map(p => {
+    const parcial = Number(p.importe) !== Number(p.importe_pago);
+    const chips = [
+      p.sin_rango ? '<span style="color:#b45309;" title="El recibo no tiene los días cargados: se tomó el día del pago">⚠ sin días</span>' : '',
+      p.inferido  ? '<span style="color:#b45309;" title="Rango supuesto al cargar el histórico">⚠ supuesto</span>' : '',
+      p.rechazado ? '<span style="color:#dc2626;">↩ rechazado</span>' : '',
+      p.firmado ? '<span style="color:#166534;">✍ firmado</span>' : '<span style="color:#92400e;">⏳ sin firmar</span>',
+    ].filter(Boolean).join(' · ');
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:6px;white-space:nowrap;">${escapeHtml(p.codigo || '')}<div style="font-size:11px;color:var(--muted);">pagado ${fch(p.fecha_pago)}</div></td>
+      <td style="padding:6px;white-space:nowrap;">${fch(p.desde)} → ${fch(p.hasta)}<div style="font-size:11px;color:var(--muted);">${_liqNum(p.dias_pago)} día${Number(p.dias_pago) === 1 ? '' : 's'}</div></td>
+      <td style="padding:6px;text-align:right;font-family:monospace;">${fmt(p.importe_pago)}</td>
+      <td style="padding:6px;text-align:right;font-family:monospace;font-weight:600;">${fmt(p.importe)}${parcial ? `<div style="font-size:10px;color:var(--muted);font-weight:400;">${_liqNum(p.dias)} días de este mes</div>` : ''}</td>
+      <td style="padding:6px;font-size:11px;">${chips}<div style="font-size:11px;color:var(--muted);">${escapeHtml((p.descripcion || '').slice(0, 60))}</div></td>
+      <td style="padding:6px;">${puedeEditar ? `<button class="btn small" onclick="liqEventualEditarDias(${p.mov_id}, '${p.desde}', '${p.hasta}', ${Number(p.dias_pago) || 'null'})" title="Corregir los días que cubre este pago">✏️ días</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  openModal(`
+    <div style="max-width:760px;">
+      <h3 style="margin:0 0 4px;">👤 ${escapeHtml(e.apellido)} ${escapeHtml(e.nombre)} · ${escapeHtml(LOCALES[e.local]?.nombre || e.local)}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+        Personal eventual pagado en mano por caja con recibo firmado. El mes sale de los <strong>días que cubre</strong> cada recibo (no de la fecha de pago)
+        y el local de la <strong>caja que pagó</strong>. Si un recibo cruza de mes, se reparte según los días de cada mes.
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead><tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:6px;">Recibo</th><th style="padding:6px;">Días que cubre</th>
+          <th style="padding:6px;text-align:right;">Recibo total</th><th style="padding:6px;text-align:right;">A este mes</th>
+          <th style="padding:6px;">Estado</th><th></th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr style="border-top:2px solid #94a3b8;font-weight:700;">
+          <td style="padding:6px;">TOTAL</td><td style="padding:6px;">${_liqNum(e.dias)} días</td><td></td>
+          <td style="padding:6px;text-align:right;font-family:monospace;">${fmt(e.importe)}</td><td colspan="2"></td>
+        </tr></tfoot>
+      </table>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;">Para agregar un pago: Tesorería → Cargar movimiento → egreso de la caja con categoría <strong>Pago Nora</strong>.</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn" onclick="closeModal()">Cerrar</button></div>
+    </div>`);
+}
+
+async function liqEventualEditarDias(movId, desde, hasta, dias) {
+  const d = prompt('Desde (dd/mm/aaaa):', (desde || '').split('-').reverse().join('/')); if (d === null) return;
+  const h = prompt('Hasta, inclusive (dd/mm/aaaa):', (hasta || '').split('-').reverse().join('/')); if (h === null) return;
+  const n = prompt('Días trabajados (vacío = todos los días del rango):', dias ?? ''); if (n === null) return;
+  const iso = (t) => { const m = String(t).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : null; };
+  const pd = iso(d), ph = iso(h);
+  if (!pd || !ph) { toast('Las fechas van como dd/mm/aaaa', 'error'); return; }
+  const { error } = await sb.rpc('rrhh_eventual_fijar_dias', { p_mov: movId, p_desde: pd, p_hasta: ph, p_dias: String(n).trim() ? Number(n) : null });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('✓ Días actualizados');
+  closeModal();
+  renderPage();
 }
 
 // ─── Wireado del scroll horizontal DOBLE del Liquidador ────────────────
@@ -23827,7 +23937,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=20"></script>
+<script src="manuales.js?v=21"></script>
 <script src="exportaciones.js?v=6"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
