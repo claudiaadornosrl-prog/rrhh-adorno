@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v358-sesion-local';
+const CACHE_VERSION = 'rrhh-v359-lupa-manual';
 const ASSETS = [
   './',
   './index.html',
