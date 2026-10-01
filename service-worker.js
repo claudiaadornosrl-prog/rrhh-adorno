@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v374-aumento-general-actualiza-mes-existente';
+const CACHE_VERSION = 'rrhh-v375-edicion-manual-recibo-puro';
 const ASSETS = [
   './',
   './index.html',

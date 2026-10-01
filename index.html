@@ -17891,34 +17891,35 @@ async function liqEditarGuardar(liqId) {
   const esDirectoraLE = String(liq.empleado.categoria?.codigo || '') === 'directora';  // (1-oct) Claudia: sin descuentos
 
   // Recalcular recibo
-  let reciboFinal;
-  if (cfg?.modo_liquidacion === 'doble_blanco') {
-    const netoObj = total_negro_esperado - merc - ajuste;
-    const basicoAj = salaryEngine.calcularBasicoParaNeto({
-      neto_objetivo: netoObj, fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: dias,
-      obra_social_codigo: liq.empleado.obra_social_codigo || '',
-      suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNR,
-    });
-    reciboFinal = salaryEngine.calcularReciboCCT({
-      basico_escala: basicoAj, fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: dias,
-      obra_social_codigo: liq.empleado.obra_social_codigo || '',
-      suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNR,
-    });
-  } else {
-    reciboFinal = salaryEngine.calcularReciboCCT({
-      basico_escala: Number(liq.empleado.categoria.sueldo_basico),
-      fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: dias,
-      obra_social_codigo: liq.empleado.obra_social_codigo || '',
-      suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNR,
-    });
-  }
+  // 🚨 (1-oct-2026) La edición manual deja SIEMPRE el recibo puro (el del estudio), con la
+  // escala DEL MES. Antes, para doble blanco (Contreras/Escasany) inflaba el básico hasta
+  // cubrir todo el total —incluido el PAGO DE VACACIONES, que por regla del 3-sep va en
+  // efectivo— y dejaba efectivo = 0; y para todos usaba el básico de la categoría de la ficha
+  // (FK) en vez del de la escala del período. El ítem 0018 lo pone solo el 💎 Doble Blanco,
+  // que respeta "vacaciones pagadas = efectivo".
+  const esDobleBlancoLE = cfg?.modo_liquidacion === 'doble_blanco';
+  let basicoEscalaLE = Number(liq.empleado.categoria?.sueldo_basico || 0);
+  try {
+    const { data: escLE } = await sb.from('rrhh_categorias_cct')
+      .select('sueldo_basico').eq('codigo', liq.empleado.categoria?.codigo)
+      .lte('fecha_vigencia', liq.periodo).order('fecha_vigencia', { ascending: false }).limit(1);
+    if (escLE?.[0]) basicoEscalaLE = Number(escLE[0].sueldo_basico);
+  } catch (e) { console.warn('[ledit:escala]', e); }
+  // Media jornada fija (Escasany): 16/30 de básico y no rem al 50 %, igual que liquidarEmpleada
+  const diasReciboLE = cfg?.jornada_parcial ? 16 : dias;
+  const fraccionNRLE = (fraccionNR != null) ? fraccionNR : (cfg?.jornada_parcial ? 0.5 : null);
+  const reciboFinal = salaryEngine.calcularReciboCCT({
+    basico_escala: basicoEscalaLE,
+    fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: diasReciboLE,
+    obra_social_codigo: liq.empleado.obra_social_codigo || '',
+    suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
+    fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNRLE,
+  });
 
-  const efectivo = (cfg?.modo_liquidacion === 'doble_blanco')
-    ? 0
-    : Math.max(0, total_negro_esperado - reciboFinal.totales.neto - merc - ajuste);
+  const efectivo = Math.max(0, total_negro_esperado - reciboFinal.totales.neto - merc - ajuste);
+  if (esDobleBlancoLE) {
+    setTimeout(() => { try { toast('💎 Es doble blanco: quedó el recibo puro. Corré "💎 Doble Blanco" para pasar el resto al recibo (las vacaciones pagadas quedan en efectivo).', ''); } catch (_) {} }, 1800);
+  }
 
   const t = reciboFinal.totales;
   const upd = {
