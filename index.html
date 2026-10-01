@@ -15258,6 +15258,51 @@ async function renderLiquidaciones() {
     }
   }
 
+  // ═══ DESGLOSE DE VIÁTICOS (tooltip) — (1-oct-2026, JP) ═══
+  // Mismos datos que usa liquidarEmpleada: viático completo de la config vigente, días pagos
+  // (dias_trabajados), menos vacaciones y licencias CON goce (no viajó). Solo informa.
+  const viaticosDesglosePorEmp = {};
+  if (empIdsLiq.length > 0) {
+    try {
+      const [pyVi, pmVi] = periodo.split('-').map(Number);
+      const desdeVi = periodo + '-01';
+      const hastaVi = `${periodo}-${String(new Date(pyVi, pmVi, 0).getDate()).padStart(2, '0')}`;
+      const [cfgV, detV, licV, certV, cierV] = await Promise.all([
+        sb.from('rrhh_sueldo_empleada_config').select('empleado_id, viaticos, dias_prorrateo_modo, vigente_desde')
+          .in('empleado_id', empIdsLiq).lte('vigente_desde', desdeVi).order('vigente_desde', { ascending: true }),
+        sb.from('rrhh_asistencias_detalle').select('empleado_id, fecha, estado')
+          .in('empleado_id', empIdsLiq).gte('fecha', desdeVi).lte('fecha', hastaVi).in('estado', ['vacaciones', 'licencia']),
+        sb.from('rrhh_licencias').select('empleado_id, fecha_desde, fecha_hasta, paga')
+          .in('empleado_id', empIdsLiq).lte('fecha_desde', hastaVi).gte('fecha_hasta', desdeVi),
+        sb.from('rrhh_certificados_medicos').select('empleado_id, fecha_desde, fecha_hasta')
+          .in('empleado_id', empIdsLiq).lte('fecha_desde', hastaVi).gte('fecha_hasta', desdeVi),
+        sb.from('rrhh_meses_cerrados').select('local').eq('año', pyVi).eq('mes', pmVi),
+      ]);
+      const cfgVig = {};
+      (cfgV.data || []).forEach(c => { cfgVig[c.empleado_id] = c; });      // la última (más reciente) gana
+      const cerradoAsis = new Set((cierV.data || []).map(c => c.local));
+      const ddmm = f => f.slice(8, 10) + '/' + f.slice(5, 7);
+      (liqs || []).forEach(l => {
+        const cfg = cfgVig[l.empleado_id];
+        if (!cfg) return;
+        const mios = (detV.data || []).filter(d => d.empleado_id === l.empleado_id);
+        const vac = mios.filter(d => d.estado === 'vacaciones').map(d => d.fecha).sort();
+        const licPagas = mios.filter(d => d.estado === 'licencia').map(d => d.fecha).sort().filter(f => {
+          const li = (licV.data || []).find(x => x.empleado_id === l.empleado_id && x.fecha_desde <= f && x.fecha_hasta >= f);
+          if (li) return !!li.paga;
+          return (certV.data || []).some(x => x.empleado_id === l.empleado_id && x.fecha_desde <= f && x.fecha_hasta >= f);
+        });
+        viaticosDesglosePorEmp[l.empleado_id] = {
+          completo: Number(cfg.viaticos || 0), modo: cfg.dias_prorrateo_modo || 'mes_30',
+          diasPagos: Number(l.dias_trabajados || 0), vac: vac.map(ddmm), licPagas: licPagas.map(ddmm),
+          asistenciasCerradas: cerradoAsis.has(l.local),
+        };
+      });
+    } catch (e) {
+      console.warn('[viaticosDesglose] error:', e);
+    }
+  }
+
   // ── SORT (click en header) — se hace AHORA porque algunos sorts usan préstamos/adelantos
   if (liqState.sortBy) {
     const dir = liqState.sortDir === 'desc' ? -1 : 1;
@@ -15727,13 +15772,40 @@ async function renderLiquidaciones() {
                   const t = `✏️ Editado por ${ov.by} el ${new Date(ov.at).toLocaleString('es-AR')}. Anterior: $${Math.round(ov.old).toLocaleString('es-AR')}. ${ov.motivo||''}. Click para volver a editar.`.replace(/"/g,'&quot;');
                   return `<td style="padding:8px;font-family:monospace;background:#f3e8ff;border-left:3px solid #9333ea;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"`:''} title="${t}">✏️ ${c.fmt(l.viaticos)}</td>`;
                 }
-                const prorr = (l.dias_trabajados||30) < 30 && (+l.viaticos) > 0;
-                const titulo = prorr
-                  ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
-                  : (c.isAdmin ? 'Click para editar manualmente' : '');
+                // (1-oct-2026, JP) Al pasar el mouse por un viático prorrateado, mostrar la cuenta.
+                const dv = c.viaticosDesglosePorEmpLiq && c.viaticosDesglosePorEmpLiq[l.empleado_id];
+                const prorr = dv ? ((+l.viaticos) > 0 && (+l.viaticos) < dv.completo - 0.5)
+                                 : ((l.dias_trabajados||30) < 30 && (+l.viaticos) > 0);
+                let titulo;
+                if (dv && dv.completo > 0) {
+                  const sinPago = Math.max(0, 30 - dv.diasPagos);
+                  const noViaja = dv.vac.length + dv.licPagas.length;
+                  if (!dv.asistenciasCerradas && !(+l.viaticos)) {
+                    titulo = `Viático completo: ${c.fmt(dv.completo)}\n\nTodavía en $0: los viáticos se cargan al CERRAR Asistencias del mes.`;
+                  } else if (dv.modo === 'dias_local') {
+                    titulo = `Viático completo: ${c.fmt(dv.completo)}\n\nFranquera: proporcional a los días que trabajó (${dv.diasPagos}) sobre los días promedio que trabajaron las vendedoras del local.\n\n= ${c.fmt(l.viaticos)}`;
+                  } else if (prorr) {
+                    const viajo = Math.max(0, dv.diasPagos - noViaja);
+                    titulo = `🚨 Viático prorrateado\nViático = completo × días que viajó ÷ 30\n\n`
+                      + `Viático completo: ${c.fmt(dv.completo)}\n`
+                      + `Días del mes: 30\n`
+                      + (sinPago ? `− Sin pago (ausencias / licencia sin goce): ${sinPago}\n` : '')
+                      + (dv.vac.length ? `− Vacaciones: ${dv.vac.length} (${dv.vac.join(', ')})\n` : '')
+                      + (dv.licPagas.length ? `− Licencia con goce: ${dv.licPagas.length} (${dv.licPagas.join(', ')})\n` : '')
+                      + `= Días que viajó: ${viajo}\n\n`
+                      + `Cálculo: ${c.fmt(dv.completo)} × ${viajo} ÷ 30 = ${c.fmt(dv.completo * viajo / 30)}`;
+                  } else {
+                    titulo = `Viático completo: ${c.fmt(dv.completo)} (30 días, sin vacaciones ni licencias)`;
+                  }
+                  if (c.isAdmin) titulo += `\n\n(Click para editar manualmente)`;
+                } else {
+                  titulo = prorr
+                    ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
+                    : (c.isAdmin ? 'Click para editar manualmente' : '');
+                }
                 const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
-                const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"` : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"` : '';
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${c.escapeHtml(titulo)}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
               } },
             { id:'feriado',   label:'Feriado',    sortKey:'feriado',
               tdRender:(l,c)=>{
@@ -15963,7 +16035,7 @@ async function renderLiquidaciones() {
               } },
           ];
 
-          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp, cierresSueldosPorLocal: cierresSueldos };
+          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp, viaticosDesglosePorEmpLiq: viaticosDesglosePorEmp, cierresSueldosPorLocal: cierresSueldos };
 
           // Filtrar por condition (local==='todos', esMesSAC)
           // + Sub-tab Banco: mostrar columnas del recibo CCT (más info)
