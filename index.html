@@ -16954,23 +16954,44 @@ async function liqAutoRefreshSueldo(local, periodo) {
     // recalculaba en cada apertura de la grilla (así se pisó el total de
     // Bianchi julio por 3ª vez). Los meses viejos solo cambian con los
     // botones explícitos (⚡ Importes / Definitivo).
-    const _hoy = new Date();
-    const _mesActual = `${_hoy.getFullYear()}-${String(_hoy.getMonth()+1).padStart(2,'0')}`;
-    if (periodo !== _mesActual) return;
-    const key = `${local}::${periodo}`;
+    // (1-oct-2026, JP: "la grilla no tendría que quedar congelada") Ya no se limita al mes
+    // calendario actual: con esa regla, el 1-oct septiembre quedó con las comisiones del 29
+    // (ventas al 27) y nadie lo recalculó. Ahora un mes se refresca mientras NO esté cerrado:
+    //   · sin "Cerrar mes" (rrhh_meses_cerrados_sueldos) para ese local, y
+    //   · sin definitivos emitidos (tipo='definitivo') para ese local,
+    // y SOLO si las ventas del local cambiaron después del último cálculo. Los meses
+    // cerrados no se tocan nunca (caso Bianchi julio, 10-ago).
+    const [_py, _pm] = periodo.split('-').map(Number);
+    const _ultimoDia = `${periodo}-${String(new Date(_py, _pm, 0).getDate()).padStart(2, '0')}`;
+    const localesTodos = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
+
+    const [{ data: cerrados }, { data: liqs }, { data: ventas }] = await Promise.all([
+      sb.from('rrhh_meses_cerrados_sueldos').select('local').eq('periodo', periodo + '-01').in('local', localesTodos),
+      sb.from('rrhh_liquidacion').select('local, estado, tipo, calculado_at')
+        .in('local', localesTodos).eq('periodo', periodo + '-01'),
+      sb.from('ventas_diarias').select('local, cargado_at, actualizado_at')
+        .in('local', localesTodos).gte('fecha', periodo + '-01').lte('fecha', _ultimoDia),
+    ]);
+    const cerradoSet = new Set((cerrados || []).map(c => c.local));
+    const ultimaVentaPorLocal = {};
+    (ventas || []).forEach(v => {
+      const ts = Math.max(Date.parse(v.actualizado_at || 0) || 0, Date.parse(v.cargado_at || 0) || 0);
+      if (ts > (ultimaVentaPorLocal[v.local] || 0)) ultimaVentaPorLocal[v.local] = ts;
+    });
+    const locales = localesTodos.filter(loc => {
+      if (cerradoSet.has(loc)) return false;
+      const delLocal = (liqs || []).filter(l => l.local === loc);
+      if (delLocal.some(l => l.tipo === 'definitivo')) return false;
+      const borradores = delLocal.filter(l => !['firmada','revisada','anulada'].includes(l.estado));
+      if (!borradores.length) return false;
+      const ultimoCalculo = Math.min(...borradores.map(l => Date.parse(l.calculado_at || 0) || 0));
+      return (ultimaVentaPorLocal[loc] || 0) > ultimoCalculo;   // hay ventas más nuevas que el cálculo
+    });
+    if (!locales.length) return;
+    // Una vez por (local, período, última venta): si entra una venta nueva, vuelve a refrescar.
+    const key = `${locales.join('+')}::${periodo}::${locales.map(l => ultimaVentaPorLocal[l] || 0).join('/')}`;
     if (_liqAutoRefreshDone.has(key)) return;
     _liqAutoRefreshDone.add(key);
-
-    const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
-
-    // Chequear que haya al menos una liq no cerrada por local (para no perder tiempo)
-    // Excluye 'firmada', 'revisada' y 'anulada' — solo tocamos borradores.
-    const { count: existentes } = await sb.from('rrhh_liquidacion')
-      .select('id', { count: 'exact', head: true })
-      .in('local', locales)
-      .eq('periodo', periodo + '-01')
-      .not('estado', 'in', '(firmada,revisada,anulada)');
-    if (!existentes || existentes === 0) return;
 
     // Indicador chico en el DOM
     const info = document.querySelector('#liq-auto-refresh-indicator');
