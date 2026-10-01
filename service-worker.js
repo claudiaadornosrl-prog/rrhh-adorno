@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v363-autorefresh-por-ventas';
+const CACHE_VERSION = 'rrhh-v364-banco-buscador';
 const ASSETS = [
   './',
   './index.html',

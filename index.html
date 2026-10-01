@@ -13190,7 +13190,22 @@ const TIPOS_BANCO = {
   'vacaciones_compensa': { label: 'Compensado con vacaciones', color: '#0891b2', icon: '🌴' },
 };
 
-let bancoState = { local: '' };
+let bancoState = { local: '', busqueda: '' };
+
+// (1-oct-2026, JP) Buscador por nombre en Asistencias › Banco: filtra las filas ya
+// renderizadas (sin volver a pedir los saldos). El local se filtra en la consulta.
+function bancoFiltrarPorNombre(texto) {
+  bancoState.busqueda = texto || '';
+  const q = bancoState.busqueda.trim().toLowerCase();
+  let visibles = 0;
+  document.querySelectorAll('#banco-list tr[data-nombre]').forEach(tr => {
+    const ok = !q || tr.dataset.nombre.includes(q);
+    tr.style.display = ok ? '' : 'none';
+    if (ok) visibles++;
+  });
+  const vacio = document.getElementById('banco-sin-resultados');
+  if (vacio) vacio.style.display = visibles ? 'none' : '';
+}
 
 async function renderBancoAdmin(cont) {
   const isAdmin = session.rol === 'admin';
@@ -13205,6 +13220,9 @@ async function renderBancoAdmin(cont) {
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : `<div style="font-weight:600;">${LOCALES[localFiltro]?.nombre || ''}</div>`}
+      <input type="search" value="${escapeHtml(bancoState.busqueda || '')}" placeholder="🔍 Buscar por nombre…"
+        oninput="bancoFiltrarPorNombre(this.value)"
+        style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;min-width:200px;flex:1;max-width:320px;">
       <div style="display:flex;gap:8px;">
         ${isAdmin ? `<button class="btn" onclick="abrirCompensarVacaciones()" title="Usar días de vacaciones para saldar un banco en negativo">🌴 Compensar con vacaciones</button>` : ''}
         <button class="btn accent2" onclick="abrirAjusteBancoAdmin()">+ Ajuste manual</button>
@@ -13241,7 +13259,7 @@ async function renderBancoAdmin(cont) {
             const color = saldoMin >= 0 ? 'var(--success)' : 'var(--danger)';
             const equiv = saldoMin >= 480 ? ` <span style="font-size:10px;color:var(--muted);">(≈ ${Math.floor(saldoMin/480)} día${Math.floor(saldoMin/480)!==1?'s':''})</span>` : '';
             return `
-              <tr style="border-top:1px solid var(--border);cursor:pointer;" onclick="abrirDetalleBanco(${s.empleado_id})">
+              <tr data-nombre="${escapeHtml(String(s.nombre_completo || '').toLowerCase())}" style="border-top:1px solid var(--border);cursor:pointer;" onclick="abrirDetalleBanco(${s.empleado_id})">
                 <td style="padding:11px 14px;font-weight:600;">${escapeHtml(s.nombre_completo)}</td>
                 <td style="padding:11px 14px;"><span class="local-tag ${s.local}">${LOCALES[s.local]?.nombre || ''}</span></td>
                 <td style="padding:11px 14px;text-align:right;font-weight:700;font-family:monospace;color:${color};">${(s.saldo_minutos||0)} min</td>
@@ -13251,8 +13269,10 @@ async function renderBancoAdmin(cont) {
           }).join('')}
         </tbody>
       </table>
+      <div id="banco-sin-resultados" style="display:none;text-align:center;color:var(--muted);padding:18px;">Ninguna colaboradora coincide con la búsqueda.</div>
     </div>
   `;
+  if (bancoState.busqueda) bancoFiltrarPorNombre(bancoState.busqueda);
 }
 
 async function abrirDetalleBanco(empleadoId) {
