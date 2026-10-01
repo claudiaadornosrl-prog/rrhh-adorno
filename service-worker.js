@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v370-cierre-encargada-carga-premios';
+const CACHE_VERSION = 'rrhh-v371-cierre-carga-dias-fijo-comision';
 const ASSETS = [
   './',
   './index.html',

@@ -23787,6 +23787,9 @@ const salaryWorkflow = (() => {
       const { error: eSA } = await sb.rpc('rrhh_liq_cargar_asistencias', {
         p_liq: liqSA.id, p_premio_cobra: !!cobraPremio, p_premio: premioF, p_viaticos: viaticosF,
         p_feriado_dias: feriado_dias, p_feriado: feriadoF, p_puntos: puntos_mes,
+        // (1-oct-2026) también los DÍAS: la RPC re-prorratea fijo y comisión (ausencias,
+        // licencias sin goce). Así todo lo que depende de Asistencias se carga al cerrar.
+        p_dias: dias_trabajados,
       });
       if (eSA) throw new Error('No se pudo cargar premio/viáticos/feriado: ' + eSA.message);
       return {
