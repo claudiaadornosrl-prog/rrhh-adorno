@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v364-banco-buscador';
+const CACHE_VERSION = 'rrhh-v365-sin-almuerzo-una-vez';
 const ASSETS = [
   './',
   './index.html',
