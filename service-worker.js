@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v366-liq-abre-mes-sin-cerrar';
+const CACHE_VERSION = 'rrhh-v367-comision-dia-con-una-fichada';
 const ASSETS = [
   './',
   './index.html',

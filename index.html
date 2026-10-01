@@ -23482,12 +23482,19 @@ const salaryWorkflow = (() => {
       const desdeFecha = `${py}-${pm}-01`;
       const hastaFecha = `${py}-${pm}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
       const { data: detAsis } = await sb.from('rrhh_asistencias_detalle')
-        .select('fecha, estado')
+        .select('fecha, estado, entrada, salida')
         .eq('empleado_id', empleadoId)
         .gte('fecha', desdeFecha).lte('fecha', hastaFecha);
+      // (1-oct-2026, regla JP) "Si le faltó una fichada es un error de ella, pero si tiene
+      // una significa que ese día fue a trabajar, así que comisiona": un día con
+      // falta_fichada y al menos UNA marca (entrada o salida) cuenta como trabajado.
       const trabajados = new Set(
         (detAsis || [])
-          .filter(d => ['presente','puntual','tarde'].includes((d.estado||'').toLowerCase()))
+          .filter(d => {
+            const est = (d.estado || '').toLowerCase();
+            if (['presente','puntual','tarde'].includes(est)) return true;
+            return est === 'falta_fichada' && !!(d.entrada || d.salida);
+          })
           .map(d => d.fecha)
       );
       // Ventas diarias del local en esos días
