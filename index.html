@@ -24172,7 +24172,8 @@ const salaryWorkflow = (() => {
 
     // Recalcular total_negro respetando overrides
     filaLiq.total_negro = (filaLiq.fijo || 0) + (filaLiq.comision || 0) + (filaLiq.premio_monto || 0)
-                       + (filaLiq.viaticos || 0) + (filaLiq.extras || 0) + (filaLiq.feriado_monto || 0);
+                       + (filaLiq.viaticos || 0) + (filaLiq.extras || 0) + (filaLiq.feriado_monto || 0)
+                       + Number(filaLiq.vacaciones_pago || 0);   // (1-oct) sin esto el trigger total_consistente sumaba las vacaciones 2 veces al efectivo
     // Recalcular efectivo: subtotal - mercaderia - intereses - ajuste
     // EXCEPTO en doble_blanco donde efectivo = SOLO el pago de vacaciones
     // (3-sep, regla JP: las vacaciones pagadas no entran al recibo doble blanco).
