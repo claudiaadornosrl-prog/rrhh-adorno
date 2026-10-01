@@ -8475,11 +8475,25 @@ async function cerrarMes(periodo, local) {
         _liqAutoRefreshDone.delete(`${local}::${periodo}`);
         _liqAutoRefreshDone.delete(`todos::${periodo}`);
       }
-      if (_ok > 0) {
+      const _errs = _r?.errores || [];
+      if (_ok > 0 && !_errs.length) {
         toast(`✓ Premios, viáticos y feriados cargados en ${_ok} liquidaciones de ${LOCALES[local]?.nombre || local}`, 'success');
+      }
+      // (1-oct-2026) Nunca más en silencio: si alguna liquidación no se pudo actualizar,
+      // se le dice a quien cerró y se le avisa al admin.
+      if (_errs.length) {
+        const _det = _errs.map(e => `${e.empleado?.nombre_completo || e.empleado?.apellido || ''}: ${e.error}`).join('\n');
+        console.warn('[cerrarMes→sueldo] errores:', _errs);
+        toast(`⚠ El mes se cerró, pero ${_errs.length} liquidación(es) quedaron sin premio/viáticos/feriado. Avisale a JP.`, 'error');
+        try { notifAdmins(`⚠ ${LOCALES[local]?.nombre || local}: cierre ${periodo} con errores en la liquidación`,
+          `${_errs.length} liquidación(es) sin premio/viáticos/feriado.\n${_det}`.slice(0, 400),
+          { url: './#liquidaciones', tag: 'cerrar-mes-err-' + local + '-' + periodo }); } catch (_) {}
       }
     } catch (e) {
       console.warn('[cerrarMes→sueldo] error:', e);
+      toast('⚠ El mes se cerró, pero falló la carga de premios/viáticos/feriados: ' + (e.message || e), 'error');
+      try { notifAdmins(`⚠ ${LOCALES[local]?.nombre || local}: cierre ${periodo} sin cargar premios`,
+        String(e.message || e).slice(0, 300), { url: './#liquidaciones', tag: 'cerrar-mes-err-' + local + '-' + periodo }); } catch (_) {}
     }
   })();
 
@@ -23061,6 +23075,9 @@ const salaryWorkflow = (() => {
   // propia, el motor usa la última cargada (igual que hace el estudio cuando no sube), pero
   // hay que avisarlo para cargar la del mes cuando lleguen los recibos. Solo avisa, no frena.
   async function _avisarBasicosFueraEscala(periodo) {
+    // Solo al admin: las encargadas también pasan por acá al cerrar Asistencias y no
+    // tienen por qué ver un aviso sobre los básicos de Claudia y JP.
+    if (typeof session === 'undefined' || !session || session.rol !== 'admin') return;
     try {
       const { data } = await sb.from('rrhh_categorias_cct')
         .select('codigo, nombre, sueldo_basico, fecha_vigencia')
@@ -23762,15 +23779,16 @@ const salaryWorkflow = (() => {
         - Number(liqSA.mercaderia||0)
         - Number(liqSA.ajuste||0)
         - Number(liqSA.prestamo_interes||0));
-      await sb.from('rrhh_liquidacion').update({
-        premio_cobra: cobraPremio, premio_monto: premioF,
-        viaticos: viaticosF,
-        feriado_dias, feriado_monto: feriadoF,
-        total_negro: totalNegroSA,
-        efectivo: efectivoSA,
-        puntos_mes,
-        calculado_at: new Date().toISOString(),
-      }).eq('id', liqSA.id);
+      // 🚨 (1-oct-2026) Por RPC y NO con update directo: las encargadas solo tienen SELECT
+      // sobre rrhh_liquidacion y el update se bloqueaba por RLS EN SILENCIO (0 filas, sin
+      // error). Por eso, cuando cerraba la encargada, no se cargaban premio/viáticos/feriado
+      // (Alcorta y Unicenter, sep-2026). La RPC valida quién llama y acota los importes a la
+      // configuración. Si falla, AHORA tira error (queda en r.errores y cerrarMes lo avisa).
+      const { error: eSA } = await sb.rpc('rrhh_liq_cargar_asistencias', {
+        p_liq: liqSA.id, p_premio_cobra: !!cobraPremio, p_premio: premioF, p_viaticos: viaticosF,
+        p_feriado_dias: feriado_dias, p_feriado: feriadoF, p_puntos: puntos_mes,
+      });
+      if (eSA) throw new Error('No se pudo cargar premio/viáticos/feriado: ' + eSA.message);
       return {
         liquidacion_id: liqSA.id,
         soloAsistencias: true,

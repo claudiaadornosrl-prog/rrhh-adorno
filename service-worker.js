@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v369-aumento-general-feriado-oficina';
+const CACHE_VERSION = 'rrhh-v370-cierre-encargada-carga-premios';
 const ASSETS = [
   './',
   './index.html',
