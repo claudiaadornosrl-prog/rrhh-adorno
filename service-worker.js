@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v361-dobleblanco-puro-ganancias-arca';
+const CACHE_VERSION = 'rrhh-v362-aviso-ventas-incompletas';
 const ASSETS = [
   './',
   './index.html',

@@ -16351,6 +16351,23 @@ async function liqGenerarProforma(local, periodo) {
     permisosComp = r2.data || [];
   }
 
+  // (1-oct-2026) Aviso: la comisión sale de ventas_diarias del mes. Si faltan días por
+  // cargar, la proforma queda CORTA (sep-2026: Unicenter dio 769k en vez de 813k porque se
+  // generó el 29 con ventas hasta el 27). Avisa cuál local está incompleto y deja seguir.
+  try {
+    const { data: vMax } = await sb.from('ventas_diarias')
+      .select('local, fecha').in('local', locales)
+      .gte('fecha', periodoStart).lte('fecha', ultimoDiaMes)
+      .order('fecha', { ascending: false });
+    const ultPorLocal = {};
+    (vMax || []).forEach(v => { if (!ultPorLocal[v.local]) ultPorLocal[v.local] = v.fecha; });
+    const faltan = locales
+      .filter(l => (ultPorLocal[l] || '') < ultimoDiaMes)
+      .map(l => `• ${LOCALES[l]?.nombre || l}: ventas cargadas hasta el ${ultPorLocal[l] ? ultPorLocal[l].slice(8, 10) + '/' + ultPorLocal[l].slice(5, 7) : '— (ninguna)'}`);
+    if (faltan.length && !confirm(`⚠ ${periodo}: todavía no están cargadas las ventas de todo el mes.\n\n${faltan.join('\n')}\n\n` +
+        `La comisión se calcula con las ventas cargadas, así que la proforma va a salir CORTA y habrá que volver a generarla cuando esté el mes entero.\n\n¿Generar igual?`)) return;
+  } catch (e) { console.warn('[liqGenerarProforma:ventas]', e); }
+
   // Calcular sugerencias INFORMATIVAS: días con estado ausente / falta_fichada sin compensar.
   // ⚠️ IMPORTANTE: estos días YA se descuentan automáticamente vía dias_trabajados/30 en el
   // prorrateo. NO hay que pre-cargar el input — el admin lo carga sólo si hay un descuento
