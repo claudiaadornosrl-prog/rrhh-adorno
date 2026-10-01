@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v360-directora-fueraconvenio';
+const CACHE_VERSION = 'rrhh-v361-dobleblanco-puro-ganancias-arca';
 const ASSETS = [
   './',
   './index.html',

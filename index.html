@@ -14566,8 +14566,9 @@ async function mostrarDetalleGanancias() {
     <div style="padding:20px;max-width:780px;">
       <h2 style="margin:0 0 14px;">🧮 Tope Ganancias — ${periodo}</h2>
       <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">
-        El sistema acumula bruto + aportes enero→mes y compara contra deducciones × (mes/12).
-        Si la ganancia neta supera las deducciones acumuladas, se gatilla retención.
+        Acumula lo cobrado enero→mes (recibos del estudio cuando están cargados, si no la liquidación
+        del sistema) y lo compara con las deducciones ACUMULADAS de la tabla oficial de ARCA (×13/12 por
+        el aguinaldo). Si la ganancia neta supera las deducciones, hay retención (escala art. 94 del mes).
       </div>
       ${filas.map(f => {
         const r = f.revision;
@@ -14588,6 +14589,9 @@ async function mostrarDetalleGanancias() {
               <tr style="border-top:1px solid #e5e7eb;"><td><strong>Ganancia neta acumulada</strong></td><td style="text-align:right;font-family:monospace;"><strong>${fmt(r.ganancia_neta_acumulada)}</strong></td></tr>
               <tr><td>Deducciones acumuladas (mes/12)</td><td style="text-align:right;font-family:monospace;">−${fmt(r.deducciones_acumuladas)}</td></tr>
               <tr style="border-top:1px solid #e5e7eb;"><td><strong>${r.excedente > 0 ? 'Excedente' : 'Margen libre'}</strong></td><td style="text-align:right;font-family:monospace;font-weight:700;color:${color};">${fmt(Math.abs(r.excedente))}</td></tr>
+              ${r.excedente > 0 ? `<tr><td>Retención estimada a este mes (escala ARCA)</td><td style="text-align:right;font-family:monospace;color:#dc2626;">${fmt(d.retencion_estimada)}</td></tr>`
+                                : `<tr><td>Bruto extra que todavía entra sin retención</td><td style="text-align:right;font-family:monospace;color:#16a34a;">${fmt(r.bruto_extra_disponible)}</td></tr>`}
+              ${d.fuente_datos ? `<tr><td colspan="2" style="color:var(--muted);font-size:11px;padding-top:4px;">Fuente: ${escapeHtml(d.fuente_datos)} · ${escapeHtml(d.tabla || '')}</td></tr>` : ''}
             </table>
             <details style="margin-top:10px;font-size:11.5px;color:var(--muted);">
               <summary style="cursor:pointer;">Desglose deducciones anuales</summary>
@@ -23250,34 +23254,21 @@ const salaryWorkflow = (() => {
     const fuera_convenio = !!emp.fuera_convenio;
     // (1-oct-2026) Claudia: categoría 'directora' → sin descuentos ni antig/pres no rem (ver calcularReciboCCT)
     const directora = String(emp.categoria?.codigo || '') === 'directora';
-    const fraccionNR = (configEmp.fraccion_no_rem != null) ? Number(configEmp.fraccion_no_rem) : null;
+    const fraccionNR = (configEmp.fraccion_no_rem != null) ? Number(configEmp.fraccion_no_rem)
+                     : (configEmp.jornada_parcial ? 0.5 : null);   // media jornada: no rem al 50 % (estudio)
 
     // ── JORNADA PARCIAL (art. 92 ter LCT) — caso franquera Escasany ──
-    // El recibo se prorratea por HORAS reales de turnos del mes contra la
-    // jornada completa de comercio (200 hs/mes = 48 hs/sem). Se traduce a
-    // "días equivalentes" (horas/200 × 30) para reusar la fracción del motor.
-    // El pactado por encima de esta base lo completa el solver 0018.
+    // (1-oct-2026, JP) MEDIA JORNADA FIJA, igual que el estudio: básico a 16/30
+    // (en septiembre 15 + 1 Día del Gremio) y sumas no rem al 50 %. Antes se
+    // prorrateaba por horas de turnos (jun 50 %, jul 32 %, ago 41 %, sep 33 %)
+    // y por eso la proforma se corría del recibo del estudio todos los meses.
+    // Verificado al centavo contra sep-2026. El pactado por encima de esta base
+    // lo completa el solver 0018 (segunda liquidación).
+    const JORNADA_PARCIAL_DIAS_RECIBO = 16;
     let dias_recibo = dias_trabajados;
     if (configEmp.jornada_parcial) {
-      try {
-        const [_yJP, _mJP] = periodo.split('-').map(Number);
-        const _finMesJP = `${periodo}-${String(new Date(_yJP, _mJP, 0).getDate()).padStart(2, '0')}`;
-        const { data: turnosJP } = await sb.from('rrhh_turnos')
-          .select('hora_inicio, hora_fin, es_franco')
-          .eq('empleado_id', empleadoId)
-          .gte('fecha', periodo + '-01').lte('fecha', _finMesJP);
-        const _hmJP = (t) => { const p = (t || '').split(':'); return p.length >= 2 ? (+p[0]) * 60 + (+p[1]) : null; };
-        let horasMes = 0;
-        (turnosJP || []).forEach(t => {
-          if (t.es_franco || !t.hora_inicio || !t.hora_fin) return;
-          const a = _hmJP(t.hora_inicio), b = _hmJP(t.hora_fin);
-          if (a != null && b != null && b > a) horasMes += (b - a) / 60;
-        });
-        if (horasMes > 0) {
-          dias_recibo = Math.min(30, Math.round(horasMes / 200 * 30 * 100) / 100);
-          console.log(`[liquidarEmpleada:92ter] emp=${empleadoId}: ${horasMes}hs de turnos → ${dias_recibo}/30 días equivalentes (${Math.round(horasMes/200*1000)/10}% de jornada)`);
-        }
-      } catch (e) { console.warn('[liquidarEmpleada:92ter]', e); }
+      dias_recibo = JORNADA_PARCIAL_DIAS_RECIBO;
+      console.log(`[liquidarEmpleada:92ter] emp=${empleadoId}: media jornada fija → ${dias_recibo}/30 días de recibo`);
     }
 
     // ── RECIBO BLANCO (CCT) ──
@@ -23298,7 +23289,10 @@ const salaryWorkflow = (() => {
     //    al tope mensual (lo que no se pasa de Ganancias) y prorratear los componentes
     //    del recibo al nuevo bruto. La diferencia (fijo + viaticos + extras + comision +
     //    premio - tope) va por efectivo (negro).
-    if (emp.calcular_tope_ganancias) {
+    // (1-oct-2026) El forzado del recibo al tope queda detrás de `forzar_recibo_al_tope`:
+    // para Claudia/JP la proforma tiene que ser igual a la del estudio; el tope se
+    // informa (banner + detalle) y el básico lo ajusta el estudio.
+    if (emp.calcular_tope_ganancias && emp.forzar_recibo_al_tope) {
       try {
         const { data: topeData, error: eTope } = await sb.rpc('rrhh_calcular_tope_ganancias', {
           p_empleado_id: empleadoId,
@@ -23687,7 +23681,12 @@ const salaryWorkflow = (() => {
     //     sigue diciendo "neto $X", pero a la colaboradora le acreditamos $X − capital).
     //     No afecta al cálculo de efectivo.
     //   - INTERÉS → se descuenta del EFECTIVO (no figura en el recibo blanco).
-    if (configEmp.modo_liquidacion !== 'doble_blanco') {
+    // (1-oct-2026, regla JP) En doble blanco la PRIMERA liquidación (proforma) es el
+    // recibo puro, igual al del estudio. El ítem 0018 Comisiones (solver) va recién
+    // en la SEGUNDA: botón 💎 Doble Blanco o el definitivo, con los sueldos cerrados.
+    const conComision0018 = (configEmp.modo_liquidacion === 'doble_blanco')
+      && (!!inputs.soloDobleBlanco || inputs.tipo === 'definitivo');
+    if (!conComision0018) {
       efectivo = Math.max(0, total_negro_esperado - reciboFinal.totales.neto - mercaderia - ajuste - prestamo_interes);
     } else {
       // ── doble_blanco V2 (junio 2026) ────────────────────────────────────
@@ -23817,7 +23816,7 @@ const salaryWorkflow = (() => {
     // Recalcular efectivo: subtotal - mercaderia - intereses - ajuste
     // EXCEPTO en doble_blanco donde efectivo = SOLO el pago de vacaciones
     // (3-sep, regla JP: las vacaciones pagadas no entran al recibo doble blanco).
-    if (configEmp.modo_liquidacion === 'doble_blanco') {
+    if (conComision0018) {
       filaLiq.efectivo = Number(filaLiq.vacaciones_pago || 0);
     } else {
       const subtotalEfMan = Math.max(0, (filaLiq.total_negro || 0) - (filaLiq.recibo_neto || 0));
