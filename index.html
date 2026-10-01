@@ -23571,11 +23571,13 @@ const salaryWorkflow = (() => {
     // Ej: si admin editó la comisión a $480.334 manualmente, el recálculo
     // automático no la pisa hasta que el admin "limpie" el override.
     const { data: existingAjuste } = await sb.from('rrhh_liquidacion')
-      .select('ajuste, ajuste_comentario, overrides_manuales, fijo, comision, viaticos, premio_monto, feriado_monto, mercaderia, tipo')
+      .select('ajuste, ajuste_comentario, overrides_manuales, fijo, comision, viaticos, premio_monto, feriado_monto, mercaderia, tipo, ajuste_blanco')
       .eq('empleado_id', empleadoId)
       .eq('periodo', periodo + '-01')
       .limit(1);
     const tipoPrev = existingAjuste?.[0]?.tipo || null;
+    // > 0 = ya se le aplicó el 💎 Doble Blanco (ítem 0018) a esta liquidación
+    const ajusteBlancoPrev = Number(existingAjuste?.[0]?.ajuste_blanco || 0);
     const ajustePrev = Number(existingAjuste?.[0]?.ajuste || 0);
     const ajusteComentPrev = existingAjuste?.[0]?.ajuste_comentario || null;
     const overridesPrev = existingAjuste?.[0]?.overrides_manuales || {};
@@ -24038,8 +24040,12 @@ const salaryWorkflow = (() => {
     // (1-oct-2026, regla JP) En doble blanco la PRIMERA liquidación (proforma) es el
     // recibo puro, igual al del estudio. El ítem 0018 Comisiones (solver) va recién
     // en la SEGUNDA: botón 💎 Doble Blanco o el definitivo, con los sueldos cerrados.
+    //   · Una vez aplicado (ajuste_blanco > 0), los recálculos posteriores (⚡, auto-refresh,
+    //     cierre) lo MANTIENEN: si no, abrir la grilla borraba el 0018 sin avisar.
+    //   · Volver a generar la PROFORMA sí lo saca (vuelve al recibo del estudio).
     const conComision0018 = (configEmp.modo_liquidacion === 'doble_blanco')
-      && (!!inputs.soloDobleBlanco || inputs.tipo === 'definitivo');
+      && (!!inputs.soloDobleBlanco || inputs.tipo === 'definitivo'
+          || (inputs.tipo !== 'proforma' && ajusteBlancoPrev > 0));
     if (!conComision0018) {
       efectivo = Math.max(0, total_negro_esperado - reciboFinal.totales.neto - mercaderia - ajuste - prestamo_interes);
     } else {
@@ -24309,7 +24315,16 @@ const salaryWorkflow = (() => {
         const e = queue.shift();
         if (!e) return;
         try {
-          const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo, _cache: cache };
+          // 🚨 (1-oct-2026) Las banderas del botón NUNCA llegaban a liquidarEmpleada: ⚡, 💎 y
+          // el cierre de Asistencias hacían todos un recálculo completo. Mientras el doble
+          // blanco metía el 0018 siempre, no se notaba; con la regla "0018 solo con 💎 o
+          // definitivo", el 💎 dejaba el recibo puro (Contreras/Escasany, sep-2026). Se pasan
+          // soloDobleBlanco (para que el 💎 haga lo suyo y saltee al resto) y soloAsistencias
+          // (para que el cierre use la RPC que sí pueden ejecutar las encargadas).
+          // soloImportes NO se pasa a propósito: ⚡ y el auto-refresh siguen haciendo el
+          // recálculo completo que hicieron siempre.
+          const empInputs = { ...(inputsPorEmpleado[e.id] || {}), tipo, _cache: cache,
+            soloDobleBlanco: !!opts.soloDobleBlanco, soloAsistencias: !!opts.soloAsistencias, silent: !!opts.silent };
           if (descuentosEspeciales[e.id]) {
             empInputs.descuento_especial = descuentosEspeciales[e.id];
           }

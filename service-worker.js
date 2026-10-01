@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v375-edicion-manual-recibo-puro';
+const CACHE_VERSION = 'rrhh-v376-doble-blanco-bandera';
 const ASSETS = [
   './',
   './index.html',
