@@ -23195,6 +23195,12 @@ const salaryWorkflow = (() => {
   // Si no se encuentra registro en rrhh_licencias para una fecha con estado='licencia',
   // por seguridad se asume sin goce (descuenta) y se loguea warning a consola.
   async function cargarDiasNoPagos(empleadoId, periodo) {
+    return (await cargarDiasNoPagosDetalle(empleadoId, periodo)).count;
+  }
+  // (1-oct-2026) Misma cuenta, pero devolviendo el desglose: además de los días que NO se
+  // pagan (count), cuántas licencias fueron CON goce. Esas no bajan el sueldo pero sí el
+  // viático (no viajó al local).
+  async function cargarDiasNoPagosDetalle(empleadoId, periodo) {
     const [y, m] = periodo.split('-').map(Number);
     const desde = `${periodo}-01`;
     const hasta = `${y}-${String(m).padStart(2,'0')}-${String(diasDelMes(periodo)).padStart(2,'0')}`;
@@ -23206,7 +23212,7 @@ const salaryWorkflow = (() => {
       .select('fecha, estado, error_salvado').eq('empleado_id', empleadoId)
       .gte('fecha', desde).lte('fecha', hasta)
       .in('estado', ['vacaciones','licencia','ausente']);
-    if (!dias || dias.length === 0) return 0;
+    if (!dias || dias.length === 0) return { count: 0, licPagas: 0, licNoPagas: 0 };
 
     // ── COMPENSACIÓN — días con permiso aprobado NO descuentan sueldo ──
     // Si el día tiene permiso 'dia_completo' aprobado (compensado con banco o
@@ -23255,7 +23261,7 @@ const salaryWorkflow = (() => {
       }
     }
 
-    let count = 0;
+    let count = 0, licPagas = 0, licNoPagas = 0;
     for (const d of dias) {
       if (fechasCompensadas.has(d.fecha)) continue;  // Compensado con banco/vacaciones → no descontar fijo
       // Ausencia SALVADA por la encargada (ej. reloj Anviz no fichó pero la
@@ -23263,10 +23269,11 @@ const salaryWorkflow = (() => {
       // ausente visualmente pero no impacta la liquidación.
       if (d.estado === 'ausente' && d.error_salvado) continue;
       if (d.estado === 'ausente') count++;
-      else if (d.estado === 'licencia' && licMap[d.fecha] === false) count++;
-      // vacaciones y licencia con goce: no suman
+      else if (d.estado === 'licencia' && licMap[d.fecha] === false) { count++; licNoPagas++; }
+      else if (d.estado === 'licencia') licPagas++;
+      // vacaciones y licencia con goce: no suman al descuento de sueldo
     }
-    return count;
+    return { count, licPagas, licNoPagas };
   }
 
   // Alias para retro-compatibilidad (otras partes del codigo siguen llamando al nombre viejo)
@@ -23422,7 +23429,8 @@ const salaryWorkflow = (() => {
     if (!cfgLocal) throw new Error('Local sin config de sueldo: ' + emp.local);
 
     // Días del mes y días no trabajados
-    let diasNoTrab = await cargarDiasNoTrabajados(empleadoId, periodo);
+    const _dnpDet = await cargarDiasNoPagosDetalle(empleadoId, periodo);
+    let diasNoTrab = _dnpDet.count;
     // Descuento especial (faltas/suspensiones extra ingresadas al armar la proforma)
     const diasExtraDescuento = Number(inputs.descuento_especial?.dias_extra || 0);
     if (diasExtraDescuento > 0) diasNoTrab += diasExtraDescuento;
@@ -23734,8 +23742,12 @@ const salaryWorkflow = (() => {
     // no restan dias_trabajados (el fijo es pago), pero el viático es por
     // viajar al local — de vacaciones no se viaja. Caso Benitez jul-2026.
     const _vacDiasMes = (detalleEmp || []).filter(d => d.estado === 'vacaciones').length;
-    if (_vacDiasMes > 0 && viaticos > 0) {
-      viaticos = viaticos_full * Math.max(0, dias_trabajados - _vacDiasMes) / 30;
+    // (1-oct-2026, JP — caso Verón sep-2026) Lo mismo vale para la LICENCIA con goce: el
+    // sueldo se paga, pero esos días no viajó. La licencia SIN goce ya está descontada en
+    // dias_trabajados, por eso acá se restan solo las pagas.
+    const _noViajaDias = _vacDiasMes + Number(_dnpDet.licPagas || 0);
+    if (_noViajaDias > 0 && viaticos > 0) {
+      viaticos = viaticos_full * Math.max(0, dias_trabajados - _noViajaDias) / 30;
     }
     const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
     // Multiplicador especial: para Escasany x2 porque al ser franquera el feriado le pesa más
