@@ -14755,10 +14755,23 @@ async function liqImagenResumen(liqId) {
 }
 
 async function renderLiquidaciones() {
-  // Período por defecto: mes actual
+  // Período por defecto (1-oct-2026, JP: "tiré un definitivo sobre octubre queriendo hacerlo
+  // sobre septiembre"): mientras el mes ANTERIOR no esté cerrado en Sueldos (Cerrar mes) en
+  // todos los locales, se abre en el mes anterior, que es el que se está liquidando. Recién
+  // cuando está cerrado en los 3 pasa al mes actual.
   if (!liqState.periodo) {
     const hoy = new Date();
-    liqState.periodo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+    const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+    const ant = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const mesAnterior = `${ant.getFullYear()}-${String(ant.getMonth()+1).padStart(2,'0')}`;
+    liqState.periodo = mesActual;
+    try {
+      const { data: cierres } = await sb.from('rrhh_meses_cerrados_sueldos')
+        .select('local').eq('periodo', mesAnterior + '-01');
+      const cerrados = new Set((cierres || []).map(c => c.local));
+      const faltaCerrar = ['alcorta', 'unicenter', 'oficina'].some(l => !cerrados.has(l));
+      if (faltaCerrar) liqState.periodo = mesAnterior;
+    } catch (e) { console.warn('[renderLiquidaciones:periodoDefault]', e); }
   }
   const isAdmin     = session.rol === 'admin';
   const isGerente   = session.rol === 'gerente';
