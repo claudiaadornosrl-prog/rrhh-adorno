@@ -18425,16 +18425,19 @@ async function renderAumentos() {
 
     <!-- ═════ Aumento Admin: Viáticos / Premio / Feriado (sin encargadas) ═════ -->
     <div class="card" style="padding:16px;margin-bottom:14px;background:#eff6ff;border:1px solid #bfdbfe;">
-      <h3 style="margin:0 0 6px;">💼 Aumento admin — Viáticos · Premio fichadas · Feriado por día</h3>
+      <h3 style="margin:0 0 6px;">💼 Aumento general (los 3 locales) — Viáticos · Premio fichadas · Feriado por día</h3>
       <div style="color:#1e40af;font-size:13px;margin-bottom:14px;line-height:1.45;">
-        Aplica el mismo % a viáticos y premio (todas las colaboradoras activas con config vigente) + feriado por día (config por local). No pasa por encargadas. Crea nuevas filas vigentes desde la fecha que elijas (respeta histórico).
+        Aplica el mismo % a viáticos y premio de <strong>todas las colaboradoras activas de Alcorta, Unicenter y Oficina</strong> + al feriado por día de los tres locales. Lo carga el admin directo (no pasa por las encargadas). Crea filas nuevas vigentes desde el mes que elijas y respeta el histórico.
+        <br><strong>Elegí el mes con cuidado:</strong> es el mes del SUELDO que se liquida (septiembre = lo que se paga a principios de octubre).
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:10px;">
         <div class="form-row"><label>% aumento</label>
           <input type="number" id="aum-extras-pct" placeholder="ej 8" min="0" max="100" step="0.1">
         </div>
         <div class="form-row"><label>Vigente a partir del sueldo de</label>
-          <input type="month" id="aum-extras-vigencia" title="El aumento entra en la liquidación de este mes (que se paga a principios del mes siguiente)" value="${new Date(new Date().getFullYear(), new Date().getMonth()+1, 1).toISOString().slice(0,7)}">
+          <!-- (1-oct-2026) Sin mes por defecto: antes venía "mes que viene" y un aumento pensado para el
+               sueldo en curso quedaba cargado un mes (o dos) más tarde sin que nadie lo notara. -->
+          <input type="month" id="aum-extras-vigencia" title="El aumento entra en la liquidación de este mes (que se paga a principios del mes siguiente)" value="">
         </div>
         <div class="form-row"><label>Redondear a múltiplo de</label>
           <select id="aum-extras-redondeo">
@@ -18921,7 +18924,12 @@ async function aumExtrasPreview() {
   let colaboradoras = [];
   if (aplicaViaticos || aplicaPremio) {
     const { data: configs, error } = await sb.from('rrhh_sueldo_empleada_config')
-      .select('empleado_id, fijo, viaticos, premio_fichadas_uniforme, fraccion_comision, modo_prorrateo_comision, activa_en_modulo, vigente_desde, notas, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
+      // 🚨 (1-oct-2026) select('*'): la fila nueva se arma copiando ESTA config. Con la lista
+      // corta de columnas que había, el aumento dejaba en default modo_liquidacion,
+      // jornada_parcial, comision_dia_por_venta, dias_prorrateo_modo, fraccion_no_rem,
+      // max_errores_premio_override y feriado_multiplicador (Contreras y Escasany pasaban a
+      // cct_negro común). Misma familia que el bug del envío #6 (28-sep).
+      .select('*, rrhh_empleados!inner(id, apellido, nombre, local, estado)')
       .lte('vigente_desde', vigencia)
       .eq('activa_en_modulo', true)
       .order('vigente_desde', { ascending: true });
@@ -19053,6 +19061,9 @@ async function aumExtrasAplicar() {
       delete payload.id;
       delete payload.creado_at;
       delete payload.rrhh_empleados;  // por si vino el join
+      delete payload.created_at;
+      payload.recibo_neto_objetivo = null;            // era puntual de un período: no se arrastra
+      payload.recibo_neto_objetivo_periodo = null;
       payload.vigente_desde = p.vigencia;
       if (p.aplicaViaticos) payload.viaticos = c._viaticos_nuevo;
       if (p.aplicaPremio)   payload.premio_fichadas_uniforme = c._premio_nuevo;
@@ -23711,7 +23722,8 @@ const salaryWorkflow = (() => {
     }
     const feriado_por_dia = Number(cfgLocal.feriado_por_dia || 0);
     // Multiplicador especial: para Escasany x2 porque al ser franquera el feriado le pesa más
-    const feriadoMul = Number(configEmp.feriado_multiplicador || 1.0);
+    // (1-oct-2026) 0 es un valor válido = "no cobra plus de feriado" (Claudia y JP en Oficina).
+    const feriadoMul = (configEmp.feriado_multiplicador != null) ? Number(configEmp.feriado_multiplicador) : 1.0;
     let feriado_monto = feriado_dias * feriado_por_dia * feriadoMul;
 
     // Guard (asistenciasCerradas ya se calculó al inicio de liquidarEmpleada)
