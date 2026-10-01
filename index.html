@@ -19140,6 +19140,7 @@ async function aumExtrasAplicar() {
   if (!confirm(`¿Aplicar el aumento del ${p.pct}% a:\n- ${cantEmp} colaboradoras (viáticos/premio)\n- ${cantLoc} locales (feriado)\n\nVigente desde ${p.vigencia}.\n\nCrea nuevas filas históricas en el sistema.`)) return;
 
   let okEmp = 0, errEmp = 0, okLoc = 0, errLoc = 0;
+  const erroresDet = [];
   if (p.aplicaViaticos || p.aplicaPremio) {
     for (const c of p.colaboradoras) {
       // Spread para preservar modo_liquidacion, dias_prorrateo_modo, etc.
@@ -19155,9 +19156,19 @@ async function aumExtrasAplicar() {
       if (p.aplicaPremio)   payload.premio_fichadas_uniforme = c._premio_nuevo;
       // limpiar campos auxiliares prefijados con _
       Object.keys(payload).forEach(k => { if (k.startsWith('_')) delete payload[k]; });
-      payload.notas = `[Aumento admin ${p.pct}% ${[p.aplicaViaticos?'V':'', p.aplicaPremio?'P':''].filter(Boolean).join('+')}] anterior: V $${Number(c.viaticos).toLocaleString('es-AR')} P $${Number(c.premio_fichadas_uniforme).toLocaleString('es-AR')}`;
-      const { error } = await sb.from('rrhh_sueldo_empleada_config').insert(payload);
-      if (error) { console.warn('aumExtras emp', c.empleado_id, error); errEmp++; }
+      const _notaAum = `[Aumento general ${p.pct}% ${[p.aplicaViaticos?'V':'', p.aplicaPremio?'P':''].filter(Boolean).join('+')}] anterior: V $${Number(c.viaticos).toLocaleString('es-AR')} P $${Number(c.premio_fichadas_uniforme).toLocaleString('es-AR')}`;
+      payload.notas = _notaAum;
+      // 🚨 (1-oct-2026) Si ESE mes ya tiene config (p. ej. la del aumento de fijos), hay que
+      // ACTUALIZARLA: la base no admite dos filas para el mismo mes (UNIQUE empleado+vigencia)
+      // y el insert rebotaba las 20 colaboradoras con un "aplicado parcial" que nadie leyó.
+      const _yaExisteEmp = c.id && String(c.vigente_desde).slice(0, 10) === p.vigencia;
+      const { error } = _yaExisteEmp
+        ? await sb.from('rrhh_sueldo_empleada_config').update({
+            viaticos: payload.viaticos, premio_fichadas_uniforme: payload.premio_fichadas_uniforme,
+            notas: `${String(c.notas || '').slice(0, 400)} | ${_notaAum}`,
+          }).eq('id', c.id)
+        : await sb.from('rrhh_sueldo_empleada_config').insert(payload);
+      if (error) { console.warn('aumExtras emp', c.empleado_id, error); errEmp++; erroresDet.push(`${c.rrhh_empleados?.apellido || c.empleado_id}: ${error.message}`); }
       else { okEmp++; }
     }
   }
@@ -19170,18 +19181,27 @@ async function aumExtrasAplicar() {
         modo_reparto: c.modo_reparto,
         umbral_premio: c.umbral_premio,
         feriado_por_dia: c._feriado_nuevo,
-        notas: `[Aumento admin ${p.pct}% feriado] anterior: $${Number(c.feriado_por_dia).toLocaleString('es-AR')}`,
+        notas: `[Aumento general ${p.pct}% feriado] anterior: $${Number(c.feriado_por_dia).toLocaleString('es-AR')}`,
       };
-      const { error } = await sb.from('rrhh_sueldo_local_config').insert(payload);
-      if (error) { console.warn('aumExtras local', c.local, error); errLoc++; }
+      const _yaExisteLoc = c.id && String(c.vigente_desde).slice(0, 10) === p.vigencia;
+      const { error } = _yaExisteLoc
+        ? await sb.from('rrhh_sueldo_local_config').update({
+            feriado_por_dia: payload.feriado_por_dia, notas: `${String(c.notas || '').slice(0, 400)} | ${payload.notas}`,
+          }).eq('id', c.id)
+        : await sb.from('rrhh_sueldo_local_config').insert(payload);
+      if (error) { console.warn('aumExtras local', c.local, error); errLoc++; erroresDet.push(`${c.local}: ${error.message}`); }
       else { okLoc++; }
     }
   }
   closeModal();
+  const _mesAum = new Date(p.vigencia + 'T12:00:00').toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   if (errEmp === 0 && errLoc === 0) {
-    toast(`✓ Aplicado: ${okEmp} colaboradoras + ${okLoc} locales`, 'success');
+    alert(`✓ Aumento del ${p.pct}% aplicado desde el sueldo de ${_mesAum}:\n• ${okEmp} colaboradoras (viáticos / premio)\n• ${okLoc} locales (feriado)\n\n` +
+          `Ojo: las liquidaciones de ${_mesAum} que ya estén calculadas NO cambian solas.\nSi Asistencias de ese mes ya está cerrado, pedile a Claude que las recalcule (o reabrí y volvé a cerrar).`);
   } else {
-    toast(`Aplicado parcial: emp ${okEmp}/${okEmp+errEmp}, locales ${okLoc}/${okLoc+errLoc}. Ver consola.`, 'warning');
+    // Nunca más un "parcial" en un cartelito que desaparece: se queda en pantalla con el detalle.
+    alert(`⚠ El aumento NO se aplicó completo (${_mesAum}):\n• Colaboradoras: ${okEmp} de ${okEmp + errEmp}\n• Locales: ${okLoc} de ${okLoc + errLoc}\n\n` +
+          `Errores:\n${erroresDet.slice(0, 12).join('\n')}\n\nNo vuelvas a aplicarlo sin revisar: avisale a Claude.`);
   }
 }
 
