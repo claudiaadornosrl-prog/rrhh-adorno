@@ -13893,7 +13893,7 @@ async function procesarRecibos(fileList) {
 
   // Cargar colaboradores activos una sola vez
   const { data: emps } = await sb.from('rrhh_empleados')
-    .select('id, nombre_completo, apellido, nombre, cuil, dni, fecha_ingreso, obra_social_codigo, fuera_convenio, categoria:rrhh_categorias_cct(sueldo_basico)')
+    .select('id, nombre_completo, apellido, nombre, cuil, dni, fecha_ingreso, obra_social_codigo, fuera_convenio, categoria:rrhh_categorias_cct(codigo, sueldo_basico)')
     .eq('estado', 'activo');
 
   const filas = [];
@@ -13960,6 +13960,7 @@ async function obtenerCalculoCCT(emp, periodo) {
       suma_fija_nr: Number(par.suma_fija_nr || 0),
       recompos_nr: Number(par.recompos_nr || 0),
       fuera_convenio: !!emp.fuera_convenio,
+      directora: String(emp.categoria?.codigo || '') === 'directora',
     });
     return recibo.totales;
   } catch(e) { console.warn('No se pudo calcular', emp.nombre_completo, e); return null; }
@@ -17588,6 +17589,7 @@ async function liqEditarGuardar(liqId) {
 
   const fraccionNR = (cfg?.fraccion_no_rem != null) ? Number(cfg.fraccion_no_rem) : null;
   const fueraConv = !!liq.empleado.fuera_convenio;
+  const esDirectoraLE = String(liq.empleado.categoria?.codigo || '') === 'directora';  // (1-oct) Claudia: sin descuentos
 
   // Recalcular recibo
   let reciboFinal;
@@ -17597,13 +17599,13 @@ async function liqEditarGuardar(liqId) {
       neto_objetivo: netoObj, fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: dias,
       obra_social_codigo: liq.empleado.obra_social_codigo || '',
       suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio: fueraConv, fraccion_no_rem_override: fraccionNR,
+      fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNR,
     });
     reciboFinal = salaryEngine.calcularReciboCCT({
       basico_escala: basicoAj, fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: dias,
       obra_social_codigo: liq.empleado.obra_social_codigo || '',
       suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio: fueraConv, fraccion_no_rem_override: fraccionNR,
+      fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNR,
     });
   } else {
     reciboFinal = salaryEngine.calcularReciboCCT({
@@ -17611,7 +17613,7 @@ async function liqEditarGuardar(liqId) {
       fecha_ingreso: liq.empleado.fecha_ingreso, periodo, dias_trabajados: dias,
       obra_social_codigo: liq.empleado.obra_social_codigo || '',
       suma_fija_nr: Number(paritaria.suma_fija_nr), recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio: fueraConv, fraccion_no_rem_override: fraccionNR,
+      fuera_convenio: fueraConv, directora: esDirectoraLE, fraccion_no_rem_override: fraccionNR,
     });
   }
 
@@ -22187,7 +22189,11 @@ const salaryEngine = (() => {
    *   obra_social_codigo: string,     // 'osecac' o slug
    *   suma_fija_nr: number,           // full mes (ej. 100000)
    *   recompos_nr: number,            // full mes (ej. 20000)
-   *   fuera_convenio: boolean,        // si true: sin presentismo, sin SEC, sin FAECYS
+   *   fuera_convenio: boolean,        // si true: sin presentismo REM, sin SEC, sin FAECYS
+   *                                   // (sí lleva antigüedad y presentismo NO REM: así liquida
+   *                                   // el estudio a JP, verificado ene-sep 2026)
+   *   directora: boolean,             // Claudia (LRT Directores): además sin antig/pres NO REM
+   *                                   // y SIN NINGÚN descuento (aporta como autónoma)
    *   otros_remunerativos: number     // opcional, ej. concepto 0073 a cuenta
    * }
    *
@@ -22200,6 +22206,7 @@ const salaryEngine = (() => {
       obra_social_codigo = '',
       suma_fija_nr = 0, recompos_nr = 0,
       fuera_convenio = false,
+      directora = false,
       otros_remunerativos = 0,
       // opcional: forzar otra fracción para las sumas no rem (caso franquera Escasany
       // donde MEMOSOFT prorratea básico a 16/30 y no rem a 50%)
@@ -22265,11 +22272,11 @@ const salaryEngine = (() => {
     if (sumafija_nr > 0) {
       conceptos.push(concepto(50, '0491', 'Suma fija no rem', suma_fija_nr, fraccionNR * 100, sumafija_nr, false));
     }
-    if (sumafija_nr + recompos > 0 && anios > 0) {
+    if (!directora && sumafija_nr + recompos > 0 && anios > 0) {
       ant_nr = (sumafija_nr + recompos) * (anios / 100);
       conceptos.push(concepto(60, '0492', 'Antigüedad no rem', sumafija_nr + recompos, anios, ant_nr, false));
     }
-    if (!fuera_convenio && (sumafija_nr + recompos + ant_nr) > 0) {
+    if (!directora && (sumafija_nr + recompos + ant_nr) > 0) {
       pres_nr = (sumafija_nr + recompos + ant_nr) * PCT.PRES;
       conceptos.push(concepto(70, '0493', 'Presentismo no rem', sumafija_nr + recompos + ant_nr, PCT.PRES * 100, pres_nr, false));
     }
@@ -22281,8 +22288,9 @@ const salaryEngine = (() => {
     const bruto = total_rem + total_nr;
 
     // ── Descuentos ──
-    const jubilacion = total_rem * PCT.JUB;
-    const ley19032   = total_rem * PCT.LEY19032;
+    // directora (Claudia): el recibo del estudio no lleva ningún descuento.
+    const jubilacion = directora ? 0 : total_rem * PCT.JUB;
+    const ley19032   = directora ? 0 : total_rem * PCT.LEY19032;
     // OS: base AFIP depende de la OS. Para OSECAC = bruto. Para otras = total_rem.
     // Esto coincide con cómo el estudio carga los conceptos: OSECAC usa códigos NR que
     // imputan a OS (0490/0492/0493/0496), las demás usan códigos que NO imputan (0491/0494/0495/0497).
@@ -22290,13 +22298,15 @@ const salaryEngine = (() => {
     // a mano y el === estricto la dejaba con base rem (diferencia de $5.136
     // vs el estudio). Cualquier variante de OSECAC usa base bruto.
     const baseOS = (String(obra_social_codigo || '').trim().toLowerCase() === 'osecac') ? bruto : total_rem;
-    const os         = baseOS * PCT.OS;
+    const os         = directora ? 0 : baseOS * PCT.OS;
     const sec        = fuera_convenio ? 0 : bruto * PCT.SEC;
     const faecys     = fuera_convenio ? 0 : bruto * PCT.FAECYS;
 
-    conceptos.push(concepto(100, '1001', 'Jubilación', total_rem, PCT.JUB * 100, jubilacion, true, true));
-    conceptos.push(concepto(110, '1002', 'Ley 19.032 (PAMI)', total_rem, PCT.LEY19032 * 100, ley19032, true, true));
-    conceptos.push(concepto(120, '1031', 'Obra Social', baseOS, PCT.OS * 100, os, true, true));
+    if (!directora) {
+      conceptos.push(concepto(100, '1001', 'Jubilación', total_rem, PCT.JUB * 100, jubilacion, true, true));
+      conceptos.push(concepto(110, '1002', 'Ley 19.032 (PAMI)', total_rem, PCT.LEY19032 * 100, ley19032, true, true));
+      conceptos.push(concepto(120, '1031', 'Obra Social', baseOS, PCT.OS * 100, os, true, true));
+    }
     if (!fuera_convenio) {
       conceptos.push(concepto(130, '1011', 'SEC (sindicato)', bruto, PCT.SEC * 100, sec, true, true));
       conceptos.push(concepto(140, '1012', 'FAECYS', bruto, PCT.FAECYS * 100, faecys, true, true));
@@ -22818,7 +22828,37 @@ const salaryWorkflow = (() => {
       if (!_escalaBuscando[key]) _escalaBuscando[key] = _importarEscalaFaecys(periodo, tipo, hay);
       try { await _escalaBuscando[key]; } finally { delete _escalaBuscando[key]; }
     }
+    await _avisarBasicosFueraEscala(periodo);
     _escalaMesOk[key] = true;
+  }
+
+  // (1-oct-2026, JP) Claudia (directora) y JP (fuera_convenio) NO salen de la escala CCT ni de
+  // FAECYS: el estudio les sube el básico 1,5–2 % cuando quiere. Si el mes no tiene fila
+  // propia, el motor usa la última cargada (igual que hace el estudio cuando no sube), pero
+  // hay que avisarlo para cargar la del mes cuando lleguen los recibos. Solo avisa, no frena.
+  async function _avisarBasicosFueraEscala(periodo) {
+    try {
+      const { data } = await sb.from('rrhh_categorias_cct')
+        .select('codigo, nombre, sueldo_basico, fecha_vigencia')
+        .in('codigo', ['directora', 'fuera_convenio'])
+        .lte('fecha_vigencia', periodo + '-01')
+        .order('fecha_vigencia', { ascending: false });
+      const [y, m] = periodo.split('-');
+      const MES = `${_MESES_ES[Number(m)]} ${y}`;
+      const faltan = [];
+      ['directora', 'fuera_convenio'].forEach(cod => {
+        const ult = (data || []).find(r => r.codigo === cod);
+        if (!ult) { faltan.push(`• ${cod}: sin ningún básico cargado`); return; }
+        if (String(ult.fecha_vigencia).slice(0, 7) !== periodo) {
+          const [uy, um] = String(ult.fecha_vigencia).split('-');
+          faltan.push(`• ${ult.nombre}: se usa el básico de ${_MESES_ES[Number(um)]} ${uy} (${_$ar(ult.sueldo_basico)})`);
+        }
+      });
+      if (faltan.length) {
+        alert(`⚠ Básicos de Claudia y JP para ${MES}\n\nNo salen de la escala CCT: los fija el estudio cada mes.\n` +
+          faltan.join('\n') + `\n\nSi el estudio los subió, pasale los recibos a Claude para cargar los de ${MES}.`);
+      }
+    } catch (e) { console.warn('[avisarBasicosFueraEscala]', e); }
   }
 
   async function _importarEscalaFaecys(periodo, tipo, hay) {
@@ -23208,6 +23248,8 @@ const salaryWorkflow = (() => {
     const otros_rem = inputs.otros_remunerativos ?? 0;
     const uniforme_ok = inputs.uniforme_ok ?? true;
     const fuera_convenio = !!emp.fuera_convenio;
+    // (1-oct-2026) Claudia: categoría 'directora' → sin descuentos ni antig/pres no rem (ver calcularReciboCCT)
+    const directora = String(emp.categoria?.codigo || '') === 'directora';
     const fraccionNR = (configEmp.fraccion_no_rem != null) ? Number(configEmp.fraccion_no_rem) : null;
 
     // ── JORNADA PARCIAL (art. 92 ter LCT) — caso franquera Escasany ──
@@ -23247,7 +23289,7 @@ const salaryWorkflow = (() => {
       obra_social_codigo: emp.obra_social_codigo || '',
       suma_fija_nr: Number(paritaria.suma_fija_nr),
       recompos_nr: Number(paritaria.recompos_nr),
-      fuera_convenio,
+      fuera_convenio, directora,
       otros_remunerativos: otros_rem,
       fraccion_no_rem_override: fraccionNR,
     });
@@ -23611,7 +23653,7 @@ const salaryWorkflow = (() => {
           obra_social_codigo: emp.obra_social_codigo || '',
           suma_fija_nr: Number(paritaria.suma_fija_nr),
           recompos_nr: Number(paritaria.recompos_nr),
-          fuera_convenio,
+          fuera_convenio, directora,
           otros_remunerativos: (otros_rem || 0) + _comisionObj,
           fraccion_no_rem_override: fraccionNR,
           otros_rem_concepto: { codigo: '0018', nombre: 'Comisiones', unidades_pct: dias_recibo },
@@ -23684,7 +23726,7 @@ const salaryWorkflow = (() => {
         obra_social_codigo: emp.obra_social_codigo || '',
         suma_fija_nr: Number(paritaria.suma_fija_nr),
         recompos_nr: Number(paritaria.recompos_nr),
-        fuera_convenio,
+        fuera_convenio, directora,
         otros_remunerativos: (otros_rem || 0) + comisionVentaBruta,
         fraccion_no_rem_override: fraccionNR,
         otros_rem_concepto: {
