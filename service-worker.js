@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v377-doble-blanco-vacaciones-efectivo';
+const CACHE_VERSION = 'rrhh-v378-recibos-encargadas';
 const ASSETS = [
   './',
   './index.html',
