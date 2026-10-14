@@ -3606,9 +3606,6 @@ function closeEmpModal() {
 document.getElementById('emp-modal-close').addEventListener('click', closeEmpModal);
 document.getElementById('emp-modal-cancel').addEventListener('click', closeEmpModal);
 document.getElementById('emp-modal-save').addEventListener('click', saveEmpleado);
-document.getElementById('emp-modal-backdrop').addEventListener('click', (e) => {
-  if (e.target.id === 'emp-modal-backdrop') closeEmpModal();
-});
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.getElementById('emp-modal-backdrop').classList.contains('show')) closeEmpModal();
 });
@@ -4707,7 +4704,6 @@ async function abrirReporteTurno() {
       </div>
     </div>`;
   document.body.appendChild(modal);
-  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 }
 
 async function enviarReporteTurno() {
@@ -9615,7 +9611,6 @@ async function abrirMenuCambiarTurno(detalleId, empId, fecha) {
     </div>
   `;
   document.body.appendChild(modal);
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 // 🔁 Franco trasladado (regla JP 3-sep): la empleada trabaja su franco y lo
@@ -9646,7 +9641,6 @@ function elegirDiaFrancoDestino(empId, fechaFranco) {
     const cerrar = (v) => { ov.remove(); document.removeEventListener('keydown', onKey); resolve(v || null); };
     const onKey = (e) => { if (e.key === 'Escape') cerrar(null); };
     document.addEventListener('keydown', onKey);
-    ov.onclick = (e) => { if (e.target === ov) cerrar(null); };
     const pintar = async () => {
       const desde = `${anio}-${String(mes).padStart(2,'0')}-01`;
       const ult = new Date(anio, mes, 0).getDate();
@@ -22457,7 +22451,6 @@ function openModal(html, maxWidth) {
     modal = document.createElement('div');
     modal.id = 'global-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999;';
-    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     document.body.appendChild(modal);
   }
   const mw = maxWidth || '800px';
