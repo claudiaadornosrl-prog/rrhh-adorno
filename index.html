@@ -195,13 +195,13 @@ window.ADORNO_SSO = (function () {
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RRHH · Claudia Adorno</title>
+<title>Colaboradores · Claudia Adorno</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192-v2.png">
 <meta name="theme-color" content="#0d9488">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="RRHH Adorno">
+<meta name="apple-mobile-web-app-title" content="Colaboradores">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -217,7 +217,7 @@ window.ADORNO_SSO = (function () {
     <div class="login-logo">
       <div class="badge">Recursos Humanos</div>
       <h1>Claudia Adorno</h1>
-      <div class="subtitle">Portal de RRHH · v0.1</div>
+      <div class="subtitle">Portal de Colaboradores</div>
     </div>
     <div class="login-card">
       <h2 id="login-title">Iniciar sesión</h2>
@@ -265,7 +265,7 @@ window.ADORNO_SSO = (function () {
       <a href="https://claudiaadornosrl-prog.github.io/hub/" title="Volver al Hub" aria-label="Volver al Hub" style="text-decoration:none;font-size:17px;line-height:1;color:inherit;opacity:0.65;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,0.12);">↩</a>
       <button id="nav-toggle" class="nav-toggle" title="Menú" aria-label="Menú" onclick="toggleSidebar()">☰</button>
       <div class="topbar-logo">
-        <span class="badge">RRHH</span>
+        <span class="badge">Colaboradores</span>
         <h1>Claudia Adorno</h1>
       </div>
     </div>
@@ -966,7 +966,7 @@ async function onLoggedIn(user) {
   };
   // (4-ago) Bloqueo de acceso a RRHH para usuarios que solo usan Documentos:
   if (RRHH_BLOQUEADOS.includes((session.email || '').toLowerCase())) {
-    alert('Este usuario no tiene acceso al módulo RRHH.\nPara ver documentos usá el módulo Documentos.');
+    alert('Este usuario no tiene acceso al módulo Colaboradores.\nPara ver documentos usá el módulo Documentos.');
     // Sin signOut: la sesión es compartida con los demás módulos abiertos (SSO).
     location.href = 'https://claudiaadornosrl-prog.github.io/hub/';
     return;
@@ -5291,7 +5291,7 @@ async function legajoCompletoOk() {
 
 async function renderMiLegajo() {
   const emp = session.empleadoData;
-  if (!emp) return '<div class="emp-empty">No se encontró tu legajo. Contactá a RRHH.</div>';
+  if (!emp) return '<div class="emp-empty">No se encontró tu legajo. Contactá a Oficina.</div>';
 
   // Categorías
   const cats = await getCategorias();
@@ -9415,7 +9415,7 @@ async function waResumenAsistencia(empId) {
     doc.text(partes.join(' · '), margen+5, y+12);
 
     doc.setFontSize(6.5); doc.setTextColor(...MUT);
-    doc.text(`Generado automáticamente por RRHH Claudia Adorno · ${new Date().toLocaleDateString('es-AR')} · Documento informativo`, W/2, 290, { align: 'center' });
+    doc.text(`Generado automáticamente por Colaboradores · Claudia Adorno · ${new Date().toLocaleDateString('es-AR')} · Documento informativo`, W/2, 290, { align: 'center' });
 
     const ape = (e.nombre_completo || '').split(',')[0].trim().replace(/\s+/g,'_');
     doc.save(`Fichadas_${ape}_${mes}.pdf`);
