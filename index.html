@@ -420,15 +420,29 @@ window.addEventListener('appinstalled', () => {
 // ════════════════════════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════════════════════════
-const SUPA_URL = 'https://kwwiykssrpabncpqtmwi.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3d2l5a3NzcnBhYm5jcHF0bXdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNjI1NTQsImV4cCI6MjA5NDkzODU1NH0.O1VhKdjPahnJJ9qXcQuSKQbnKGhsEZqYmjDEfRuRpkc';
+const SUPA_URL = 'https://jfwtiagteuwmyvblgwms.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impmd3RpYWd0ZXV3bXl2Ymxnd21zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2NjgyNTAsImV4cCI6MjEwODI0NDI1MH0.LyDolbCwWWKXiiakFwX3PHK8ALDKaV6p-fWQzf-L7u0';
 
 // ════════════════════════════════════════════════════════════
 // Web Push Notifications · VAPID public key (PEGAR LA REAL)
 // ════════════════════════════════════════════════════════════
 //   Generada con: python sync_anviz/generar_vapid_keys.py
 //   La clave PRIVADA va a Supabase Secrets (NO acá).
-const VAPID_PUBLIC_KEY = 'BJr3r3C_T-euS9kqRZX561MoMjHtMl2wpMfS8oUA17xv1TdlA6E3S_5VKyQO2kqlqngPHrQSGr-PpJutXdgKsKc';
+const VAPID_PUBLIC_KEY = 'BIYqIamefFB0ZmTt31sm4ubbKcq0hGHRoG4StSLO26HPpjYL58n6uvHaQmTYTqtW1Tr4qp_bEs6TrvMxlROmqp8';
+
+  // (22-oct-2026, migración a São Paulo) si la suscripción del navegador es de la clave VAPID vieja, se descarta para re-suscribir con la nueva
+  async function _getSubFresca(reg) {
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return null;
+    try {
+      const k = sub.options && sub.options.applicationServerKey;
+      if (k) {
+        const s = btoa(String.fromCharCode(...new Uint8Array(k))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        if (s !== VAPID_PUBLIC_KEY) { await sub.unsubscribe().catch(() => {}); return null; }
+      }
+    } catch (_) {}
+    return sub;
+  }
 
 // ════════════════════════════════════════════════════════════
 // Push Notifications · Manager
@@ -465,7 +479,7 @@ const pushManager = (() => {
     if (!soportado())                  return 'no-soportado';
     if (Notification.permission === 'denied')  return 'bloqueado';
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
+    const sub = await _getSubFresca(reg);
     if (sub) return 'activo';
     if (Notification.permission === 'granted') return 'permitido-sin-sub';
     return 'inactivo';
@@ -480,7 +494,7 @@ const pushManager = (() => {
     if (perm !== 'granted') throw new Error('Permiso denegado. Tenés que aceptar las notificaciones.');
 
     const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
+    let sub = await _getSubFresca(reg);
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -513,7 +527,7 @@ const pushManager = (() => {
   async function desactivar() {
     if (!soportado()) return;
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
+    const sub = await _getSubFresca(reg);
     if (sub) {
       try {
         await sb.from('rrhh_push_subscriptions').delete().eq('endpoint', sub.endpoint);
