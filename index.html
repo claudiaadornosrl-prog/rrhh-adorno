@@ -656,7 +656,8 @@ const LOCALES = {
 };
 // (22-oct-2026, JP) logos oficiales de los locales en vez de emojis
 const LOGO_LOCAL = { alcorta: 'https://jfwtiagteuwmyvblgwms.supabase.co/storage/v1/object/public/marca/logo-local-alcorta.png', unicenter: 'https://jfwtiagteuwmyvblgwms.supabase.co/storage/v1/object/public/marca/logo-local-unicenter.svg', oficina: 'https://jfwtiagteuwmyvblgwms.supabase.co/storage/v1/object/public/marca/logo-local-claudiaadorno.gif' };
-function logoLocal(loc, h) { const u = LOGO_LOCAL[loc]; return u ? `<img class="logo-local" src="${u}" alt="" style="height:${h || 18}px">` : ''; }
+const NOMBRE_LOCAL = { alcorta: 'Alcorta', unicenter: 'Unicenter', oficina: 'Oficina' };
+function logoLocal(loc, h) { const u = LOGO_LOCAL[loc]; return u ? `<img class="logo-local" src="${u}" alt="${NOMBRE_LOCAL[loc]}" title="${NOMBRE_LOCAL[loc]}" style="height:${h || 18}px">` : ''; }
 const _LOCALES_FIN = {
   test:      { nombre: 'Sucursal Test', icon: '🧪', sub: 'Pruebas internas' },
 };
@@ -2174,7 +2175,7 @@ async function renderEmpleadosList() {
           ${antigüedad(e.fecha_ingreso)}
         </div>
         <div class="tags">
-          <span class="emp-tag local-${e.local}">${logoLocal(e.local, 12)} ${LOCALES[e.local]?.nombre || e.local}</span>
+          <span class="emp-tag local-${e.local}">${LOGO_LOCAL[e.local] ? logoLocal(e.local, 14) : (LOCALES[e.local]?.nombre || e.local)}</span>
           ${e.estado !== 'activo' ? `<span class="emp-tag estado-${e.estado}">${e.estado}</span>` : ''}
           ${e.lactancia_hasta && new Date(e.lactancia_hasta + 'T12:00:00') >= new Date() ? `<span class="emp-tag" style="background:#fce7f3;color:#9d174d;" title="En período de lactancia hasta ${e.lactancia_hasta}">🤱 Lactancia</span>` : ''}
         </div>
@@ -13000,7 +13001,7 @@ async function renderHorariosAdmin(cont) {
     </div>
     ${Object.keys(porLocal).sort().map(loc => `
       <div class="card" style="margin-bottom:14px;padding:0;overflow:hidden;">
-        <div style="background:#f3f4f6;padding:10px 14px;font-weight:600;">${logoLocal(loc, 16)} ${escapeHtml(LOCALES[loc]?.nombre || loc)}</div>
+        <div style="background:#f3f4f6;padding:10px 14px;font-weight:600;">${logoLocal(loc, 18) || escapeHtml(LOCALES[loc]?.nombre || loc)}</div>
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#fafafa;text-align:left;">
             <th style="padding:8px 12px;font-size:11px;color:var(--muted);text-transform:uppercase;">Horario</th>
@@ -17847,7 +17848,7 @@ async function aumExtrasPreview() {
     Object.entries(porLocal).forEach(([loc, lista]) => {
       html += `
         <div style="margin-bottom:18px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-          <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;">${logoLocal(loc, 16)} ${loc.charAt(0).toUpperCase()+loc.slice(1)} (${lista.length} colaboradoras)</div>
+          <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;">${logoLocal(loc, 18) || loc.charAt(0).toUpperCase()+loc.slice(1)} (${lista.length} colaboradoras)</div>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead><tr style="background:#fafafa;text-align:left;">
               <th style="padding:6px 10px;">Colaboradora</th>
@@ -18506,7 +18507,7 @@ async function aumPreviewRangos() {
     html += `
       <div style="margin-bottom:18px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
         <div style="background:#f3f4f6;padding:10px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
-          <span>${logoLocal(loc, 14)} ${loc.charAt(0).toUpperCase()+loc.slice(1)} → ${enc.nombre}</span>
+          <span>${logoLocal(loc, 16) || loc.charAt(0).toUpperCase()+loc.slice(1)} → ${enc.nombre}</span>
           <span style="font-size:12px;color:var(--muted);font-weight:400;">${lista.length} empleadas</span>
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
