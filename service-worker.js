@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v381-colaboradores';
+const CACHE_VERSION = 'rrhh-v384-hub-casa';
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,8 @@ const ASSETS = [
   './vacaciones-pdf.js',
   './manuales.js',
   './exportaciones.js',
+  './salary-workflow.js',
+  './liquidaciones.js',
   './fonts/URWGothic-Book.ttf',
   './fonts/Forum-Regular.ttf',
   './fonts/ArchitectsDaughter-Regular.ttf',
