@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v390-ca-gruesa';
+const CACHE_VERSION = 'rrhh-v391-ca-circulo';
 const ASSETS = [
   './',
   './index.html',
