@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v393-publishable';
+const CACHE_VERSION = 'rrhh-v394-asistente';
 const ASSETS = [
   './',
   './index.html',
