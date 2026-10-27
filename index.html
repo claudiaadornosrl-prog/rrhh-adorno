@@ -1621,12 +1621,12 @@ async function renderDashboard() {
     .filter(e => isAdmin || e.local === local)
     .map(e => e.id);
   const { data: detalleMes } = empIdsLocal.length ? await sb.from('rrhh_asistencias_detalle')
-    .select('empleado_id, estado, minutos_tarde, error_salvado, entrada, salida, turno_id')
+    .select('empleado_id, fecha, estado, minutos_tarde, minutos_salida_temp, error_salvado, entrada, salida, turno_id')
     .in('empleado_id', empIdsLocal)
     .gte('fecha', mesIni).lte('fecha', mesFin) : { data: [] };
 
   // Cargar tolerancias por local
-  const { data: tolsCfg } = await sb.from('rrhh_config_tolerancias').select('local, max_errores_premio, umbral_mensual_tardanzas');
+  const { data: tolsCfg } = await sb.from('rrhh_config_tolerancias').select('local, max_errores_premio, umbral_mensual_tardanzas, minutos_temprano');
   const tolsBy = {};
   (tolsCfg||[]).forEach(t => { tolsBy[t.local] = t; });
 
@@ -1645,20 +1645,29 @@ async function renderDashboard() {
     }
   });
 
+  // (27-oct-2026) "Tardanzas + salidas >60" usa el acumulado del mes con la MISMA cuenta
+  // que el cierre. Antes miraba solo los minutos tarde y no avisaba de casos como Noguera
+  // sep (18 min tarde + 296 de salidas tempranas).
+  const _locDe = {};
+  (empAll || []).forEach(e => { _locDe[e.id] = e.local; });
+  let _manualesMes = {};
+  try { _manualesMes = await cargarAjustesManualesPorDia(empIdsLocal, mesIni, mesFin); } catch (_) {}
+  const acumMes = calcularAcumuladoMes(detalleMes || [], {
+    tolTemp: (id) => tolsBy[_locDe[id]]?.minutos_temprano || 5,
+    umbral:  (id) => tolsBy[_locDe[id]]?.umbral_mensual_tardanzas || 60,
+    manualesPorDia: _manualesMes,
+  });
   const proximasPerderPremio = [];
   const tardanzasAltas = [];
   (empAll || []).forEach(e => {
     if (!isAdmin && e.local !== local) return;
+    if (acumMes[e.id]?.supera) tardanzasAltas.push({ ...e, min_tarde: acumMes[e.id].total });
     const acum = acumPorEmp[e.id];
     if (!acum) return;
     const tol = tolsBy[e.local];
     const maxErr = tol?.max_errores_premio || 4;
-    const umbralTarde = tol?.umbral_mensual_tardanzas || 60;
     if (acum.errores >= maxErr - 1 && acum.errores <= maxErr) {
       proximasPerderPremio.push({ ...e, errores: acum.errores, max: maxErr });
-    }
-    if (acum.min_tarde > umbralTarde) {
-      tardanzasAltas.push({ ...e, min_tarde: acum.min_tarde });
     }
   });
 
@@ -1815,7 +1824,7 @@ async function renderDashboard() {
               ${cardCritica('#b91c1c', '📅', 'Mes sin cerrar', mesAnteriorSinCerrar.length, mesAnteriorSinCerrar.map(m => ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][m.mes-1]+' '+m.año+(isAdmin ? ' ('+m.local+')':'')).join(' · ') || 'todo al día', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#f59e0b', '📄', 'Documentos sin firmar', docPendientes||0, (docPendientes===1?'1 vacación':docPendientes+' vacaciones')+' aprobadas hace +7d sin doc', `vacState.tab='aprobadas';switchTab('vacaciones')`)}
               ${cardCritica('#ea580c', '🎖', 'Pueden perder premio', proximasPerderPremio.length, proximasPerderPremio.slice(0,2).map(e => e.nombre.split(' ')[0]+' ('+e.errores+'/'+e.max+')').join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
-              ${cardCritica('#d97706', '⚠', 'Tardanzas >60min mes', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
+              ${cardCritica('#d97706', '⚠', 'Tardanzas + salidas >60 min', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#db2777', '🤱', 'Lactancia próxima a vencer', lactanciaProx.length, lactanciaProx.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+(e._diasFalta < 0 ? ' (venció hace '+Math.abs(e._diasFalta)+'d)' : e._diasFalta===0 ? ' (HOY)' : ' (+'+e._diasFalta+'d)')).join(', '), `switchTab('empleados')`)}
               ${isAdmin ? cardCritica('#7c3aed', '🗑️', 'Solicitudes de borrado', borradoPendientes||0, (borradoPendientes===1?'1 solicitud':borradoPendientes+' solicitudes')+' por revisar', `configState.tab='borrados';switchTab('config')`) : ''}
               ${isAdmin ? cardCritica('#0ea5e9', '💵', 'Préstamos/Adelantos pendientes', prestamoSolicPendientes||0, prestamoSolicDetalle || ((prestamoSolicPendientes===1?'1 solicitud':prestamoSolicPendientes+' solicitudes')+' por resolver'), `switchTab('prestamos')`) : ''}
@@ -8469,6 +8478,7 @@ async function cerrarMesUI() {
   if (btn) { btn.disabled = true; btn.textContent = 'Cerrando…'; }
   try {
     const resultado = await cerrarMes(periodoStr, localFiltro);
+    if (resultado?.cancelado) { toast('Cierre cancelado: no se tocó nada', 'info'); return; }
     toast(`✓ Mes cerrado · ${resultado.movimientos} movimientos al banco (${resultado.minutos_total >= 0 ? '+' : ''}${resultado.minutos_total} min total)`, 'success');
     renderResumenContent();
     actualizarBotonesCierreMes();
@@ -8501,7 +8511,8 @@ window.cerrarTodosLocalesUI = async function() {
   for (const local of pendientes) {
     try {
       const r = await cerrarMes(periodoStr, local);
-      resultados.push({ local, ok: true, ...r });
+      if (r?.cancelado) resultados.push({ local, ok: false, error: 'cancelado, no se cerró' });
+      else resultados.push({ local, ok: true, ...r });
     } catch (e) {
       resultados.push({ local, ok: false, error: e.message });
     }
@@ -8520,7 +8531,90 @@ window.cerrarTodosLocalesUI = async function() {
   actualizarBotonesCierreMes();
 };
 
-async function cerrarMes(periodo, local) {
+// ════════════════════════════════════════════════════════════
+// (27-oct-2026, JP) ACUMULADO DEL MES: tardanzas + salidas tempranas.
+// ÚNICA definición de la cuenta con la que el cierre descuenta del banco. La usan
+// el cierre, el Resumen mensual (columna "Al cierre"), el detalle día por día, la
+// tarjeta del tablero y el PDF de WhatsApp, para que se vea ANTES de cerrar.
+// Origen: Noguera sep-2026, −314 por dos cambios de turno no cargados que no
+// figuraban en ningún resumen; Sánchez 20/9, salida descontada a mano y otra vez
+// dentro del cierre.
+//  · Tardanza: TODOS los minutos desde el horario real (regla JP 1-sep).
+//  · Salida temprana: cuenta entera si pasa la tolerancia diaria del local.
+//  · Días salvados: no cuentan.
+//  · Ajuste MANUAL negativo ese día: se resta de lo del día (no se cobra dos veces).
+//  · Si el total pasa el umbral (60), el cierre descuenta TODO; si no, nada.
+// opts: tolTemp y umbral (número o función empleado_id → número) y manualesPorDia
+// ({ 'empId|fecha': minutos ya descontados, en positivo }).
+// Devuelve { [empleado_id]: { tarde, salidas, yaDescontado, total, umbral, supera, dias } }
+// ════════════════════════════════════════════════════════════
+function calcularAcumuladoMes(detalle, opts = {}) {
+  const val = (x, id, def) => { const v = (typeof x === 'function') ? x(id) : x; return (v == null || isNaN(v)) ? def : Number(v); };
+  const manuales = opts.manualesPorDia || {};
+  const res = {};
+  const filas = [...(detalle || [])].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  for (const d of filas) {
+    if (!d || d.error_salvado) continue;
+    const id = d.empleado_id;
+    const tolTemp = val(opts.tolTemp, id, 5);
+    const tarde = Math.max(0, d.minutos_tarde || 0);
+    const salida = (d.minutos_salida_temp || 0) > tolTemp ? (d.minutos_salida_temp || 0) : 0;
+    if (!tarde && !salida) continue;
+    const yaDesc = Math.min(tarde + salida, Math.max(0, manuales[`${id}|${d.fecha}`] || 0));
+    if (!res[id]) res[id] = { tarde: 0, salidas: 0, yaDescontado: 0, total: 0, umbral: val(opts.umbral, id, 60), supera: false, dias: [] };
+    const r = res[id];
+    r.tarde += tarde; r.salidas += salida; r.yaDescontado += yaDesc;
+    r.total += tarde + salida - yaDesc;
+    r.dias.push({ fecha: d.fecha, tarde, salida, yaDescontado: yaDesc });
+  }
+  for (const id in res) res[id].supera = res[id].total > res[id].umbral;
+  return res;
+}
+
+// "tardanzas 18 min + salidas tempranas 296 min = 314 min" (resta lo ya descontado a mano, si hay)
+function textoAcumuladoMes(p) {
+  if (!p) return '0 min';
+  const partes = [];
+  if (p.tarde) partes.push(`tardanzas ${p.tarde} min`);
+  if (p.salidas) partes.push(`salidas tempranas ${p.salidas} min`);
+  let txt = partes.join(' + ') || '0 min';
+  if (p.yaDescontado) txt += ` − ${p.yaDescontado} min ya descontados a mano`;
+  if (partes.length > 1 || p.yaDescontado) txt += ` = ${p.total} min`;
+  return txt;
+}
+
+// "10/09 tarde 12 · 11/09 salió 178 antes · …"
+function textoDiasAcumulado(p, maxDias = 12) {
+  const f = (iso) => `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}`;
+  const items = (p?.dias || []).map(x => {
+    const seg = [];
+    if (x.tarde) seg.push(`tarde ${x.tarde}`);
+    if (x.salida) seg.push(`salió ${x.salida} antes`);
+    if (x.yaDescontado) seg.push(`${x.yaDescontado} ya descontados`);
+    return `${f(x.fecha)} ${seg.join(', ')}`;
+  });
+  if (items.length > maxDias) return items.slice(0, maxDias).join(' · ') + ` · y ${items.length - maxDias} días más`;
+  return items.join(' · ');
+}
+
+// Ajustes MANUALES negativos del banco por día → { 'empId|fecha': minutos (positivo) }.
+// estricto: si la consulta falla, error (el cierre no puede seguir sin saberlo).
+async function cargarAjustesManualesPorDia(empIds, desde, hasta, { estricto = false } = {}) {
+  const map = {};
+  if (!empIds || !empIds.length) return map;
+  const { data, error } = await sb.from('rrhh_banco_minutos')
+    .select('empleado_id, fecha, minutos')
+    .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta)
+    .eq('referencia_tipo', 'manual').lt('minutos', 0);
+  if (error) {
+    if (estricto) throw new Error('No se pudieron leer los ajustes manuales del banco: ' + error.message);
+    console.warn('[ajustesManualesPorDia]', error.message);
+  }
+  (data || []).forEach(m => { const k = `${m.empleado_id}|${m.fecha}`; map[k] = (map[k] || 0) + Math.abs(m.minutos || 0); });
+  return map;
+}
+
+async function cerrarMes(periodo, local, opts = {}) {
   const [y, m] = periodo.split('-').map(Number);
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
@@ -8532,7 +8626,7 @@ async function cerrarMes(periodo, local) {
 
   // Cargar colaboradores del local
   const { data: colaboradores } = await sb.from('rrhh_empleados')
-    .select('id').eq('local', local).eq('estado','activo').eq('ficha', true);
+    .select('id, nombre_completo').eq('local', local).eq('estado','activo').eq('ficha', true);
   const empIds = (colaboradores || []).map(e => e.id);
   if (empIds.length === 0) throw new Error('Sin colaboradores para procesar');
 
@@ -8559,7 +8653,6 @@ async function cerrarMes(periodo, local) {
   //    Si el acumulado supera el umbral mensual → descontar TODO el acumulado.
   // ════════════════════════════════════════════════════════════
   const movimientos = [];
-  const acumPorEmp = {};  // pool combinado tardanzas + salidas tempranas (con tolerancia)
 
   // ── ANTI-DUPLICACIÓN: cargar los movs ya generados por el trigger
   //    trg_permisos_aplicar_banco_minutos para permisos puntuales de este mes.
@@ -8601,34 +8694,44 @@ async function cerrarMes(periodo, local) {
       });
     }
 
-    // 2) Acumular para el pool mensual: tardanzas + salidas tempranas
-    //    🚨 Regla JP (1-sep): al pool van TODOS los minutos desde el horario
-    //    real (turno + buffer), haya error de fichada o no. La tolerancia
-    //    diaria decide solo el ERROR (premio); llegar 8:07 no quema error
-    //    pero suma 7 minutos. Las salidas tempranas mantienen su tolerancia.
-    const tardeReal = d.minutos_tarde || 0;
-    const tempReal  = (d.minutos_salida_temp || 0) > tolDiariaTemp ? (d.minutos_salida_temp || 0) : 0;
-    const aSumar = tardeReal + tempReal;
-    if (aSumar > 0) {
-      acumPorEmp[d.empleado_id] = (acumPorEmp[d.empleado_id] || 0) + aSumar;
-    }
   }
 
-  // 3) Aplicar umbral mensual — solo descontar si excede
-  for (const empIdStr in acumPorEmp) {
+  // 2) Acumulado del mes: tardanzas + salidas tempranas. (27-oct-2026) La cuenta vive
+  //    en calcularAcumuladoMes, la MISMA que muestran el Resumen mensual, el detalle
+  //    día por día, el tablero y el PDF. Regla JP 1-sep: TODOS los minutos tarde desde
+  //    el horario real; las salidas tempranas, si pasan la tolerancia diaria. Lo ya
+  //    descontado a mano ese día no se vuelve a cobrar (caso Sánchez 20/9).
+  const manualesPorDia = await cargarAjustesManualesPorDia(empIds, fechaDesde, fechaHasta, { estricto: true });
+  const acumulado = calcularAcumuladoMes(detalle, { tolTemp: tolDiariaTemp, umbral: umbralMensual, manualesPorDia });
+
+  // 3) Aplicar umbral mensual — solo descontar si excede (descuenta TODO, no solo el exceso)
+  const descuentos = [];
+  for (const empIdStr in acumulado) {
     const empId = parseInt(empIdStr, 10);
-    const acum = acumPorEmp[empId];
-    if (acum > umbralMensual) {
-      movimientos.push({
-        empleado_id: empId,
-        fecha: fechaHasta,  // último día del mes
-        minutos: -acum,     // descuenta TODO el acumulado (no solo el exceso)
-        tipo: 'tarde',
-        referencia_tipo: 'umbral_mensual',
-        observaciones: `Cierre mes ${periodo}: ${acum} min (tardanzas + salidas tempranas) acumulados — supera umbral ${umbralMensual}min`,
-        creado_por: session.email,
-      });
-    }
+    const p = acumulado[empIdStr];
+    if (!empIds.includes(empId) || !p.supera) continue;
+    movimientos.push({
+      empleado_id: empId,
+      fecha: fechaHasta,  // último día del mes
+      minutos: -p.total,  // descuenta TODO el acumulado (no solo el exceso)
+      tipo: 'tarde',
+      referencia_tipo: 'umbral_mensual',
+      // empieza con "Cierre mes <periodo>" a propósito: reabrirMesUI borra por ese texto
+      observaciones: `Cierre mes ${periodo}: ${textoAcumuladoMes(p)}, supera el umbral de ${umbralMensual} min. Días: ${textoDiasAcumulado(p)}`,
+      creado_por: session.email,
+    });
+    descuentos.push({ empId, p });
+  }
+
+  // (27-oct-2026, JP) Antes de tocar el banco, decir a quién se le descuenta y por qué
+  // días. Caso Noguera sep: se cerró 5 min después de ignorar las sugerencias y el
+  // −314 no figuraba en ningún resumen.
+  if (descuentos.length && opts.confirmar !== false) {
+    const nombreDe = (id) => (colaboradores || []).find(c => c.id === id)?.nombre_completo || ('#' + id);
+    const lineas = descuentos.map(({ empId, p }) =>
+      `• ${nombreDe(empId)}: −${p.total} min\n   ${textoAcumuladoMes(p)}\n   ${textoDiasAcumulado(p, 8)}`).join('\n\n');
+    const ok = confirm(`Al cerrar ${LOCALES[local]?.nombre || local} ${periodo} se DESCUENTAN del banco de minutos (las tardanzas y salidas tempranas del mes pasan de ${umbralMensual} min):\n\n${lineas}\n\nSi alguno de esos días fue un cambio de turno o una salida autorizada, cancelá y corregilo antes de cerrar (sugerencia "🔄 Fue cambio de turno", "⋮ Otro turno" o el permiso).\n\n¿Cerrar igual?`);
+    if (!ok) return { cancelado: true, movimientos: 0, minutos_total: 0 };
   }
 
   // Insertar movimientos en lote
@@ -8832,9 +8935,10 @@ async function renderResumenContent() {
   });
 
   // Cargar config de tolerancias por local (para max_errores_premio)
-  const { data: tols } = await sb.from('rrhh_config_tolerancias').select('local, max_errores_premio');
+  const { data: tols } = await sb.from('rrhh_config_tolerancias').select('local, max_errores_premio, minutos_temprano, umbral_mensual_tardanzas');
   const maxErrPorLocal = {};
-  (tols || []).forEach(t => { maxErrPorLocal[t.local] = t.max_errores_premio || 4; });
+  const tolPorLocal = {};
+  (tols || []).forEach(t => { maxErrPorLocal[t.local] = t.max_errores_premio || 4; tolPorLocal[t.local] = t; });
 
   // Cargar overrides por colaboradora (caso Escasany = 2) — config vigente al mes
   // Tope: primer día del mes SIGUIENTE (robusto, no asume 31 días)
@@ -8862,8 +8966,18 @@ async function renderResumenContent() {
   };
 
   const lista = (colaboradores || []).sort((a,b) => (a.nombre_completo||'').localeCompare(b.nombre_completo||''));
+  // (27-oct-2026, JP) Acumulado del mes (tardanzas + salidas tempranas) con la MISMA
+  // cuenta que el cierre, para verlo ANTES de cerrar (columna "Al cierre").
+  const localDeEmp = {};
+  (colaboradores || []).forEach(e => { localDeEmp[e.id] = e.local; });
+  const manualesPorDia = await cargarAjustesManualesPorDia(lista.map(e => e.id), fechaDesde, fechaHasta);
+  const acumulado = calcularAcumuladoMes(detalle, {
+    tolTemp: (id) => tolPorLocal[localDeEmp[id]]?.minutos_temprano || 5,
+    umbral:  (id) => tolPorLocal[localDeEmp[id]]?.umbral_mensual_tardanzas || 60,
+    manualesPorDia,
+  });
   // Snapshot para el botón WhatsApp del resumen (waResumenAsistencia)
-  window._resumenAsis = { porEmp, lista, mes: asisState.mes, maxErrPorLocal, maxErrPorEmp, detalle };
+  window._resumenAsis = { porEmp, lista, mes: asisState.mes, maxErrPorLocal, maxErrPorEmp, detalle, acumulado, tolPorLocal };
   setTimeout(generarSugerenciasFichadas, 300);
 
   if (lista.length === 0 || Object.keys(porEmp).length === 0) {
@@ -8907,6 +9021,7 @@ async function renderResumenContent() {
           return (r.errores || 0) > max;
         }).length;
       })()}</div><div class="hint">empleados con +límite errores</div></div>
+      <div class="metric-card" style="border-left:4px solid #d97706;"><div class="label">⚠ Descuento al cierre</div><div class="value">${lista.filter(e => acumulado[e.id]?.supera).length}</div><div class="hint">tardanzas + salidas tempranas de más de 60 min</div></div>
     </div>
 
     <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
@@ -8920,8 +9035,10 @@ async function renderResumenContent() {
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">🌴 Vac.</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">📋 Lic.</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Min tarde</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;" title="Salidas antes del fin del turno que pasan la tolerancia diaria">Salió antes</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Min extra</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;">Δ banco</th>
+          <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:right;" title="Tardanzas + salidas tempranas del mes. Si pasan de 60 min, al cerrar se descuenta TODO del banco">Al cierre</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">🎖 Premio</th>
           <th style="padding:10px 12px;font-size:11px;color:var(--muted);text-align:center;">📱</th>
         </tr>
@@ -8939,8 +9056,18 @@ async function renderResumenContent() {
               <td style="padding:8px 12px;text-align:center;font-size:13px;color:var(--muted);">${r.vacaciones||0}</td>
               <td style="padding:8px 12px;text-align:center;font-size:13px;color:var(--muted);">${r.licencia||0}</td>
               <td style="padding:8px 12px;text-align:right;font-size:13px;color:${(r.min_tarde||0)>0?'var(--warning)':'var(--muted)'};">${fmtMin(r.min_tarde||0)}</td>
+              <td style="padding:8px 12px;text-align:right;font-size:13px;color:${(acumulado[e.id]?.salidas||0)>0?'var(--warning)':'var(--muted)'};">${fmtMin(acumulado[e.id]?.salidas||0)}</td>
               <td style="padding:8px 12px;text-align:right;font-size:13px;">${fmtMin(r.min_extra||0)}</td>
               <td style="padding:8px 12px;text-align:right;font-size:13px;font-weight:600;color:${(r.min_banco||0)>=0?'var(--success)':'var(--danger)'};">${fmtMin(r.min_banco||0)}</td>
+              <td style="padding:8px 12px;text-align:right;font-size:13px;">${(() => {
+                const p = acumulado[e.id];
+                if (!p || !p.total) return '<span style="color:var(--muted);">—</span>';
+                const umb = tolPorLocal[e.local]?.umbral_mensual_tardanzas || 60;
+                const tip = escapeHtml(`${textoAcumuladoMes(p)}. Días: ${textoDiasAcumulado(p, 31)}`);
+                return p.supera
+                  ? `<span title="${tip}" style="color:var(--danger);font-weight:700;white-space:nowrap;">−${fmtMin(p.total)}</span>`
+                  : `<span title="${tip}" style="color:var(--muted);white-space:nowrap;">${fmtMin(p.total)} de ${fmtMin(umb)}</span>`;
+              })()}</td>
               <td style="padding:8px 12px;text-align:center;font-size:12px;">${(() => {
                 const max = getMaxErr(e);
                 const err = r.errores || 0;
@@ -8955,7 +9082,7 @@ async function renderResumenContent() {
               </td>
             </tr>
             <tr id="detalle-${e.id}" style="display:none;background:#fafafa;">
-              <td colspan="12" style="padding:0;">
+              <td colspan="14" style="padding:0;">
                 <div id="detalle-cont-${e.id}" style="padding:16px 20px;">
                   <div class="spinner"></div>
                 </div>
@@ -8967,7 +9094,7 @@ async function renderResumenContent() {
     </table>
 
     <div class="hint" style="margin-top:10px;font-size:12px;color:var(--muted);text-align:right;">
-      <strong>Δ banco</strong> = minutos extras − minutos tarde sobre tolerancia − minutos faltantes por ausencias. Verde = a favor, rojo = deuda.
+      <strong>Δ banco</strong> = extras y permisos del mes ya cargados en el banco. <strong>Al cierre</strong> = tardanzas + salidas tempranas del mes, la misma cuenta que hace el cierre: si pasan de 60 min, al cerrar se descuenta TODO del banco (rojo); si no, no se descuenta nada (gris). Pasá el mouse por el número para ver los días.
     </div>
   `;
 }
@@ -9517,9 +9644,9 @@ async function waResumenAsistencia(empId) {
 
   try {
     const [{ data: det }, { data: tol }, { data: turnos }] = await Promise.all([
-      sb.from('rrhh_asistencias_detalle').select('fecha, entrada, salida, estado, minutos_tarde, minutos_extra, error_salvado')
+      sb.from('rrhh_asistencias_detalle').select('empleado_id, fecha, entrada, salida, estado, minutos_tarde, minutos_salida_temp, minutos_extra, error_salvado')
         .eq('empleado_id', empId).gte('fecha', desde).lte('fecha', hasta).order('fecha'),
-      sb.from('rrhh_config_tolerancias').select('buffer_entrada').eq('local', e.local).maybeSingle(),
+      sb.from('rrhh_config_tolerancias').select('buffer_entrada, minutos_tarde, minutos_temprano, umbral_mensual_tardanzas').eq('local', e.local).maybeSingle(),
       sb.from('rrhh_turnos').select('hora_inicio, hora_fin, es_franco').eq('empleado_id', empId).gte('fecha', desde).lte('fecha', hasta),
     ]);
 
@@ -9531,6 +9658,12 @@ async function waResumenAsistencia(empId) {
       freq[k] = (freq[k] || 0) + 1;
     });
     const turnoHab = Object.entries(freq).sort((a,b) => b[1]-a[1])[0]?.[0] || null;
+
+    // (27-oct-2026) Acumulado del mes con la MISMA cuenta que el cierre
+    const tolTempPdf = tol?.minutos_temprano ?? 5;
+    const umbralPdf = tol?.umbral_mensual_tardanzas || 60;
+    const manualesPdf = await cargarAjustesManualesPorDia([empId], desde, hasta);
+    const acumPdf = calcularAcumuladoMes(det || [], { tolTemp: tolTempPdf, umbral: umbralPdf, manualesPorDia: manualesPdf })[empId] || null;
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -9566,7 +9699,7 @@ async function waResumenAsistencia(empId) {
 
     // Tabla
     let y = 54;
-    const cols = [['FECHA',26],['ENTRADA',24],['SALIDA',24],['ESTADO',56],['MIN TARDE',22],['MIN EXTRA',22]];
+    const cols = [['FECHA',24],['ENTRADA',20],['SALIDA',20],['ESTADO',48],['MIN TARDE',20],['SALIÓ ANTES',22],['MIN EXTRA',20]];
     doc.setFillColor(249,250,251); doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
     doc.rect(margen, y, ancho, 6, 'FD');
     doc.setFont('helvetica','bold'); doc.setFontSize(6.8); doc.setTextColor(...MUT);
@@ -9574,15 +9707,21 @@ async function waResumenAsistencia(empId) {
     y += 6;
     doc.setFont('helvetica','normal'); doc.setFontSize(8);
 
-    let totT=0, totE=0, nP=0, nT=0, nA=0, nF=0, nFer=0, nVac=0;
+    let totT=0, totS=0, totE=0, nP=0, nTar=0, nSal=0, nA=0, nF=0, nFer=0, nVac=0;
     for (const d of (det || [])) {
       const dt = new Date(d.fecha + 'T12:00:00');
       const fechaTxt = `${String(dt.getDate()).padStart(2,'0')} - ${DIAS_S[dt.getDay()]}`;
       let est = d.estado || '';
       if (est === 'tarde' && d.error_salvado) est = 'justificada';
-      const mt = (est === 'tarde') ? (d.minutos_tarde || 0) : 0;
+      // (27-oct-2026) Los minutos que cuentan para el acumulado del mes (la cuenta del
+      // cierre): TODOS los minutos tarde y las salidas que pasan la tolerancia. Antes la
+      // tabla solo mostraba la tardanza de los días "tarde" y la salida temprana no
+      // aparecía ("Tarde (0 min)", caso Noguera 11/9 y 21/9).
+      const mt = d.error_salvado ? 0 : (d.minutos_tarde || 0);
+      const ms = (!d.error_salvado && (d.minutos_salida_temp || 0) > tolTempPdf) ? d.minutos_salida_temp : 0;
       const me = d.minutos_extra || 0;
-      const EST_TXT = { puntual:'Puntual', tarde:`Tarde (${mt} min)`, franco:'Franco', feriado:'Feriado',
+      const txtTarde = (mt && ms) ? `Tarde ${mt} · salió ${ms} antes` : (ms ? `Salió ${ms} min antes` : `Tarde (${mt} min)`);
+      const EST_TXT = { puntual:'Puntual', tarde: txtTarde, franco:'Franco', feriado:'Feriado',
         ausente:'Ausente', falta_fichada:'Falta de fichada', vacaciones:'Vacaciones', licencia:'Licencia',
         justificada:'Justificado (permiso)' };
       const fill = est === 'tarde' ? [254,243,199] : (['franco','feriado'].includes(est) ? [250,250,249] : [255,255,255]);
@@ -9590,35 +9729,51 @@ async function waResumenAsistencia(empId) {
       doc.rect(margen, y, ancho, 5.4, 'FD');
       let x = margen;
       const celdas = [fechaTxt, d.entrada ? d.entrada.substring(0,5) : '—', d.salida ? d.salida.substring(0,5) : '—',
-                      EST_TXT[est] || est, mt ? String(mt) : '—', me ? String(me) : '—'];
+                      EST_TXT[est] || est, mt ? String(mt) : '—', ms ? String(ms) : '—', me ? String(me) : '—'];
       for (let i = 0; i < cols.length; i++) {
         if (i === 3) doc.setTextColor(...(COLS_EST[est] || TXT));
         else if (i === 4) doc.setTextColor(...(mt ? [217,119,6] : MUT));
-        else if (i === 5) doc.setTextColor(...MUT);
+        else if (i === 5) doc.setTextColor(...(ms ? [217,119,6] : MUT));
+        else if (i === 6) doc.setTextColor(...MUT);
         else doc.setTextColor(...TXT);
         doc.text(celdas[i], x+1.5, y+3.8);
         x += cols[i][1];
       }
       y += 5.4;
       if (y > 262) { doc.addPage(); y = 20; }
-      totT += mt; totE += me;
-      if (est==='puntual') nP++; if (est==='tarde') nT++;
+      totT += mt; totS += ms; totE += me;
+      if (mt) nTar++; if (ms) nSal++;
+      if (est==='puntual') nP++;
       if (est==='ausente'||est==='falta_fichada') nA++;
       if (est==='franco') nF++; if (est==='feriado') nFer++; if (est==='vacaciones') nVac++;
     }
 
     // Resumen
+    // (27-oct-2026) Muestra las salidas tempranas y qué pasa al cierre con el acumulado
+    // del mes. Antes decía "Banco del mes: +0:00" aunque el cierre fuera a descontar
+    // (caso Noguera sep: −314).
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.6);
+    const partes = [`${nP} puntuales`, `${nTar} con llegada tarde (${totT} min)`, `${nSal} salidas antes (${totS} min)`, `${nA} ausencias`,
+      nVac ? `${nVac} vacaciones` : null, `${nF} francos`, nFer ? `${nFer} feriado(s)` : null,
+      `${totE} min extra`].filter(Boolean);
+    const lineaAcum = (!acumPdf || !acumPdf.total)
+      ? `Tardanzas y salidas tempranas del mes: 0 min. No se descuenta nada del banco.`
+      : `Tardanzas y salidas tempranas del mes: ${textoAcumuladoMes(acumPdf)}. `
+        + (acumPdf.supera ? `Pasan de ${umbralPdf} min: al cerrar el mes se descuentan ${acumPdf.total} min del banco.`
+                          : `No pasan de ${umbralPdf} min: no se descuenta nada del banco.`);
+    const l1 = doc.splitTextToSize(partes.join(' · '), ancho - 10);
+    const l2 = doc.splitTextToSize(lineaAcum, ancho - 10);
+    const altoBox = 10 + (l1.length + l2.length) * 4.4;
     y += 4;
+    if (y + altoBox > 284) { doc.addPage(); y = 20; }
     doc.setFillColor(240,253,244); doc.setDrawColor(...TEAL); doc.setLineWidth(0.4);
-    doc.rect(margen, y, ancho, 16, 'FD');
+    doc.rect(margen, y, ancho, altoBox, 'FD');
     doc.setTextColor(...TEAL); doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.text('Resumen del mes', margen+5, y+6);
     doc.setFont('helvetica','normal'); doc.setFontSize(8.6); doc.setTextColor(...TXT);
-    const fMin2 = (m2) => `${Math.floor(Math.abs(m2)/60)}:${String(Math.abs(m2)%60).padStart(2,'0')}`;
-    const partes = [`${nP} puntuales`, `${nT} tarde (${totT} min)`, `${nA} ausencias`,
-      nVac ? `${nVac} vacaciones` : null, `${nF} francos`, nFer ? `${nFer} feriado(s)` : null,
-      `${totE} min extra`, `Banco del mes: ${(r.min_banco||0) >= 0 ? '+' : '-'}${fMin2(r.min_banco || 0)}`].filter(Boolean);
-    doc.text(partes.join(' · '), margen+5, y+12);
+    l1.forEach((ln, i) => doc.text(ln, margen+5, y + 11.5 + i * 4.4));
+    doc.setTextColor(...((acumPdf && acumPdf.supera) ? [185,28,28] : TXT));
+    l2.forEach((ln, i) => doc.text(ln, margen+5, y + 11.5 + (l1.length + i) * 4.4));
 
     doc.setFontSize(6.5); doc.setTextColor(...MUT);
     doc.text(`Generado automáticamente por Colaboradores · Claudia Adorno · ${new Date().toLocaleDateString('es-AR')} · Documento informativo`, W/2, 290, { align: 'center' });
@@ -9703,20 +9858,23 @@ async function salvarError(detalleId, empId) {
 // Usado cuando la encargada cargó mal el turno (ej: mañana en vez de tarde) y las
 // fichadas reales matchean a otro template del catálogo.
 async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCustom, horaFinCustom) {
+  // (27-oct-2026) Devuelve true si cambió el turno y false si no (lo usa sugCambioTurno).
   if (!['admin','gerente'].includes(session.rol)) {
     toast('Solo encargada/admin pueden cambiar el turno', 'error');
-    return;
+    return false;
   }
+  // Mes cerrado: antes cambiaba el turno igual y recién fallaba el recálculo
+  if (await _mesAsistCerradoBloquea(empId, fecha)) return false;
 
   // Traer colaborador (local) y template (si templateId)
   const { data: emp } = await sb.from('rrhh_empleados').select('id, local, nombre_completo').eq('id', empId).single();
-  if (!emp) { toast('Colaborador no encontrado', 'error'); return; }
+  if (!emp) { toast('Colaborador no encontrado', 'error'); return false; }
 
   let nuevoTpl = null;
   let horaInicio, horaFin, tipo;
   if (templateId) {
     const { data: tpl } = await sb.from('rrhh_templates_turno').select('*').eq('id', templateId).single();
-    if (!tpl) { toast('Template no encontrado', 'error'); return; }
+    if (!tpl) { toast('Template no encontrado', 'error'); return false; }
     nuevoTpl = tpl;
     horaInicio = tpl.hora_inicio;
     horaFin = tpl.hora_fin;
@@ -9726,13 +9884,13 @@ async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCu
     horaFin = horaFinCustom;
     tipo = 'custom';
   } else {
-    toast('Falta template u horario', 'error'); return;
+    toast('Falta template u horario', 'error'); return false;
   }
 
   // Mensaje de confirmación
   const turnoNuevoTxt = nuevoTpl ? `${nuevoTpl.nombre} (${horaInicio.substring(0,5)}-${horaFin.substring(0,5)})`
                                  : `Horario personalizado ${horaInicio.substring(0,5)}-${horaFin.substring(0,5)}`;
-  if (!confirm(`¿Cambiar el turno planificado del ${fecha} a "${turnoNuevoTxt}"?\n\nSe recalcula el mes y se actualiza el banco/premio si corresponde.`)) return;
+  if (!confirm(`¿Cambiar el turno planificado del ${fecha} a "${turnoNuevoTxt}"?\n\nSe recalcula el mes y se actualiza el banco/premio si corresponde.`)) return false;
 
   // Traer turno previo para audit
   const { data: turnoPrevio } = await sb.from('rrhh_turnos').select('*').eq('empleado_id', empId).eq('fecha', fecha).maybeSingle();
@@ -9750,7 +9908,7 @@ async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCu
   };
   const { error } = await sb.from('rrhh_turnos')
     .upsert(updateData, { onConflict: 'empleado_id,fecha' });
-  if (error) { toast('Error al guardar: ' + error.message, 'error'); return; }
+  if (error) { toast('Error al guardar: ' + error.message, 'error'); return false; }
 
   // Audit log
   const valViejo = turnoPrevio ? `${turnoPrevio.hora_inicio?.substring(0,5)||'?'}-${turnoPrevio.hora_fin?.substring(0,5)||'?'} (${turnoPrevio.tipo||''})` : '(sin turno)';
@@ -9779,6 +9937,7 @@ async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCu
   // Re-render
   await renderDetalleEmpDia(empId);
   await renderResumenContent();
+  return true;
 }
 
 // Modal para que la encargada elija manualmente un template (o personalizado)
@@ -10057,6 +10216,7 @@ async function renderDetalleEmpDia(empId) {
   // Cargar local del empleado, tolerancias y templates en bloques independientes
   // (si uno falla, los otros siguen)
   let maxErr = 4;
+  let tolDet = {};
   let empLocal = null;
   let templatesLocal = [];
   try {
@@ -10065,8 +10225,8 @@ async function renderDetalleEmpDia(empId) {
   } catch(e) { console.warn('[detalle] no se pudo leer local del empleado', e); }
   try {
     if (empLocal) {
-      const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio').eq('local', empLocal).maybeSingle();
-      if (tol) maxErr = tol.max_errores_premio || 4;
+      const { data: tol } = await sb.from('rrhh_config_tolerancias').select('max_errores_premio, minutos_temprano, umbral_mensual_tardanzas, buffer_entrada').eq('local', empLocal).maybeSingle();
+      if (tol) { maxErr = tol.max_errores_premio || 4; tolDet = tol; }
     }
   } catch(e) { console.warn('[detalle] no se pudo leer tolerancias', e); }
   try {
@@ -10095,7 +10255,12 @@ async function renderDetalleEmpDia(empId) {
       const tf = _hhmmToMin(t.hora_fin);
       // Mismo turno que el actual: descartar (no tiene sentido sugerir cambiar a lo mismo)
       if (turnoActualInicio === ti && turnoActualFin === tf) continue;
-      const dEnt = Math.abs(entMin - ti);
+      // (27-oct-2026) La entrada se mide contra la VENTANA entre la hora cargada y el
+      // horario real (cargada + buffer): la gente llega cerca de la hora real y antes se
+      // comparaba solo con la cargada (10:02 contra 09:45 = 17 min > 15, no sugería nada;
+      // caso Noguera 11/9).
+      const iniReal = ti + (tolDet.buffer_entrada ?? 15);
+      const dEnt = entMin < ti ? (ti - entMin) : (entMin > iniReal ? entMin - iniReal : 0);
       const dSal = Math.abs(salMin - tf);
       if (dEnt <= TOL_MATCH_MIN && dSal <= TOL_MATCH_MIN) {
         const score = dEnt + dSal;
@@ -10104,6 +10269,13 @@ async function renderDetalleEmpDia(empId) {
     }
     return mejor;
   }
+
+  // (27-oct-2026) Acumulado del mes de esta colaboradora, con la misma cuenta que el cierre
+  let acumEmp = null;
+  try {
+    const _man = await cargarAjustesManualesPorDia([empId], fechaDesde, fechaHasta);
+    acumEmp = calcularAcumuladoMes(detalle, { tolTemp: tolDet.minutos_temprano || 5, umbral: tolDet.umbral_mensual_tardanzas || 60, manualesPorDia: _man })[empId] || null;
+  } catch (e) { console.warn('[detalle] acumulado', e); }
 
   cont.innerHTML = `
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Detalle día por día</div>
@@ -10117,6 +10289,7 @@ async function renderDetalleEmpDia(empId) {
           <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:center;">Salida</th>
           <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:center;">Estado</th>
           <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Tarde</th>
+          <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;" title="Minutos que se fue antes del fin del turno">Salió antes</th>
           <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Extra</th>
           <th style="padding:6px 10px;font-size:10px;color:var(--muted);text-align:right;">Δ Banco</th>
           <th style="padding:6px 10px;font-size:10px;color:var(--muted);">Observación</th>
@@ -10143,6 +10316,7 @@ async function renderDetalleEmpDia(empId) {
               <td style="padding:5px 10px;text-align:center;font-family:monospace;font-weight:${d.salida?'600':'400'};color:${sinSalida?'var(--danger)':'var(--text)'};">${sinSalida?'⚠ falta':fmtHora(d.salida)}</td>
               <td style="padding:5px 10px;text-align:center;"><span style="background:${est.bg};color:${est.color};padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;white-space:nowrap;">${est.label}</span></td>
               <td style="padding:5px 10px;text-align:right;color:${(d.minutos_tarde||0)>0?'var(--warning)':'var(--muted)'};">${fmtMin(d.minutos_tarde||0)}</td>
+              <td style="padding:5px 10px;text-align:right;color:${(d.minutos_salida_temp||0)>(tolDet.minutos_temprano||5)?'var(--warning)':'var(--muted)'};">${fmtMin(d.minutos_salida_temp||0)}</td>
               <td style="padding:5px 10px;text-align:right;color:${(d.minutos_extra||0)>0?'var(--success)':'var(--muted)'};">${fmtMin(d.minutos_extra||0)}</td>
               <td style="padding:5px 10px;text-align:right;font-weight:600;color:${banco>=0?'var(--success)':'var(--danger)'};">${fmtMin(banco)}</td>
               <td style="padding:5px 10px;font-size:11px;">
@@ -10199,6 +10373,14 @@ async function renderDetalleEmpDia(empId) {
     <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;flex-wrap:wrap;">
       <div style="color:var(--muted);">
         💡 <strong>🎖 ERROR</strong>: días que cuentan contra el premio. Encargada/admin puede <strong>Salvar</strong> un error (queda registrado el motivo).
+        ${(() => {
+          const umb = tolDet.umbral_mensual_tardanzas || 60;
+          if (!acumEmp || !acumEmp.total) return `<br>⏱ Tardanzas + salidas tempranas del mes: 0 min. Al cierre no se descuenta nada.`;
+          return `<br>⏱ Tardanzas + salidas tempranas del mes: <strong>${escapeHtml(textoAcumuladoMes(acumEmp))}</strong>. `
+            + (acumEmp.supera
+              ? `<span style="color:var(--danger);font-weight:600;">Pasa de ${umb} min: al cerrar se descuentan los ${acumEmp.total} min del banco.</span> Si algún día fue cambio de turno o salida autorizada, corregilo antes de cerrar.`
+              : `No pasa de ${umb} min: al cierre no se descuenta nada.`);
+        })()}
       </div>
       <div style="display:flex;gap:10px;align-items:center;">
         ${totalSalvados > 0 ? `<span style="font-size:11px;color:#0d9488;">✓ ${totalSalvados} salvado${totalSalvados!==1?'s':''}</span>` : ''}
@@ -10922,6 +11104,39 @@ async function listarPermisos() {
 // ════════════════════════════════════════════════════════════
 const SUG_UMBRAL_MIN = 30;
 
+// (27-oct-2026, JP) ¿El día es un turno CORRIDO? Devuelve null o
+// { sentido: 'antes'|'despues', inicio: 'HH:MM' (hora cargada), fin: 'HH:MM', minutos, detalle }.
+//  · 'antes': se fue 30 min o más antes del fin y entró antes del horario real por lo
+//    menos lo mismo (30 de margen). El fin nuevo sale de la SALIDA redondeada a 15 min
+//    y el inicio = fin − duración del turno. Se ancla en la salida porque la entrada
+//    puede venir de una marca suelta del reloj (Noguera 21/9: 01:05).
+//  · 'despues': entró 30 min o más tarde y se fue después del fin por lo menos lo mismo.
+//    El inicio nuevo sale de la ENTRADA.
+//  · Devuelve la hora de inicio CARGADA (real − buffer), como se cargan los turnos.
+function detectarCambioTurno(d, tu, buffer = 15) {
+  if (!d || !tu || tu.es_franco || !tu.hora_inicio || !tu.hora_fin || !d.entrada || !d.salida) return null;
+  const _m = (t) => { const p = String(t).split(':'); return p.length >= 2 ? (+p[0]) * 60 + (+p[1]) : null; };
+  const _h = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+  const ini = _m(tu.hora_inicio) + buffer, fin = _m(tu.hora_fin), dur = fin - ini;
+  const ent = _m(d.entrada), sal = _m(d.salida);
+  if ([ini, fin, ent, sal].some(v => v == null || isNaN(v)) || dur <= 0) return null;
+  const MIN = SUG_UMBRAL_MIN, MARGEN = 30;
+  let sentido = null, nIni = null, minutos = 0;
+  const salioAntes = fin - sal, entroAntes = ini - ent;
+  const entroTarde = ent - ini, salioDespues = sal - fin;
+  if (salioAntes >= MIN && entroAntes >= salioAntes - MARGEN) {
+    nIni = Math.round(sal / 15) * 15 - dur; sentido = 'antes'; minutos = salioAntes;
+  } else if (entroTarde >= MIN && salioDespues >= entroTarde - MARGEN) {
+    nIni = Math.round(ent / 15) * 15; sentido = 'despues'; minutos = entroTarde;
+  }
+  if (!sentido || nIni - buffer < 0 || nIni + dur > 24 * 60) return null;
+  const inicio = _h(nIni - buffer), finTxt = _h(nIni + dur);
+  const hh = (t) => String(t).slice(0, 5);
+  const detalle = `Fichó ${hh(d.entrada)} a ${hh(d.salida)} y el turno cargado es ${hh(tu.hora_inicio)} a ${hh(tu.hora_fin)}: ¿fue cambio de turno? `
+    + `Si lo corregís a ${inicio} a ${finTxt}, el día queda en regla. Si lo ignorás, al cierre cuentan ${minutos} min de ${sentido === 'antes' ? 'salida temprana' : 'llegada tarde'}.`;
+  return { sentido, inicio, fin: finTxt, minutos, detalle };
+}
+
 async function generarSugerenciasFichadas() {
   try {
     const snap = window._resumenAsis;
@@ -10948,7 +11163,7 @@ async function generarSugerenciasFichadas() {
     // (3-sep, JP) turnos del mes: para detectar entradas tempranas (>45 min
     // antes del horario real) y francos trabajados sin marca de "doble"
     const { data: turnosMes } = await sb.from('rrhh_turnos')
-      .select('empleado_id, fecha, hora_inicio, es_franco, tipo, doble')
+      .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, doble')
       .in('empleado_id', empIds).gte('fecha', desde).lte('fecha', hasta);
     const turnoMap = {};
     (turnosMes || []).forEach(t => { turnoMap[`${t.empleado_id}_${t.fecha}`] = t; });
@@ -10962,6 +11177,18 @@ async function generarSugerenciasFichadas() {
       if (!empIds.includes(d.empleado_id) || d.error_salvado) return;
       const key = `${d.empleado_id}_${d.fecha}`;
       const tu = turnoMap[key];
+      // (27-oct-2026, JP) Turno CORRIDO: entró antes y se fue antes (o entró tarde y se fue
+      // tarde) más o menos lo mismo, trabajando el turno completo: casi seguro un cambio de
+      // turno que no se cargó. UNA sugerencia con botón para corregir el turno, en vez de
+      // "entró antes" + "se retiró sin permiso" (caso Noguera 11/9 y 21/9: se ignoraron
+      // las dos y el cierre cobró 296 min).
+      if (!permSet.has(key) && !extraSet.has(key)) {
+        const cambio = detectarCambioTurno(d, tu, BUFFER_REAL);
+        if (cambio) {
+          cands.push({ empleado_id: d.empleado_id, fecha: d.fecha, tipo: 'cambio_turno', minutos: cambio.minutos, detalle: cambio.detalle });
+          return;
+        }
+      }
       // entrada temprana: solo si hay turno con hora y no hay extra cargada ese día
       if (tu && !tu.es_franco && tu.hora_inicio && d.entrada && !extraSet.has(key)) {
         const real = _m(tu.hora_inicio) + BUFFER_REAL, ent = _m(d.entrada);
@@ -11086,7 +11313,7 @@ function renderSugFichadasPanel(sugs) {
     const dt = new Date(f + 'T12:00:00');
     return `${DIAS_S[dt.getDay()]} ${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`;
   };
-  const ICONO_SUG = { extra: '⏰', extra_antes: '🌅', extra_franco: '📅', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪', permiso_sin_uso: '↩', permiso_parcial: '⚖', extra_sin_respaldo: '🚫' };
+  const ICONO_SUG = { extra: '⏰', extra_antes: '🌅', extra_franco: '📅', falta_permiso_tarde: '🕐', falta_permiso_salida: '🚪', permiso_sin_uso: '↩', permiso_parcial: '⚖', extra_sin_respaldo: '🚫', cambio_turno: '🔄' };
   cont.style.display = 'block';
   cont.innerHTML = `
     <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;margin-bottom:16px;overflow:hidden;">
@@ -11105,6 +11332,7 @@ function renderSugFichadasPanel(sugs) {
             <span style="color:#78716c;flex:1;min-width:180px;">${escapeHtml(su.detalle || '')}</span>
             ${(() => {
               const b = (bg, fn, txt) => `<button class="btn" style="font-size:11px;padding:4px 10px;background:${bg};color:white;border:none;border-radius:6px;" onclick="${fn}(${su.id})">${txt}</button>`;
+              if (su.tipo === 'cambio_turno') return b('#0d9488', 'sugCambioTurno', '🔄 Fue cambio de turno');
               if (su.tipo === 'extra' || su.tipo === 'extra_antes' || su.tipo === 'extra_franco') return b('#065f46', 'sugAplicarExtra', '✔ Cargar extra');
               // Permisos retroactivos: SOLO admin (regla 4-ago). Encargadas solo
               // ignoran — el descuento lo hace el pool de tardanzas al cierre.
@@ -11116,7 +11344,7 @@ function renderSugFichadasPanel(sugs) {
                 return b('#b91c1c', 'sugAnularExtra', '🗑 Anular extra');
               return '';
             })()}
-            <button class="btn" style="font-size:11px;padding:4px 10px;border-radius:6px;" onclick="sugIgnorar(${su.id})">✖ Ignorar</button>
+            <button class="btn" style="font-size:11px;padding:4px 10px;border-radius:6px;" title="${['cambio_turno','falta_permiso_tarde','falta_permiso_salida'].includes(su.tipo) ? 'Ignorar no perdona: esos minutos se cuentan al cierre del mes' : 'Descartar esta sugerencia'}" onclick="sugIgnorar(${su.id})">✖ Ignorar</button>
           </div>`).join('')}
       </div>
     </div>`;
@@ -11242,6 +11470,11 @@ async function sugAnularExtra(id) {
 }
 
 async function sugIgnorar(id) {
+  // (27-oct-2026, JP) Ignorar una llegada tarde o salida temprana NO la perdona: los
+  // minutos quedan para el cierre. Se avisa antes (caso Noguera sep: −314).
+  const _su = (window._sugsFichadas || {})[id];
+  if (_su && ['cambio_turno', 'falta_permiso_tarde', 'falta_permiso_salida'].includes(_su.tipo)
+      && !confirm(`Ignorar no perdona estos ${_su.minutos} min: quedan para el cierre del mes. Si las tardanzas y salidas tempranas del mes pasan de 60 min, se descuentan del banco.${_su.tipo === 'cambio_turno' ? '\n\nSi fue un cambio de turno, usá "🔄 Fue cambio de turno".' : ''}\n\n¿Ignorar igual?`)) return;
   const { error } = await sb.from('rrhh_fichadas_sugerencias').update({
     estado: 'ignorada', resuelto_por: session.email, resuelto_at: new Date().toISOString(),
   }).eq('id', id);
@@ -11249,6 +11482,37 @@ async function sugIgnorar(id) {
   toast('Sugerencia ignorada', 'info');
   document.getElementById(`sug-row-${id}`)?.remove();
   _sugActualizarContador();
+}
+
+// (27-oct-2026, JP) 🔄 Fue cambio de turno: corrige el turno del día a lo que trabajó y
+// recalcula el mes (mismo camino que "⋮ Otro turno": cambiarTurnoDia). Si el horario
+// coincide con un turno del catálogo del local, usa ese.
+async function sugCambioTurno(id) {
+  const su = (window._sugsFichadas || {})[id];
+  if (!su) { toast('Recargá el resumen', 'error'); return; }
+  if (await _mesAsistCerradoBloquea(su.empleado_id, su.fecha)) return;
+  const [{ data: d }, { data: tu }, { data: emp }] = await Promise.all([
+    sb.from('rrhh_asistencias_detalle').select('id, empleado_id, fecha, entrada, salida').eq('empleado_id', su.empleado_id).eq('fecha', su.fecha).maybeSingle(),
+    sb.from('rrhh_turnos').select('id, hora_inicio, hora_fin, es_franco').eq('empleado_id', su.empleado_id).eq('fecha', su.fecha).maybeSingle(),
+    sb.from('rrhh_empleados').select('local').eq('id', su.empleado_id).maybeSingle(),
+  ]);
+  const { data: tol } = await sb.from('rrhh_config_tolerancias').select('buffer_entrada').eq('local', emp?.local || '').maybeSingle();
+  const c = detectarCambioTurno(d, tu, tol?.buffer_entrada ?? 15);
+  if (!d || !c) { toast('Las fichadas de ese día ya no muestran un cambio de turno. Recargá el resumen.', 'error'); return; }
+  const { data: tpls } = await sb.from('rrhh_templates_turno').select('id, hora_inicio, hora_fin, es_franco').eq('local', emp?.local || '');
+  const tpl = (tpls || []).find(t => !t.es_franco && String(t.hora_inicio || '').slice(0, 5) === c.inicio && String(t.hora_fin || '').slice(0, 5) === c.fin);
+  // Se marca ANTES de recalcular (si no, el recálculo la borra como resuelta sola) y vuelve
+  // a pendiente si se cancela o falla.
+  const { error: e1 } = await sb.from('rrhh_fichadas_sugerencias').update({
+    estado: 'aplicada', resuelto_por: session.email, resuelto_at: new Date().toISOString(),
+  }).eq('id', id);
+  if (e1) { toast('Error: ' + e1.message, 'error'); return; }
+  const ok = await cambiarTurnoDia(d.id, su.empleado_id, su.fecha, tpl ? tpl.id : null, tpl ? null : c.inicio, tpl ? null : c.fin);
+  if (!ok) {
+    await sb.from('rrhh_fichadas_sugerencias').update({ estado: 'pendiente', resuelto_por: null, resuelto_at: null }).eq('id', id);
+    return;
+  }
+  toast('Turno corregido ✓ El día ya no cuenta como salida temprana ni llegada tarde.', 'success');
 }
 
 async function abrirNuevoPermisoAdmin() {
@@ -13536,7 +13800,7 @@ const TIPOS_BANCO = {
   'hora_extra':          { label: 'Hora extra',          color: '#0d9488', icon: '⏱' },
   'permiso_compensado':  { label: 'Permiso descontado',  color: '#dc2626', icon: '🙋' },
   'falta':               { label: 'Ausente',             color: '#dc2626', icon: '✗' },
-  'tarde':               { label: 'Tardanzas mensuales', color: '#d97706', icon: '⚠' },
+  'tarde':               { label: 'Tardanzas y salidas tempranas', color: '#d97706', icon: '⚠' },
   'salida_temprana':     { label: 'Salida temprana',     color: '#d97706', icon: '↩' },
   'pago':                { label: 'Pago',                color: '#7c3aed', icon: '💵' },
   'ajuste':              { label: 'Ajuste manual',       color: '#6b7280', icon: '🔧' },
@@ -22018,7 +22282,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=22"></script>
+<script src="manuales.js?v=23"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=1"></script>
 <script src="liquidaciones.js?v=1"></script>
