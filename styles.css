@@ -107,6 +107,8 @@ input, select, textarea { font-family: inherit; font-size: 15px; }
   padding: 6px 12px; border-radius: 8px; font-size: 13px; transition: all 0.15s;
 }
 .logout-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+/* Íconos de Instalar y Salir: solo se ven en celular (ahí se esconde el texto) */
+.topbar .tb-ico { display: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .layout { display: flex; flex: 1; }
 
@@ -402,10 +404,36 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   .main { padding: 16px 12px; }
   .modal { max-width: 100%; margin: 0; border-radius: 12px; }
   .form-grid { grid-template-columns: 1fr; }
-  .topbar { padding: 10px 14px; }
-  .topbar-logo h1 { font-size: 16px; }
   .user-info .name { display: none; }
+  /* (28-oct-2026) Barra de arriba en celular: no puede ser más ancha que la pantalla (medía hasta 458px
+     en 375). Sin "Claudia Adorno", Instalar y Salir solo con su ícono (sin recuadro) y el cartel del
+     módulo más chico. Si igual no entra (pantallas de 320px), el cartel se corta con "…". */
+  .topbar { padding: 8px; gap: 6px; }
+  .topbar-left { gap: 6px; min-width: 0; }
+  .topbar-logo { min-width: 0; }
+  .topbar-logo h1 { display: none; }
+  .topbar-logo .badge { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; letter-spacing: 0.06em; padding: 3px 8px; }
+  .topbar-right { gap: 2px; flex-shrink: 0; }
+  .user-info .role { font-size: 10px; padding: 2px 6px; letter-spacing: 0.03em; }
+  .nav-toggle { padding: 5px 8px; }
+  .topbar .logout-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 6px; border-color: transparent; margin-right: 0 !important; }
+  .topbar .tb-ico { display: block; }
+  .topbar .tb-txt { display: none; }
 }
+
+/* (28-oct-2026) iPhone: si un campo tiene letra de menos de 16px, Safari agranda la página al tocarlo
+   y la deja agrandada (todo se corta a la derecha). En celular (con dedo y pantalla angosta, o acostado)
+   los campos de escribir o elegir van a 16px aunque tengan otro tamaño escrito en el propio campo.
+   Casillas, archivos y botones quedan como están. Las tablets no cambian. */
+@media (pointer: coarse) and (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]),
+  select, textarea { font-size: 16px !important; }
+}
+
+/* (28-oct-2026) Red de seguridad: lo que quede fuera del contenido (la barra de arriba, avisos) no puede
+   hacer la página más ancha que la pantalla (en el celular se podía arrastrar a los costados).
+   `clip` no rompe la barra fija de arriba; `hidden` sí. El contenido (.main) ya tiene su propio scroll. */
+#app-screen { overflow-x: clip; }
 
 
 /* Grilla de Liquidación: el alto lo calcula liqWireScrollDoble() en runtime

@@ -466,7 +466,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 
@@ -535,8 +535,8 @@ window.ADORNO_SSO = (function () {
         <span class="name" id="user-name">—</span>
         <span class="role" id="user-role">—</span>
       </div>
-      <button class="logout-btn" id="install-btn" title="Instalar como app" style="display:none;margin-right:6px;">⬇ Instalar</button>
-      <button class="logout-btn" id="logout-btn">Salir</button>
+      <button class="logout-btn" id="install-btn" title="Instalar como app" aria-label="Instalar como app" style="display:none;margin-right:6px;"><svg class="tb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg><span class="tb-txt">⬇ Instalar</span></button>
+      <button class="logout-btn" id="logout-btn" title="Salir" aria-label="Salir"><svg class="tb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg><span class="tb-txt">Salir</span></button>
     </div>
   </header>
   <div class="layout">
@@ -5621,14 +5621,14 @@ async function renderMiLegajo() {
       </div>
     </div>
 
-    <div class="card" style="display:flex;align-items:center;gap:18px;">
+    <div class="card" style="display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;">
       <div class="avatar" style="width:84px;height:84px;border-radius:50%;overflow:hidden;flex-shrink:0;background:#eef2ff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#6366f1;">
         ${full?.foto_url ? `<img src="${escapeHtml(full.foto_url)}" style="width:100%;height:100%;object-fit:cover;">` : escapeHtml(initials(full?.apellido, full?.nombre))}
       </div>
-      <div style="flex:1;">
+      <div style="flex:1 1 220px;min-width:0;">
         <div class="section-title" style="margin-top:0;">Mi foto</div>
         <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Subí una foto tuya para tu perfil (JPG o PNG).</div>
-        <input type="file" id="self-foto-file" accept="image/*" onchange="subirMiFoto(this)" style="font-size:13px;">
+        <input type="file" id="self-foto-file" accept="image/*" onchange="subirMiFoto(this)" style="font-size:13px;max-width:100%;">
         ${full?.foto_url ? `<button class="btn small" style="margin-top:8px;background:#fee2e2;color:#991b1b;border-color:#fca5a5;"
           onclick="pedirBorradoFoto()" title="Pedir al admin que borre tu foto de perfil">🗑️ Pedir borrado de mi foto</button>` : ''}
       </div>
@@ -6186,7 +6186,7 @@ async function renderMisVacaciones() {
         </div>
       </div>
       <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <div id="vac-preview" style="font-size:13px;color:var(--muted);">Seleccioná fechas para calcular días</div>
+        <div id="vac-preview" style="font-size:13px;color:var(--muted);">${_vacEsOficina() ? 'Seleccioná fechas: en Oficina se cuentan días hábiles (de lunes a viernes)' : 'Seleccioná fechas para calcular días'}</div>
         <div style="display:flex;gap:8px;">
           <button class="btn" onclick="abrirSolicitarPagoVac()" title="Solicitar que se te paguen días en vez de tomarlos">💵 Solicitar pago</button>
           <button class="btn accent2" onclick="solicitarVacaciones()">Solicitar</button>
@@ -6205,7 +6205,7 @@ async function renderMisVacaciones() {
             <li>
               <div style="flex:1;">
                 <strong>${fmtFecha(m.fecha_desde)} → ${fmtFecha(m.fecha_hasta)}</strong>
-                <div class="meta">${m.dias} días${m.fecha_aprobacion ? ' · respondido ' + fmtFecha(m.fecha_aprobacion.split('T')[0]) : ''}${m.motivo_rechazo ? ' · "'+escapeHtml(m.motivo_rechazo)+'"' : ''}${m.observaciones ? ' · '+escapeHtml(m.observaciones) : ''}</div>
+                <div class="meta">${m.dias} ${_vacEsOficina() ? 'días hábiles' : 'días'}${m.fecha_aprobacion ? ' · respondido ' + fmtFecha(m.fecha_aprobacion.split('T')[0]) : ''}${m.motivo_rechazo ? ' · "'+escapeHtml(m.motivo_rechazo)+'"' : ''}${m.observaciones ? ' · '+escapeHtml(m.observaciones) : ''}</div>
                 ${esPendiente ? `
                   <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
                     <button class="btn small" onclick="modificarMiVacacion(${m.id})">✏️ Modificar</button>
@@ -6241,6 +6241,16 @@ async function renderMisVacaciones() {
   `;
 }
 
+// (28-oct-2026) Cómo se cuentan los días que pide la colaboradora: Oficina = HÁBILES (lunes a viernes,
+// _diasHabilesUI), locales = corridos. Es la misma regla de la carga de la encargada y de la carga masiva;
+// antes "Mis vacaciones" contaba corridos para todos (una semana de Oficina se registraba como 7 días y no 5).
+function _vacEsOficina() { return !!(session && session.empleadoData && session.empleadoData.local === 'oficina'); }
+function _vacDiasPedidos(desde, hasta) {
+  if (!desde || !hasta || hasta < desde) return 0;
+  return _vacEsOficina() ? _diasHabilesUI(desde, hasta)
+    : Math.round((new Date(hasta + 'T12:00:00') - new Date(desde + 'T12:00:00')) / 86400000) + 1;
+}
+
 // Wiring post-render para mis-vacaciones (calculador de días)
 function wireVacacionesForm() {
   const dEl = document.getElementById('vac-desde');
@@ -6250,9 +6260,12 @@ function wireVacacionesForm() {
     const d = dEl.value, h = hEl.value;
     const prev = document.getElementById('vac-preview');
     if (!d || !h) { prev.textContent = 'Seleccioná fechas'; return; }
-    const dias = Math.round((new Date(h) - new Date(d)) / (1000*60*60*24)) + 1;
-    if (dias <= 0) { prev.textContent = 'Las fechas son inválidas'; return; }
-    prev.textContent = dias + ' días corridos';
+    if (h < d) { prev.textContent = 'Las fechas son inválidas'; return; }
+    const ofi = _vacEsOficina();
+    const dias = _vacDiasPedidos(d, h);
+    if (dias <= 0) { prev.textContent = ofi ? 'Esas fechas no tienen días hábiles (en Oficina se cuentan de lunes a viernes)' : 'Las fechas son inválidas'; return; }
+    prev.textContent = ofi ? `${dias} ${dias === 1 ? 'día hábil' : 'días hábiles'} (en Oficina se cuentan de lunes a viernes)`
+                           : `${dias} ${dias === 1 ? 'día corrido' : 'días corridos'}`;
   };
   dEl.addEventListener('change', calc);
   hEl.addEventListener('change', calc);
@@ -6344,8 +6357,12 @@ async function solicitarVacaciones() {
     hasta = ext.hasta;
   }
 
-  const dias = Math.round((new Date(hasta) - new Date(desde)) / (1000*60*60*24)) + 1;
-  if (dias <= 0) { toast('Fechas inválidas', 'error'); return; }
+  // (28-oct-2026) Oficina: días hábiles (lunes a viernes), igual que la carga de la encargada. Locales: corridos.
+  const esOfi = _vacEsOficina();
+  const uDias = esOfi ? 'días hábiles' : 'días';
+  if (hasta < desde) { toast('Fechas inválidas', 'error'); return; }
+  const dias = _vacDiasPedidos(desde, hasta);
+  if (dias <= 0) { toast(esOfi ? 'Esas fechas no tienen días hábiles: en Oficina las vacaciones se cuentan de lunes a viernes' : 'Fechas inválidas', 'error'); return; }
 
   // ── FIFO multi-año: cargar TODOS los saldos del empleado, en orden ascendente ──
   // El sistema permite tomar vacaciones aunque el saldo esté en años anteriores
@@ -6371,11 +6388,11 @@ async function solicitarVacaciones() {
   }
   if (dias > totalAjustado) {
     const detalle = todosSaldos.map(s => `${s.año}: ${s.dias_pendientes}`).join(' · ');
-    if (!confirm(`Estás pidiendo ${dias} días pero tenés ${totalAjustado} pendientes (${detalle}). ¿${_editandoVacacionId ? 'Modificar' : 'Solicitar'} igual?`)) return;
+    if (!confirm(`Estás pidiendo ${dias} ${uDias} pero tenés ${totalAjustado} pendientes (${detalle}). ¿${_editandoVacacionId ? 'Modificar' : 'Solicitar'} igual?`)) return;
   } else if (todosSaldos.length > 1) {
     // Mostrar resumen FIFO informativo cuando hay saldo en múltiples años
     const detalle = todosSaldos.map(s => `${s.año}: ${s.dias_pendientes}`).join(' · ');
-    if (!confirm(`Vas a pedir ${dias} días.\n\nTu saldo: ${totalDisponible} días disponibles\n  ${detalle}\n\nSe descuenta del año más viejo primero (FIFO).\n\n¿Confirmás?`)) return;
+    if (!confirm(`Vas a pedir ${dias} ${uDias}.\n\nTu saldo: ${totalDisponible} días disponibles\n  ${detalle}\n\nSe descuenta del año más viejo primero (FIFO).\n\n¿Confirmás?`)) return;
   }
   // Mantengo nombre legacy de la variable para el resto del código
   const saldo = saldoMasViejo;
@@ -6387,7 +6404,7 @@ async function solicitarVacaciones() {
       observaciones: obs || null,
     }).eq('id', _editandoVacacionId);
     if (error) { toast(_mensajeErrorVacaciones(error), 'error'); return; }
-    await auditLog('modificar_vacaciones', 'rrhh_vacaciones_movimientos', _editandoVacacionId, null, null, `${desde} → ${hasta} (${dias}d)`);
+    await auditLog('modificar_vacaciones', 'rrhh_vacaciones_movimientos', _editandoVacacionId, null, null, `${desde} → ${hasta} (${dias}d${esOfi ? ' hábiles' : ''})`);
     toast('Solicitud modificada ✓', 'success');
     _editandoVacacionId = null;
     switchTab('mis-vacaciones');
@@ -6402,7 +6419,7 @@ async function solicitarVacaciones() {
     observaciones: obs || null,
   }).select().single();
   if (error) { toast(_mensajeErrorVacaciones(error), 'error'); return; }
-  await auditLog('solicitar_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d)`);
+  await auditLog('solicitar_vacaciones', 'rrhh_vacaciones_movimientos', data.id, null, null, `${desde} → ${hasta} (${dias}d${esOfi ? ' hábiles' : ''})`);
 
   // 🔔 Notif al admin (igual para vendedoras de oficina porque JP es encargado de oficina)
   const _nombre = session.empleadoData?.nombre_completo || 'Una empleada';
@@ -6412,7 +6429,7 @@ async function solicitarVacaciones() {
   const _sol = await _vacSolapadas(session.empleado_id, desde, hasta, data.id);
   notifAdmins(
     _sol.length ? '⚠ Vacaciones SUPERPUESTAS — revisar' : '🌴 Solicitud de vacaciones',
-    `${_nombre} (${_localTxt}) pidió ${dias} día(s) del ${_desdeFmt} al ${_hastaFmt}.` +
+    `${_nombre} (${_localTxt}) pidió ${dias} ${esOfi ? 'día(s) hábil(es)' : 'día(s)'} del ${_desdeFmt} al ${_hastaFmt}.` +
       (_sol.length ? ` SE SUPERPONE con: ${_vacSolapadasTxt(_sol)}.` : ''),
     { url: './#vacaciones', tag: 'vac-' + data.id }
   );
@@ -22414,7 +22431,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=23"></script>
+<script src="manuales.js?v=24"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=1"></script>
 <script src="liquidaciones.js?v=1"></script>

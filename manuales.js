@@ -148,9 +148,11 @@ const MANUAL_EMPLEADO = [
     desc: 'Saldo de tus días de vacaciones + pedir tomarlas o cobrarlas.',
     pasos: [
       'Arriba ves cuántos días tenés disponibles.',
-      'Click "+ Pedir vacaciones" para solicitar días.',
+      'Para pedir días, en la tarjeta "Solicitar vacaciones" elegí "Desde" y "Hasta" (si querés, agregá una observación) y tocá "Solicitar".',
+      'Debajo de las fechas aparece cuántos días se te descuentan: en Oficina se cuentan días hábiles (de lunes a viernes, una semana son 5); en los locales, días corridos (una semana son 7).',
+      'En los locales, si el pedido toma un solo día del fin de semana, el sistema te muestra cómo sumar el otro para que el finde quede completo y te pide confirmarlo.',
       'También podés pedir que se te paguen días sin tomarlos (botón "💵 Solicitar pago").',
-      'Todo lo que pidas queda pendiente hasta que la encargada apruebe.',
+      'Todo lo que pidas queda pendiente hasta que la encargada apruebe. Mientras está pendiente, en "Mis solicitudes" lo podés modificar o anular.',
     ],
     img: null,
   },
