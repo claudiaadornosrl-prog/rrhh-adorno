@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v403-clodi-anim';
+const CACHE_VERSION = 'rrhh-v404-clodi-boca';
 const ASSETS = [
   './',
   './index.html',
