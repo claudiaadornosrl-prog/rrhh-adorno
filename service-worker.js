@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v396-acumulado';
+const CACHE_VERSION = 'rrhh-v397-clodi3d';
 const ASSETS = [
   './',
   './index.html',
