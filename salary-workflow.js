@@ -153,7 +153,9 @@ const salaryWorkflow = (() => {
     if (res.insertadas) lineas.push(`✓ Cargué la escala de ${MES} desde FAECYS (acuerdo ${res.acuerdo || '—'}).`);
     (res.cambios || []).forEach(c => lineas.push(`• ${c.codigo}: ${_$ar(c.antes)} → ${_$ar(c.ahora)} (cambió la circular)`));
     if (res.no_remunerativo) lineas.push(`• No remunerativo del mes: ${_$ar(res.no_remunerativo.antes)} → ${_$ar(res.no_remunerativo.ahora)}`);
-    if ((res.estimadas || []).length) {
+    // (29-oct-2026) Las estimadas se avisan solo si esta importación cargó o cambió algo (el recheck diario
+    // en proforma las traía todos los días sin novedad).
+    if ((res.estimadas || []).length && (res.insertadas || res.actualizadas || (res.cambios || []).length)) {
       lineas.push('', '⚠ Estas categorías no están en la circular; las estimé con el mismo % que Vendedor B. Confirmalas con el estudio:');
       res.estimadas.forEach(x => lineas.push(`• ${x.codigo}: ${_$ar(x.mes_anterior)} → ${_$ar(x.basico)} (+${String(x.pct).replace('.', ',')}%)`));
     }
