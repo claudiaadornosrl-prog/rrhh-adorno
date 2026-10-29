@@ -557,21 +557,21 @@ async function renderLiquidaciones() {
   return `
     <div class="page-header">
       <h2>Liquidación del mes</h2>
-      <div class="subtitle">Cálculo del recibo CCT + lo que cobra cada colaboradora según la fórmula de Adorno (fijo + comisión + premio + viáticos + extras).</div>
+      <!-- (29-oct-2026, JP) sin subtítulo: ocupaba 3 renglones en el celular -->
     </div>
 
     <!-- ══════ LÍNEA 1: Sub-tabs + Ventas + Guardar + Acciones + Kebab ══════ -->
     <!-- sticky: al scrollear la grilla no se pierden Proforma/Definitivo/⋮ -->
     <div class="cal-toolbar liq-toolbar-sticky" style="align-items:center;">
       <!-- Sub-tabs -->
-      <div style="display:flex;gap:2px;">
+      <div class="liq-subtabs" style="display:flex;gap:2px;">
         ${session.soloBanco ? '' : `<button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>`}
         <button onclick="liqSwitchSubTab('banco')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
       </div>
       <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:8px;"></span>
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <div class="liq-acciones" style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${local === 'todos' ? `
-          <div style="display:flex;gap:6px;font-size:12px;">
+          <div class="liq-ventas3" style="display:flex;gap:6px;font-size:12px;">
             ${['alcorta','unicenter','oficina'].map(loc => `
               <div style="background:#f3f4f6;border-radius:6px;padding:4px 8px;">
                 <span style="color:var(--muted);">${LOCALES[loc]?.nombre || loc}:</span>
@@ -639,10 +639,10 @@ async function renderLiquidaciones() {
         <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : `<span class="emp-tag" style="background:#eef2ff;color:#4338ca;">${LOCALES[local]?.nombre || local}</span>`}
       <span style="width:1px;height:22px;background:var(--border);margin:0 4px;"></span>
-      <input type="text" id="liq-busqueda" placeholder="🔍 Buscar por nombre…"
+      <input type="text" id="liq-busqueda" placeholder="🔍 Nombre…" title="Buscar por nombre"
              value="${escapeHtml(liqState.busqueda || '')}"
              oninput="liqState.busqueda = this.value; liqFiltrarBusquedaLocal();"
-             style="flex:0 0 220px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+             style="flex:0 1 150px;min-width:0;width:150px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
 
       <!-- (29-oct-2026, JP) Un solo renglón: mes, local, búsqueda por nombre y el cierre de cada local en íconos
            (liqCierresIconos). Se sacaron los filtros de Estado y Categoría. -->
