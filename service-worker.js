@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v411-cierre-ventas';
+const CACHE_VERSION = 'rrhh-v412-escala-recheck';
 const ASSETS = [
   './',
   './index.html',

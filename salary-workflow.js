@@ -78,7 +78,17 @@ const salaryWorkflow = (() => {
       .select('id, origen').eq('fecha_vigencia', periodo + '-01');
     const hay  = (data || []).length > 0;
     const auto = (data || []).some(r => r.origen && r.origen !== 'manual');
-    if (!hay || (esDef && auto)) {
+    // (29-oct-2026, JP) En proforma también: si la escala del mes vino de FAECYS (faecys/estimada) se
+    // vuelve a mirar la circular, como mucho una vez por día por período. Octubre quedó con la escala
+    // de septiembre (la circular 07/2026 "incluía" octubre) y nadie la buscó hasta el definitivo.
+    // Lo manual (del estudio) nunca se pisa: eso lo garantiza la RPC.
+    let recheck = false;
+    if (hay && !esDef && auto) {
+      const k = 'rrhh_escala_recheck_' + periodo, hoy = new Date().toISOString().slice(0, 10);
+      try { recheck = localStorage.getItem(k) !== hoy; if (recheck) localStorage.setItem(k, hoy); }
+      catch (_) { recheck = true; }
+    }
+    if (!hay || (esDef && auto) || recheck) {
       if (!_escalaBuscando[key]) _escalaBuscando[key] = _importarEscalaFaecys(periodo, tipo, hay);
       try { await _escalaBuscando[key]; } finally { delete _escalaBuscando[key]; }
     }
