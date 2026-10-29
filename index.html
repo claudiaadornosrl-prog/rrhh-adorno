@@ -16914,14 +16914,32 @@ async function liqValidarCierreMes(local, periodo) {
   const [_yVC, _mVC] = periodo.split('-').map(Number);
   const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   const errores = [];
+  // (29-oct-2026) Las ventas salen de ventas_diarias (Dragonfish), igual que la comisión.
+  // rrhh_ventas_local_mes quedó solo como respaldo histórico: ya nadie la carga y por eso
+  // "Cerrar mes" decía "ventas NO cargadas" aunque el mes estuviera completo.
+  const _hastaExcl = (_mVC === 12) ? `${_yVC+1}-01-01` : `${_yVC}-${String(_mVC+1).padStart(2,'0')}-01`;
   for (const loc of locales) {
     const tag = loc.charAt(0).toUpperCase() + loc.slice(1);
     // 1. Ventas cargadas (oficina puede $0; el resto debe ser > 0)
-    const { data: v } = await sb.from('rrhh_ventas_local_mes')
-      .select('monto_ventas, origen').eq('local', loc).eq('periodo', periodoIso).maybeSingle();
-    if (!v) {
-      errores.push(`${tag}: ventas del mes NO cargadas`);
-    } else if (loc !== 'oficina' && Number(v.monto_ventas) <= 0) {
+    let ventasMes = 0, diasConVenta = 0;
+    try {
+      const { data: dr } = await sb.from('ventas_diarias')
+        .select('efectivo, tarjeta, qr, vales, online, fc_oficina, transferencia, cc')
+        .eq('local', loc).gte('fecha', periodoIso).lt('fecha', _hastaExcl);
+      diasConVenta = (dr || []).length;
+      ventasMes = (dr || []).reduce((s, x) => s
+        + Number(x.efectivo||0) + Number(x.tarjeta||0) + Number(x.qr||0) + Number(x.vales||0)
+        + Number(x.online||0) + Number(x.fc_oficina||0) + Number(x.transferencia||0) + Number(x.cc||0), 0);
+    } catch (e) { console.warn('[cierre:ventas_diarias]', loc, e); }
+    if (diasConVenta === 0) {
+      const { data: v } = await sb.from('rrhh_ventas_local_mes')
+        .select('monto_ventas').eq('local', loc).eq('periodo', periodoIso).maybeSingle();
+      if (!v) {
+        errores.push(`${tag}: ventas del mes NO cargadas (sin ventas diarias ni carga manual)`);
+      } else if (loc !== 'oficina' && Number(v.monto_ventas) <= 0) {
+        errores.push(`${tag}: ventas del mes en $0`);
+      }
+    } else if (loc !== 'oficina' && ventasMes <= 0) {
       errores.push(`${tag}: ventas del mes en $0`);
     }
     // 2. Asistencias cerradas por las encargadas

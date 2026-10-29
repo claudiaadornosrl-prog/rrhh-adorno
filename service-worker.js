@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v410-liq-cabecera';
+const CACHE_VERSION = 'rrhh-v411-cierre-ventas';
 const ASSETS = [
   './',
   './index.html',
