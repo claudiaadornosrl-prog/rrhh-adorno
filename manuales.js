@@ -100,6 +100,8 @@ const MANUAL_GERENTE = [
     desc: 'Cálculo final del recibo de cada colaboradora — fijo + comisión + premio + viáticos + extras.',
     pasos: [
       'Solo lectura para vos — el cálculo lo hace el admin.',
+      'Arriba, al lado de la búsqueda, cada local muestra su cierre con íconos: el reloj es Asistencias y el candado es el mes de sueldos. En naranja está abierto y en verde, cerrado. Pasá el mouse por encima (en el celular, tocalo) para ver qué significa.',
+      'Si las asistencias del local siguen abiertas aparece una flecha: te lleva directo al Resumen mensual de Asistencias de ese local y ese mes, donde se cierra el mes.',
       'Click en la celda amarilla "Recibo" para ver el desglose completo del recibo CCT.',
       'Click sobre los íconos de Acciones para descargar el PDF de cada recibo.',
       'En SEPTIEMBRE el recibo trae el "Día del Gremio" (26/9, Día del Empleado de Comercio): el básico va por 29 días y se suma 1 día pagado como básico ÷ 25. Lo calcula solo el sistema, igual que el estudio.',

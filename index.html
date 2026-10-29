@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
 
@@ -15729,8 +15729,11 @@ function liqFiltrarBusquedaLocal() {
   });
 
   // Actualizar el contador "Mostrando X de Y" sin re-render
-  const counter = document.querySelector('.cal-toolbar span strong');
+  const counter = document.getElementById('liq-contador') || document.querySelector('.cal-toolbar span strong');
   if (counter) counter.textContent = visibles;
+  // (29-oct-2026) El contador solo se muestra mientras hay algo escrito en la búsqueda
+  const box = document.getElementById('liq-contador-box');
+  if (box) box.style.display = txt ? 'flex' : 'none';
 }
 
 // Limpia todos los filtros del Liquidador y refresca
@@ -22463,10 +22466,10 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=24"></script>
+<script src="manuales.js?v=25"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=1"></script>
-<script src="liquidaciones.js?v=1"></script>
+<script src="liquidaciones.js?v=2"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

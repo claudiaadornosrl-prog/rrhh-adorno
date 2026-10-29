@@ -1,3 +1,33 @@
+// (29-oct-2026, JP) Cierre del mes de cada local en la barra de filtros de Liquidación: solo íconos, sin recuadro.
+// Reloj = Asistencias · candado = mes de Sueldos · naranja = abierto · verde = cerrado · flecha = ir a cerrar asistencias.
+// La explicación va en el title (al pasar el mouse); en celular no hay mouse, así que al tocar el ícono sale el mismo texto.
+const _LIQ_SVG = {
+  reloj:          '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  relojOk:        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.5A9 9 0 1 1 11.5 3"/><path d="M12 7v5l3 2"/><path d="m15.5 5 2 2 4-4"/></svg>',
+  candadoAbierto: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.8"/></svg>',
+  candado:        '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+  ir:             '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/><path d="m12 8 4 4-4 4"/></svg>',
+};
+function liqCierresIconos(locales, cierresMes, cierresSueldos, periodo, puedeCerrar) {
+  const quien = (c) => escapeHtml((c.cerrado_por || '').split('@')[0]);
+  const ico = (clase, svg, tip) =>
+    `<span class="liq-ico ${clase}" role="img" aria-label="${tip}" title="${tip}" onclick="if (matchMedia('(hover: none)').matches) toast(this.title, 'info')">${svg}</span>`;
+  return `<div class="liq-cierres">${locales.map(loc => {
+    const nombre = escapeHtml(LOCALES[loc]?.nombre || loc);
+    const cA = cierresMes[loc], cS = cierresSueldos[loc];
+    const iA = cA
+      ? ico('cerrado', _LIQ_SVG.relojOk, `${nombre}: asistencias cerradas el ${fmtFecha(cA.cerrado_at)} por ${quien(cA)}. Los puntos y las faltas ya están consolidados.`)
+      : ico('abierto', _LIQ_SVG.reloj, `${nombre}: asistencias abiertas. El mes no está cerrado en Asistencias, así que los puntos y las faltas todavía pueden cambiar.`);
+    const iS = cS
+      ? ico('cerrado', _LIQ_SVG.candado, `${nombre}: mes de sueldos cerrado el ${fmtFecha(cS.cerrado_at)} por ${quien(cS)}. Recibos firmados y pagos hechos.`)
+      : ico('abierto', _LIQ_SVG.candadoAbierto, `${nombre}: mes de sueldos abierto. La liquidación todavía se puede modificar.`);
+    const btn = (!cA && puedeCerrar)
+      ? `<button type="button" class="liq-ico liq-ico-btn" title="Cerrar asistencias de ${nombre}: abre el Resumen mensual de Asistencias de este mes" aria-label="Cerrar asistencias de ${nombre}" onclick="asisState.tab='resumen'; asisState.mes='${periodo}'; asisState.local='${loc}'; switchTab('asistencias')">${_LIQ_SVG.ir}</button>`
+      : '';
+    return `<span class="liq-cierre-loc"><span class="liq-cierre-nom">${nombre}</span>${iA}${iS}${btn}</span>`;
+  }).join('')}</div>`;
+}
+
 async function renderLiquidaciones() {
   // Período por defecto (1-oct-2026, JP: "tiré un definitivo sobre octubre queriendo hacerlo
   // sobre septiembre"): mientras el mes ANTERIOR no esté cerrado en Sueldos (Cerrar mes) en
@@ -612,25 +642,14 @@ async function renderLiquidaciones() {
              oninput="liqState.busqueda = this.value; liqFiltrarBusquedaLocal();"
              style="flex:0 0 220px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
 
-      <label style="display:flex;align-items:center;gap:6px;color:var(--muted);">Estado:
-        <select onchange="liqState.estado=this.value; switchTab('liquidaciones');" style="padding:5px 8px;">
-          <option value="todos"    ${liqState.estado==='todos'?'selected':''}>Todos</option>
-          <option value="borrador" ${liqState.estado==='borrador'?'selected':''}>Borrador</option>
-          <option value="revisada" ${liqState.estado==='revisada'?'selected':''}>Revisada</option>
-          <option value="firmada"  ${liqState.estado==='firmada'?'selected':''}>Firmada</option>
-          <option value="anulada"  ${liqState.estado==='anulada'?'selected':''}>Anulada</option>
-        </select>
-      </label>
+      <!-- (29-oct-2026, JP) Un solo renglón: mes, local, búsqueda por nombre y el cierre de cada local en íconos
+           (liqCierresIconos). Se sacaron los filtros de Estado y Categoría. -->
+      <span style="width:1px;height:22px;background:var(--border);margin:0 4px;"></span>
+      ${liqCierresIconos(localesACheck, cierresMes, cierresSueldos, periodo, isAdmin || isGerente)}
 
-      ${categoriasPresentes.length > 0 ? `<label style="display:flex;align-items:center;gap:6px;color:var(--muted);">Categoría:
-        <select onchange="liqState.categoria=this.value; switchTab('liquidaciones');" style="padding:5px 8px;max-width:240px;">
-          <option value="todas" ${liqState.categoria==='todas'?'selected':''}>Todas</option>
-          ${categoriasPresentes.map(c => `<option value="${escapeHtml(c)}" ${liqState.categoria===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
-        </select>
-      </label>` : ''}
-
-      <div style="margin-left:auto;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:8px;">
-        <span>Mostrando <strong style="color:var(--text);">${liqs.length}</strong> de ${liqsAll.length}</span>
+      <!-- (29-oct-2026) El contador solo se ve mientras hay una búsqueda (liqFiltrarBusquedaLocal lo muestra y lo esconde) -->
+      <div id="liq-contador-box" style="margin-left:auto;color:var(--muted);font-size:12px;display:${(busqNorm || liqState.estado !== 'todos' || liqState.categoria !== 'todas' || liqState.soloAlertas) ? 'flex' : 'none'};align-items:center;gap:8px;">
+        <span title="Colaboradoras que coinciden con la búsqueda"><strong id="liq-contador" style="color:var(--text);">${liqs.length}</strong> de ${liqsAll.length}</span>
         ${(busqNorm || liqState.estado !== 'todos' || liqState.categoria !== 'todas' || liqState.soloAlertas)
           ? `<button class="btn small" onclick="liqLimpiarFiltros()" title="Limpiar todos los filtros">✕ Limpiar</button>`
           : ''}
@@ -647,44 +666,11 @@ async function renderLiquidaciones() {
       <div class="card"><div class="placeholder">
         <div class="icon">🔎</div>
         <h3>Ningún resultado coincide con los filtros</h3>
-        <p>Probá limpiar la búsqueda, cambiar el estado o desmarcar "Solo con alertas".</p>
+        <p>Probá limpiar la búsqueda.</p>
         <button class="btn primary" style="margin-top:10px;" onclick="liqLimpiarFiltros()">✕ Limpiar filtros</button>
       </div></div>
     `) : `
-      <!-- BADGES de cierre del mes: ASISTENCIAS + SUELDOS por local -->
-      ${(() => {
-        const chip = (color, bg, border, icon, label, tip) =>
-          `<span style="background:${bg};border:1px solid ${border};border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;color:${color};display:inline-flex;align-items:center;gap:3px;" title="${tip}">${icon} ${label}</span>`;
-        const blocks = localesACheck.map(loc => {
-          const nombre = LOCALES[loc]?.nombre || loc;
-          const cA = cierresMes[loc];
-          const cS = cierresSueldos[loc];
-
-          const chipAsis = cA
-            ? chip('#065f46','#dcfce7','#16a34a','✓',`Asistencias cerradas (${(cA.cerrado_at||'').split('T')[0]})`,
-                `Asistencias cerradas por ${escapeHtml((cA.cerrado_por||'').split('@')[0])} — los puntos están consolidados`)
-            : chip('#92400e','#fef3c7','#d97706','⏳','Asistencias abiertas',
-                'El mes NO está cerrado en Asistencias — los puntos y faltas pueden cambiar');
-
-          const chipSueldos = cS
-            ? chip('#065f46','#dcfce7','#16a34a','✓',`Mes cerrado (${(cS.cerrado_at||'').split('T')[0]})`,
-                `Sueldos cerrados por ${escapeHtml((cS.cerrado_por||'').split('@')[0])} — recibos firmados / pagos hechos`)
-            : chip('#92400e','#fef3c7','#d97706','⏳','Mes abierto',
-                'El mes NO está cerrado en Sueldos — la liquidación puede modificarse');
-
-          const btnCerrar = (!cA && (isAdmin || isGerente))
-            ? `<button class="btn small" style="margin-left:6px;" onclick="switchTab('asistencias')" title="Ir a Asistencias para cerrar el mes">Cerrar asistencias →</button>`
-            : '';
-
-          return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <strong style="color:#1e293b;">${escapeHtml(nombre)}:</strong>
-            ${chipAsis}
-            ${chipSueldos}
-            ${btnCerrar}
-          </div>`;
-        }).join('');
-        return `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">${blocks}</div>`;
-      })()}
+      <!-- (29-oct-2026) El cierre de cada local ahora va con íconos en la barra de filtros (liqCierresIconos) -->
 
       ${(() => {
         const alertas = (gananciasRevisiones || []).filter(g => g.revision && (g.revision.estado === 'al_borde' || g.revision.estado === 'excedido'));
