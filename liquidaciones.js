@@ -169,9 +169,11 @@ async function renderLiquidaciones() {
       liqState.periodo = periodos[0];
     }
   }
+  // (29-oct-2026, JP) El filtro de mes va corto: "Sep 26". Solo lo usa ese select.
+  const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const labelMes = (p) => {
     const [y,m] = p.split('-').map(Number);
-    return new Date(y, m-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
+    return `${MESES_CORTOS[m-1]} ${String(y).slice(-2)}`;
   };
 
   const fmt = (n) => '$' + Number(n||0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -631,7 +633,7 @@ async function renderLiquidaciones() {
         ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
       </select>
       ${(isAdmin || session.soloBanco) ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
-        <option value="todos"     ${local==='todos'    ?'selected':''}>Todos los locales</option>
+        <option value="todos"     ${local==='todos'    ?'selected':''}>Todos</option>
         <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
         <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
