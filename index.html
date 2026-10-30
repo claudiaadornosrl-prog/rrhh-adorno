@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
 
@@ -12557,7 +12557,9 @@ async function enviarPermisoEmpleado() {
   // ── Anticipación mínima: 60 minutos (3-ago, pedido JP) ──
   // Evita el truco de pedir el permiso en el colectivo, minutos antes de
   // llegar tarde, para que el día no compute como tardanza.
-  if (fecha === hoy) {
+  // (30-oct-2026, JP) Al MODIFICAR un permiso ya pedido no se vuelve a exigir la anticipación: el pedido
+  // original ya la cumplió (caso Rivera: pidió llegar 10:00, llegó 9:30 y no podía corregir la hora).
+  if (fecha === hoy && !editandoPermisoId) {
     const _ahora = new Date();
     const ahoraMin = _ahora.getHours() * 60 + _ahora.getMinutes();
     let refMin = null;      // minuto del día en que empieza a regir el permiso

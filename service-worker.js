@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v422-select-pastilla';
+const CACHE_VERSION = 'rrhh-v423-permiso-editar';
 const ASSETS = [
   './',
   './index.html',
