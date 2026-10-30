@@ -1467,10 +1467,7 @@ async function renderPage(tabId) {
     if (tabId === 'liquidaciones' && liqState.subTab === 'sueldo' && (session.rol === 'admin')) {
       setTimeout(() => { liqAutoRefreshSueldo(liqState.local, liqState.periodo); }, 150);
     }
-    if (tabId === 'prestamos' && prestamoState.q) setTimeout(() => {
-      const inp = document.querySelector('input[type="search"][placeholder*="empleada"]');
-      if (inp) filtrarTablaPorTexto(inp, '#tabla-prestamos-tbody tr[data-search]');
-    }, 0);
+    if (tabId === 'prestamos' && prestamoState.q) setTimeout(() => _prestamoSetQ(prestamoState.q), 0);
   } catch (e) {
     console.error(e);
     main.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${e.message}</div>`;
@@ -19397,11 +19394,13 @@ function _prestamoToggleSort(col) {
   switchTab('prestamos');
 }
 
-function _prestamoSetQ(v) {
+function _prestamoSetQ(v, el) {
   prestamoState.q = v;
   // Filtra el DOM sin recargar. Usa data-search en cada <tr>.
-  const input = document.querySelector('input[type="search"][placeholder*="empleada"]');
-  if (input) filtrarTablaPorTexto(input, '#tabla-prestamos-tbody tr[data-search]');
+  // (30-oct-2026) Buscaba el input por placeholder "empleada" y el placeholder dice "colaboradora" desde que
+  // se renombró: el filtro no hacía nada (lo notó Contreras). Ahora recibe el input y, si no, lo busca por id.
+  const input = el || { value: v };
+  filtrarTablaPorTexto(input, '#tabla-prestamos-tbody tr[data-search]');
 }
 function _prestamoSetLocal(v) { prestamoState.local = v; switchTab('prestamos'); }
 
@@ -20182,7 +20181,7 @@ async function renderPrestamos() {
         <option value="">Todos</option>
         ${localesUnicos.map(l => `<option value="${escapeHtml(l)}" ${prestamoState.local===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
       </select>
-      <input type="search" placeholder="🔍 Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
+      <input type="search" id="prest-buscar" placeholder="🔍 Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value, this)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
       ${(prestamoState.q || prestamoState.local) ? `<button class="btn small" onclick="_prestamoSetQ(''); _prestamoSetLocal(''); switchTab('prestamos');">↺ Limpiar</button>` : ''}
     </div>
 

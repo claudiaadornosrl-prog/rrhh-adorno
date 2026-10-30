@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v424-permiso-corregir';
+const CACHE_VERSION = 'rrhh-v425-prestamos-buscar';
 const ASSETS = [
   './',
   './index.html',
