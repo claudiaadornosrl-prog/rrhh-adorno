@@ -520,3 +520,12 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
+
+/* ── (30-oct-2026, JP) Aumentos: fichas de a dos columnas, formularios compactos ── */
+.aum-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }
+.aum-grid > .card { min-width: 0; }
+.aum-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
+.aum-form .form-row { min-width: 0; }
+.aum-form input, .aum-form select { width: 100%; box-sizing: border-box; }
+@media (max-width: 1100px) { .aum-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .aum-form { grid-template-columns: 1fr; } }
