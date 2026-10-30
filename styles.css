@@ -171,11 +171,11 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   .sidebar .nav-item.active:hover .label { background: var(--accent2); }
   .sidebar .nav-section { overflow: hidden; height: 12px; padding: 0; margin: 10px 8px 4px; border-top: 1px solid var(--border); color: transparent; }
 }
-}
 
 .main {
   flex: 1; padding: 32px; overflow-y: auto;
   max-width: 1400px;
+  margin: 0 auto;      /* (30-oct-2026) centrado: con la barra de 64px quedaba todo tirado a la izquierda */
   min-width: 0;          /* permite que las tablas hagan scroll propio */
 }
 /* Con el menú colapsado (tablet/teléfono) el contenido usa TODO el ancho */
