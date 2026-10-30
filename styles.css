@@ -136,6 +136,32 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
 .nav-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 16px 14px 6px; font-weight: 600; }
 
+/* ── (30-oct-2026, JP) Barra lateral plegada en escritorio ───────────────
+   Solo los íconos (64px). Al pasar el mouse por encima se despliega a 240px
+   POR ENCIMA del contenido (no lo corre) y muestra el nombre de cada apartado.
+   Los títulos de sección quedan como una rayita cuando está plegada.
+   En tablet/teléfono (menú ☰) no cambia nada. */
+@media (min-width: 1101px) and (hover: hover) {
+  .layout { position: relative; padding-left: 64px; }
+  .sidebar {
+    position: absolute; top: 0; left: 0; bottom: 0; z-index: 50;
+    width: 64px; padding: 20px 10px; overflow: hidden; white-space: nowrap;
+    transition: width 0.18s ease, box-shadow 0.18s ease;
+  }
+  .sidebar:hover { width: 240px; box-shadow: 6px 0 24px rgba(0,0,0,0.12); overflow-y: auto; }
+  .sidebar .nav-item { padding: 10px 12px; }
+  .sidebar .nav-item .icon { flex: 0 0 20px; }
+  .sidebar .nav-item .label { opacity: 0; transition: opacity 0.12s ease; }
+  .sidebar:hover .nav-item .label { opacity: 1; transition-delay: 0.06s; }
+  .sidebar .nav-section {
+    overflow: hidden; height: 12px; padding: 0; margin: 10px 8px 4px;
+    border-top: 1px solid var(--border); color: transparent; transition: all 0.15s ease;
+  }
+  .sidebar:hover .nav-section {
+    height: auto; padding: 12px 14px 6px; margin: 0; border-top-color: transparent; color: var(--muted);
+  }
+}
+
 .main {
   flex: 1; padding: 32px; overflow-y: auto;
   max-width: 1400px;

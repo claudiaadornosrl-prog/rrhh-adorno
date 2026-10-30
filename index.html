@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 
@@ -1357,7 +1357,7 @@ function renderSidebar() {
       if (item.section) html += `<div class="nav-section">${item.section}</div>`;
       lastSection = item.section;
     }
-    html += `<button class="nav-item" data-tab="${item.id}">
+    html += `<button class="nav-item" data-tab="${item.id}" title="${item.label}">
       <span class="icon">${item.icon}</span>
       <span class="label">${item.label}</span>
     </button>`;
