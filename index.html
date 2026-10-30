@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
 
@@ -18922,11 +18922,22 @@ async function aumIPCRender() {
   // Detectar automáticamente el último aumento masivo antes de calcular
   await aumDetectarUltimoAumento();
 
-  const { data: ipc, error } = await sb.from('rrhh_ipc_argentina')
+  const { data: ipcDb, error } = await sb.from('rrhh_ipc_argentina')
     .select('*').order('mes', { ascending: false }).limit(12);
   if (error) {
     panel.innerHTML = `<div style="color:#b91c1c;font-size:13px;">Error cargando IPC: ${escapeHtml(error.message)}</div>`;
     return;
+  }
+  // (30-oct-2026, JP) Se sacó "Cargar mes manual": los meses que faltan hasta el mes pasado aparecen
+  // como pendientes (0 %) y el 💾 de la fila los crea (upsert). Así escribir en la casilla alcanza.
+  const ipc = [...(ipcDb || [])];
+  {
+    const _hoy = new Date(); const _tope = new Date(_hoy.getFullYear(), _hoy.getMonth() - 1, 1);
+    const _ult = ipc.length ? new Date(ipc[0].mes + 'T00:00:00') : new Date(_tope.getFullYear(), _tope.getMonth() - 11, 1);
+    for (let d = new Date(_ult.getFullYear(), _ult.getMonth() + 1, 1); d <= _tope; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+      ipc.unshift({ mes: iso, variacion_pct: 0, fuente: 'pendiente', _nuevo: true });
+    }
   }
 
   // Calcular acumulado entre el último aumento (exclusive) y el próximo (inclusive).
@@ -18947,36 +18958,28 @@ async function aumIPCRender() {
   };
 
   panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:start;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
-      <div style="flex:1;min-width:280px;">
-        <h3 style="margin:0 0 4px;">📈 Histórico inflación INDEC</h3>
-        <div style="color:var(--muted);font-size:12px;line-height:1.6;">
-          Último aumento: <strong>${mesLabel(AUM_ULTIMO_AUMENTO_MES)}</strong> · Próximo aumento:
-          <input type="month" id="aum-ipc-proximo" value="${AUM_PROXIMO_AUMENTO_MES.slice(0,7)}"
-                 onchange="aumSetProximoAumento(this.value)"
-                 style="padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
-          <br>IPC acumulado a compensar (${(() => {
-            // Mes siguiente al último aumento (dinámico)
-            const d = new Date(AUM_ULTIMO_AUMENTO_MES + 'T00:00:00');
-            d.setMonth(d.getMonth() + 1);
-            return mesLabel(d.toISOString().slice(0,10));
-          })()}→${mesLabel(AUM_PROXIMO_AUMENTO_MES)}):
-          <strong style="color:#7c3aed;font-size:16px;">${acumPct.toFixed(2)}%</strong>
-          (${filtrados.length} ${filtrados.length === 1 ? 'mes' : 'meses'}).
-        </div>
-      </div>
-      <button class="btn small" onclick="aumIPCAgregarMes()">➕ Cargar mes manual</button>
+    <!-- (30-oct-2026, JP) Todo el encabezado en un renglón; sin "Cargar mes manual". -->
+    <div style="display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--muted);">
+      <h3 style="margin:0;font-size:15px;color:var(--text);">📈 Inflación INDEC</h3>
+      <span title="Último aumento">Último <strong>${mesLabel(AUM_ULTIMO_AUMENTO_MES)}</strong></span>
+      <span style="display:inline-flex;align-items:center;gap:4px;">Próximo
+        <input type="month" id="aum-ipc-proximo" value="${AUM_PROXIMO_AUMENTO_MES.slice(0,7)}"
+               onchange="aumSetProximoAumento(this.value)"
+               style="padding:1px 4px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+      </span>
+      <span title="IPC acumulado desde el mes siguiente al último aumento hasta el próximo inclusive (${filtrados.length} ${filtrados.length === 1 ? 'mes' : 'meses'})" style="white-space:nowrap;">A compensar
+        <strong style="color:#7c3aed;font-size:15px;">${acumPct.toFixed(2)}%</strong></span>
     </div>
     <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#f9fafb;text-align:left;">
-        <th style="padding:6px 8px;">Mes</th>
-        <th style="padding:6px 8px;text-align:right;">Variación mensual</th>
-        <th style="padding:6px 8px;text-align:right;">Acumulado a compensar</th>
-        <th style="padding:6px 8px;">Fuente</th>
-        <th style="padding:6px 8px;text-align:right;">Acción</th>
+        <th style="padding:4px 8px;">Mes</th>
+        <th style="padding:4px 8px;text-align:right;">Variación</th>
+        <th style="padding:4px 8px;text-align:right;">Acumulado</th>
+        <th style="padding:4px 8px;">Fuente</th>
+        <th style="padding:4px 8px;text-align:right;"></th>
       </tr></thead>
-      <tbody>
+      <tbody id="aum-ipc-tbody">
         ${(() => {
           // calculo acumulado per row para los que cuentan
           let acum = 1;
@@ -18988,23 +18991,23 @@ async function aumIPCRender() {
               acumByMes[r.mes] = (acum - 1) * 100;
             }
           });
-          return (ipc || []).filter(r => r.mes <= AUM_PROXIMO_AUMENTO_MES).map(r => {
+          return (ipc || []).filter(r => r.mes <= AUM_PROXIMO_AUMENTO_MES).map((r, idx) => {
             const acumPct = acumByMes[r.mes];
             const pct = Number(r.variacion_pct);
             const esPendiente = pct === 0;
             const esProyeccion = (r.fuente || '').toLowerCase().includes('proyec');
-            return `<tr style="border-top:1px solid var(--border);${esPendiente ? 'background:#fef3c7;' : esProyeccion ? 'background:#dbeafe;' : ''}">
-              <td style="padding:6px 8px;font-family:monospace;">${mesLabel(r.mes)}</td>
-              <td style="padding:6px 8px;text-align:right;font-family:monospace;${esPendiente ? 'color:#92400e;font-style:italic;' : 'font-weight:600;'}">
+            return `<tr class="${idx >= 6 ? 'aum-ipc-extra' : ''}" style="border-top:1px solid var(--border);${esPendiente ? 'background:#fef3c7;' : esProyeccion ? 'background:#dbeafe;' : ''}${idx >= 6 ? 'display:none;' : ''}">
+              <td style="padding:4px 8px;font-family:monospace;">${mesLabel(r.mes)}</td>
+              <td style="padding:4px 8px;text-align:right;font-family:monospace;${esPendiente ? 'color:#92400e;font-style:italic;' : 'font-weight:600;'}">
                 <input type="number" id="aum-ipc-pct-${r.mes}" value="${pct}" step="0.1" min="0" max="50"
                        style="width:80px;padding:3px 6px;text-align:right;border:1px solid var(--border);border-radius:4px;font-family:monospace;">
                 %
               </td>
-              <td style="padding:6px 8px;text-align:right;font-family:monospace;color:#7c3aed;">
+              <td style="padding:4px 8px;text-align:right;font-family:monospace;color:#7c3aed;">
                 ${acumPct != null ? acumPct.toFixed(2) + '%' : '—'}
               </td>
-              <td style="padding:6px 8px;color:var(--muted);font-size:11px;">${escapeHtml(r.fuente || '')}</td>
-              <td style="padding:6px 8px;text-align:right;">
+              <td style="padding:4px 8px;color:var(--muted);font-size:11px;">${escapeHtml(r.fuente || '')}</td>
+              <td style="padding:4px 8px;text-align:right;">
                 <button class="btn small" onclick="aumIPCGuardarMes('${r.mes}')">💾</button>
               </td>
             </tr>`;
@@ -19013,7 +19016,18 @@ async function aumIPCRender() {
       </tbody>
     </table>
     </div>
+    ${(ipc || []).filter(r => r.mes <= AUM_PROXIMO_AUMENTO_MES).length > 6 ? `
+    <button class="btn small" id="aum-ipc-toggle" style="margin-top:8px;" onclick="aumIPCToggleMeses()">▾ Ver 12 meses</button>` : ''}
   `;
+}
+
+// (30-oct-2026, JP) La tabla muestra 6 meses; con el botón se despliegan los 12.
+function aumIPCToggleMeses() {
+  const extra = document.querySelectorAll('#aum-ipc-tbody tr.aum-ipc-extra');
+  const btn = document.getElementById('aum-ipc-toggle');
+  const abrir = extra.length && extra[0].style.display === 'none';
+  extra.forEach(tr => tr.style.display = abrir ? '' : 'none');
+  if (btn) btn.textContent = abrir ? '▴ Ver 6 meses' : '▾ Ver 12 meses';
 }
 
 async function aumIPCGuardarMes(mesISO) {
@@ -19024,12 +19038,13 @@ async function aumIPCGuardarMes(mesISO) {
     toast('Valor IPC fuera de rango (0-50%)', 'error');
     return;
   }
-  const { error } = await sb.from('rrhh_ipc_argentina').update({
+  const { error } = await sb.from('rrhh_ipc_argentina').upsert({  // (30-oct-2026) upsert: crea el mes si no existía
+    mes: mesISO,
     variacion_pct: v,
     fuente: 'manual',
     cargado_at: new Date().toISOString(),
     cargado_por: session.user?.email || 'admin',
-  }).eq('mes', mesISO);
+  });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
   toast(`IPC de ${mesISO} guardado (${v}%)`, 'success');
   aumIPCRender();

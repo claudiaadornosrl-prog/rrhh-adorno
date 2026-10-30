@@ -148,7 +148,10 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
     position: absolute; top: 0; left: 0; bottom: 0; z-index: 50;
     width: 64px; padding: 20px 10px; overflow: visible;
   }
-  .sidebar .nav-item { position: relative; padding: 10px 12px; justify-content: center; overflow: visible; }
+  /* (30-oct-2026, JP) El ítem mide 44x36 con radio 18: el mismo contorno que la lengüeta, así el fondo del
+     seleccionado (navy) y la lengüeta que sale al pasar el mouse coinciden en vez de superponerse. */
+  .sidebar .nav-item { position: relative; padding: 8px 12px; justify-content: center; overflow: visible; border-radius: 18px; }
+  .sidebar .nav-item.active { background: var(--accent); }
   .sidebar .nav-item .icon {
     flex: 0 0 20px; position: relative; z-index: 2;
     transition: transform 0.22s cubic-bezier(.34,1.56,.64,1);
@@ -156,8 +159,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   .sidebar .nav-item:hover .icon { transform: scale(1.25); }
   /* La lengüeta arranca debajo del ícono (left:4px, z-index:1) y se estira hacia la derecha */
   .sidebar .nav-item .label {
-    position: absolute; left: 4px; top: 50%; z-index: 1;
-    height: 36px; line-height: 36px; padding: 0 16px 0 46px; box-sizing: border-box;
+    position: absolute; left: 0; top: 50%; z-index: 1;
+    height: 36px; line-height: 36px; padding: 0 16px 0 44px; box-sizing: border-box;
     background: var(--accent); color: #fff; font-size: 13px; font-weight: 500; white-space: nowrap;
     border-radius: 18px; box-shadow: 0 6px 18px rgba(26,26,46,0.28);
     transform: translateY(-50%) scaleX(0); transform-origin: 0 50%;
