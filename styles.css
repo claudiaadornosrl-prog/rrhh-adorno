@@ -521,12 +521,22 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
 
-/* ── (30-oct-2026, JP) Aumentos: fichas de a dos columnas, formularios compactos ── */
-/* Mosaico con columnas CSS: cada ficha se pega a la de arriba, sin filas rigidas ni huecos. */
-.aum-grid { columns: 2; column-gap: 14px; margin-bottom: 0; }
-.aum-grid > .card { min-width: 0; break-inside: avoid; margin-bottom: 14px; display: inline-block; width: 100%; box-sizing: border-box; vertical-align: top; }
+/* ── (30-oct-2026, JP) Aumentos: izquierda pastillas desplegables, derecha IPC; abajo todo el ancho ── */
+.aum-top { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }
+.aum-top > * { min-width: 0; }
+.aum-acciones { display: flex; flex-direction: column; gap: 10px; }
+.aum-pill { border-radius: 14px; overflow: hidden; }
+.aum-pill > summary {
+  list-style: none; cursor: pointer; padding: 14px 18px; font-size: 15px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px; user-select: none;
+}
+.aum-pill > summary::-webkit-details-marker { display: none; }
+.aum-pill > summary::after { content: '▾'; margin-left: auto; font-size: 16px; opacity: 0.6; transition: transform 0.18s ease; }
+.aum-pill[open] > summary::after { transform: rotate(180deg); }
+.aum-pill > summary:hover { filter: brightness(0.97); }
+.aum-pill-body { padding: 2px 16px 16px; }
 .aum-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
 .aum-form .form-row { min-width: 0; }
 .aum-form input, .aum-form select { width: 100%; box-sizing: border-box; }
-@media (max-width: 1100px) { .aum-grid { columns: 1; } }
+@media (max-width: 1100px) { .aum-top { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .aum-form { grid-template-columns: 1fr; } }

@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v419-aumentos-mosaico';
+const CACHE_VERSION = 'rrhh-v420-aumentos-pastillas';
 const ASSETS = [
   './',
   './index.html',
