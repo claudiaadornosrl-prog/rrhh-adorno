@@ -12109,9 +12109,11 @@ async function abrirNuevoPermisoEmpleado(idEditar) {
   if (editandoPermisoId) {
     const { data: p, error } = await sb.from('rrhh_permisos_puntuales').select('*').eq('id', editandoPermisoId).single();
     if (error || !p) { toast('No se pudo cargar el permiso', 'error'); editandoPermisoId = null; return; }
+    // (30-oct-2026, JP) Un aprobado se puede corregir hasta el día siguiente (llegó antes o después de lo pedido).
     const hoyStr = hoyISO();
-    if (p.estado !== 'pendiente' && !(p.estado === 'aprobado' && p.fecha === hoyStr)) {
-      toast('Solo podés modificar permisos pendientes (o aprobados del mismo día)', 'error');
+    const ayerStr = (d => { d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })(new Date(hoyStr + 'T12:00:00'));
+    if (p.estado !== 'pendiente' && !(p.estado === 'aprobado' && (p.fecha === hoyStr || p.fecha === ayerStr))) {
+      toast('Solo podés modificar permisos pendientes, o aprobados de hoy o de ayer', 'error');
       editandoPermisoId = null;
       return;
     }
@@ -12505,7 +12507,7 @@ async function renderMisPermisos() {
                     ${(() => {
                       const hoyStr = hoyISO();
                       const esPendiente = p.estado === 'pendiente';
-                      const esAprobadoHoy = p.estado === 'aprobado' && p.fecha === hoyStr;
+                      const esAprobadoHoy = p.estado === 'aprobado' && (p.fecha === hoyStr || p.fecha === (d => { d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })(new Date(hoyStr + 'T12:00:00'))); // (30-oct-2026) hoy o ayer
                       if (!esPendiente && !esAprobadoHoy) return '';
                       const warn = esAprobadoHoy ? `<div style="margin-top:8px;padding:6px 10px;background:#fef3c7;border-radius:6px;font-size:11px;color:#92400e;">💡 Es el día del permiso — si modificás algo, vuelve a pendiente y la encargada debe re-aprobar.</div>` : '';
                       return `${warn}<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
@@ -12543,9 +12545,9 @@ async function enviarPermisoEmpleado() {
   if (!tipo) { toast('Falta tipo', 'error'); return; }
   if (!motivo) { toast('Contá el motivo', 'error'); return; }
 
-  // No permitir fechas pasadas
+  // No permitir fechas pasadas (al EDITAR sí: se corrige la hora real de un permiso que ya pasó)
   const hoy = hoyISO();
-  if (fecha < hoy) {
+  if (fecha < hoy && !editandoPermisoId) {
     toast('No podés pedir un permiso para una fecha pasada. Hablálo con la encargada.', 'error');
     return;
   }
@@ -12632,6 +12634,17 @@ async function enviarPermisoEmpleado() {
     const { error } = await sb.from('rrhh_permisos_puntuales').update(updateObj).eq('id', editandoPermisoId);
     if (error) { toast('Error: ' + error.message, 'error'); return; }
     toast(eraAprobado ? 'Modificado — vuelve a pendiente para re-aprobación' : 'Permiso modificado ✓', 'success');
+    // (30-oct-2026) Avisar al admin/encargada que cambió un permiso (si era aprobado, hay que re-aprobarlo)
+    {
+      const _nombre = session.empleadoData?.nombre_completo || 'Una empleada';
+      const _localTxt = LOCALES[session.empleadoData?.local]?.nombre || session.empleadoData?.local || '';
+      const _fechaTxt = fecha ? fecha.split('-').reverse().join('/') : '';
+      notifAdmins(
+        eraAprobado ? '✏️ Permiso aprobado modificado' : '✏️ Permiso modificado',
+        `${_nombre} (${_localTxt}) corrigió su permiso ${tipo} del ${_fechaTxt}${hora_desde ? ' · ' + hora_desde + (hora_hasta ? '-' + hora_hasta : '') : ''}${eraAprobado ? '. Vuelve a pendiente: hay que aprobarlo de nuevo' : ''}.`,
+        { url: './#asistencias', tag: 'permiso-' + editandoPermisoId }
+      );
+    }
     editandoPermisoId = null;
     window._editandoAprobado = false;
     document.getElementById('permiso-emp-modal').remove();
