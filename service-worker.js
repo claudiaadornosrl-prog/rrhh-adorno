@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v415-sidebar-globito';
+const CACHE_VERSION = 'rrhh-v416-sidebar-lengueta';
 const ASSETS = [
   './',
   './index.html',
