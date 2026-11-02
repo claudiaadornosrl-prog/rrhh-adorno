@@ -555,14 +555,11 @@ async function renderLiquidaciones() {
   });
 
   return `
-    <div class="page-header">
-      <h2>Liquidación del mes</h2>
-      <!-- (29-oct-2026, JP) sin subtítulo: ocupaba 3 renglones en el celular -->
-    </div>
-
-    <!-- ══════ LÍNEA 1: Sub-tabs + Ventas + Guardar + Acciones + Kebab ══════ -->
-    <!-- sticky: al scrollear la grilla no se pierden Proforma/Definitivo/⋮ -->
+    <!-- (2-nov-2026, JP) el título va en el mismo renglón que Sueldo/Banco, ventas e íconos -->
+    <!-- ══════ LÍNEA 1: Título + Sub-tabs + Ventas + Guardar + Acciones ══════ -->
+    <!-- sticky: al scrollear la grilla no se pierden Proforma/Definitivo -->
     <div class="cal-toolbar liq-toolbar-sticky" style="align-items:center;">
+      <h2 class="liq-titulo">Liquidación del mes</h2>
       <!-- Sub-tabs -->
       <div class="liq-subtabs" style="display:flex;gap:2px;">
         ${session.soloBanco ? '' : `<button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>`}

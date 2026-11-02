@@ -523,6 +523,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   background: var(--bg); margin: 0 -8px 16px; padding: 10px 8px;
   border-bottom: 1px solid var(--border);
 }
+.liq-titulo { margin: 0 10px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap; }
+@media (max-width: 768px) { .liq-titulo { font-size: 18px; flex-basis: 100%; } }
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
