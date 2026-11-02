@@ -964,6 +964,7 @@ const NAV = {
     { id: 'reportes',    label: 'Reportes',      icon: '📈', section: 'Análisis' },
     { id: 'buzon-admin', label: 'Buzón anónimo', icon: '✉️', section: 'Admin' },
     { id: 'config',      label: 'Configuración', icon: '⚙️', section: 'Admin' },
+    { id: 'mi-sueldo',   label: 'Mi sueldo',     icon: '🧾', section: 'Admin' },   // (2-nov, JP) también lo ve él
   ],
   gerente: [
     { id: 'dashboard',   label: 'Mi local',     icon: '📊', section: 'Mi local' },
@@ -1310,8 +1311,8 @@ async function onLoggedIn(user) {
   if (session.rol === 'directora' || esNavSimple()) firstTab = 'liquidaciones';
   else firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
   // (2-nov-2026) Si la app se abrió desde una notificación (./#mi-sueldo, ./#asistencias…), arrancar en esa pestaña.
-  const _hashTab = (location.hash || '').replace(/^#/, '');
-  if (/^[a-z-]{2,30}$/.test(_hashTab) && (NAV[session.rol] || []).some(i => i.id === _hashTab)) firstTab = _hashTab;
+  const _hashTab = tabDesdeHash(location.hash);
+  if (_hashTab) firstTab = _hashTab;
   // Si es colaboradora y le faltan datos críticos, arrancar en Mi legajo
   if (session.rol === 'empleado' && legajoIncompleto(session.empleadoData).length > 0) {
     firstTab = 'mi-legajo';
@@ -1320,6 +1321,26 @@ async function onLoggedIn(user) {
   console.log('[LOGIN] switchTab firstTab=', firstTab);
   switchTab(firstTab);
   console.log('[LOGIN] DONE ✓');
+}
+
+// (2-nov-2026) Pestaña pedida por el hash (#mi-sueldo, #asistencias…) si es válida para el rol.
+function tabDesdeHash(hash) {
+  const t = String(hash || '').replace(/^#/, '');
+  if (!/^[a-z-]{2,30}$/.test(t) || !session) return null;
+  const enNav = (NAV[session.rol] || []).some(i => i.id === t);
+  if (enNav || (t === 'mi-sueldo' && session.empleado_id)) return t;
+  return null;
+}
+// Con la app ya abierta: la notificación (service worker) manda un mensaje y/o cambia el hash.
+window.addEventListener('hashchange', () => { const t = tabDesdeHash(location.hash); if (t && typeof switchTab === 'function') switchTab(t); });
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', (ev) => {
+    const d = ev.data || {};
+    if (d.tipo !== 'abrir-url' || !d.url) return;
+    let h = ''; try { h = new URL(d.url).hash; } catch (_) {}
+    const t = tabDesdeHash(h);
+    if (t && typeof switchTab === 'function') switchTab(t);
+  });
 }
 
 function renderUserInfo() {

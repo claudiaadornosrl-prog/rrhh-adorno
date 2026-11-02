@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v434-sin-megafono';
+const CACHE_VERSION = 'rrhh-v435-noti-abre-tab';
 const ASSETS = [
   './',
   './index.html',
@@ -96,19 +96,21 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || './';
-
+  // (2-nov-2026) URL absoluta dentro del scope de ESTA app (antes './#tab' relativo y se matcheaba cualquier
+  // ventana del mismo origen, p.ej. el hub o el CRM, que quedaba enfocada sin ir a ningún lado).
+  const targetUrl = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
+  const scope = self.registration.scope;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Si ya hay una ventana del RRHH abierta, le mandamos foco y navegamos
       for (const client of clientList) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
+        if (client.url.startsWith(scope) && 'focus' in client) {
           client.focus();
+          // La app escucha este mensaje y cambia de pestaña sin recargar (hashchange también).
+          try { client.postMessage({ tipo: 'abrir-url', url: targetUrl }); } catch (_) {}
           if ('navigate' in client) client.navigate(targetUrl).catch(() => {});
           return;
         }
       }
-      // Si no hay ninguna ventana, abrimos una nueva
       if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
     })
   );
