@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v452-asis-mes-abierto';
+const CACHE_VERSION = 'rrhh-v453-sugerencias-3';
 const ASSETS = [
   './',
   './index.html',
