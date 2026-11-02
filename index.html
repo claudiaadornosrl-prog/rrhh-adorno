@@ -12289,6 +12289,26 @@ function onTipoChange() {
   }
 }
 
+// (2-nov-2026, JP) Antes de cargar un permiso: si ya hay otro ese día (en otro horario) avisa y pide confirmar.
+// El solapamiento real (mismo horario, mismo tipo sin horario, o día completo) lo rechaza la base
+// (trigger rrhh_permiso_valida_solapado) y acá solo se muestra el mensaje.
+async function permisoAvisarMismoDia(empleado_id, fecha, excluirId) {
+  try {
+    let q = sb.from('rrhh_permisos_puntuales').select('id, tipo, hora_desde, hora_hasta, motivo, estado')
+      .eq('empleado_id', empleado_id).eq('fecha', fecha).in('estado', ['pendiente', 'aprobado']);
+    if (excluirId) q = q.neq('id', excluirId);
+    const { data } = await q;
+    if (!data || !data.length) return true;
+    const lista = data.map(p => `• #${p.id} ${p.tipo}${p.hora_desde ? ' ' + p.hora_desde.slice(0, 5) + (p.hora_hasta ? '-' + p.hora_hasta.slice(0, 5) : '') : ''}${p.motivo ? ' (' + p.motivo + ')' : ''} · ${p.estado}`).join('
+');
+    return confirm(`⚠ Ese día ya tiene ${data.length === 1 ? 'un permiso cargado' : data.length + ' permisos cargados'}:
+
+${lista}
+
+¿Es otro horario distinto y querés cargar este también?`);
+  } catch (_) { return true; }
+}
+
 async function guardarPermisoAdmin() {
   const empleado_id = parseInt(document.getElementById('perm-emp').value, 10);
   const fecha = document.getElementById('perm-fecha').value;
@@ -12316,6 +12336,7 @@ async function guardarPermisoAdmin() {
   }
   if (descontar_vacaciones && dias_descontar <= 0) { toast('Si compensás con vacaciones, indicá los días', 'error'); return; }
   if (await _mesAsistCerradoBloquea(empleado_id, fecha)) return;
+  if (!(await permisoAvisarMismoDia(empleado_id, fecha))) return;
 
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id, fecha, tipo, hora_desde, hora_hasta, motivo,
@@ -13077,6 +13098,8 @@ async function enviarPermisoEmpleado() {
     if (currentTab === 'mis-permisos') switchTab('mis-permisos');
     return;
   }
+
+  if (!(await permisoAvisarMismoDia(session.empleado_id, fecha))) return;
 
   const { data, error } = await sb.from('rrhh_permisos_puntuales').insert({
     empleado_id: session.empleado_id,
