@@ -578,7 +578,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .dash-det-item span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .dash-det-sub { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 0 6px; }
 .dash-det-vacio { margin: 0; color: var(--muted); font-size: 13px; }
-@media (max-width: 600px) { .dash-monedas { gap: 22px 26px; } .dash-mon { --R: 46px; } .dash-mon .cara b { font-size: 24px; } .dash-mon .cara i { font-size: 20px; } .dash-mon .nom { width: 100px; font-size: 10.5px; } }
+@media (max-width: 600px) { .dash-mon-retiros { display: none; } .dash-monedas { gap: 22px 26px; } .dash-mon { --R: 46px; } .dash-mon .cara b { font-size: 24px; } .dash-mon .cara i { font-size: 20px; } .dash-mon .nom { width: 100px; font-size: 10.5px; } }
 /* (2-nov-2026, JP) "Para hacer" y "Para saber" lado a lado cuando están los dos */
 .dash-dos { display: grid; grid-template-columns: 1fr; gap: 0 14px; align-items: start; }
 .dash-dos:has(> .card + .card) { grid-template-columns: 1fr 1fr; }

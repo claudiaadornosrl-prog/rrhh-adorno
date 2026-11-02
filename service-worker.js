@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v460-monedas-nombres';
+const CACHE_VERSION = 'rrhh-v461-retiros-mes-abierto';
 const ASSETS = [
   './',
   './index.html',

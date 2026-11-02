@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=44">
+<link rel="stylesheet" href="styles.css?v=45">
 </head>
 <body>
 
@@ -1936,13 +1936,27 @@ async function renderDashboard() {
   const proxFeriado = prox?.[0];
 
   // (2-nov-2026, JP) Tres fichas más para el dashboard: de vacaciones hoy, préstamos activos y retiros del mes
-  let prestActivos = [], retirosMesDash = [], retirosMesTotal = 0;
+  let prestActivos = [], retirosMesDash = [], retirosMesTotal = 0, retirosMesLabel = '';
   try {
     let qPA = sb.from('rrhh_prestamo').select('id, capital, cuotas_totales, cuota_monto, empleado:rrhh_empleados!inner(nombre_completo, local)').eq('estado', 'activo');
     if (!isAdmin && local) qPA = qPA.eq('empleado.local', local);
     const { data: _pa } = await qPA; prestActivos = _pa || [];
-    const _mesIni = `${hoy.getFullYear()}-${String(mesActual).padStart(2, '0')}-01`;
-    const _mesFin = new Date(hoy.getFullYear(), mesActual, 0).toISOString().split('T')[0];
+    // (2-nov-2026, JP) misma regla que Asistencias: mientras el mes anterior no esté cerrado, la ficha muestra ese mes
+    let _ry = hoy.getFullYear(), _rm = mesActual;
+    {
+      const _locs = isAdmin ? ['unicenter', 'alcorta', 'oficina'] : [local].filter(Boolean);
+      let y2 = _ry, m2 = _rm;
+      for (let i = 0; i < 3 && _locs.length; i++) {
+        m2 -= 1; if (m2 < 1) { m2 = 12; y2 -= 1; }
+        const { data: _c } = await sb.from('rrhh_meses_cerrados').select('local').eq('año', y2).eq('mes', m2).in('local', _locs);
+        const _set = new Set((_c || []).map(r => r.local));
+        if (_locs.every(l => _set.has(l))) break;
+        _ry = y2; _rm = m2;
+      }
+    }
+    retirosMesLabel = mesCortoLabel(_ry, _rm);
+    const _mesIni = `${_ry}-${String(_rm).padStart(2, '0')}-01`;
+    const _mesFin = new Date(_ry, _rm, 0).toISOString().split('T')[0];
     let qRM = sb.from('rrhh_retiros_mercaderia').select('id, importe, fecha, empleado_id, local').in('estado', ['asignado', 'descontado']).gte('fecha', _mesIni).lte('fecha', _mesFin);
     if (!isAdmin && local) qRM = qRM.eq('local', local);
     const { data: _rm } = await qRM; retirosMesDash = _rm || [];
@@ -1984,14 +1998,14 @@ async function renderDashboard() {
         `<div class="dash-det-grid" style="margin-bottom:10px;"><div class="dash-det-item"><b>${prestActivos.length}</b><span>Activos</span></div><div class="dash-det-item"><b>${$d(prestCapital)}</b><span>Capital otorgado</span></div></div>
          <ul class="simple-list" style="margin:0;">${prestActivos.slice().sort((a, b) => (a.empleado?.nombre_completo || '').localeCompare(b.empleado?.nombre_completo || '')).map(p => `<li><div><strong>${escapeHtml(p.empleado?.nombre_completo || '')}</strong><div class="meta">${$d(p.capital)} en ${p.cuotas_totales} cuota${p.cuotas_totales === 1 ? '' : 's'} de ${$d(p.cuota_monto)} · ${LOCALES[p.empleado?.local]?.nombre || ''}</div></div></li>`).join('')}</ul>`;
       const porEmpRet = {}; retirosMesDash.forEach(r => { porEmpRet[r.empleado_id] = (porEmpRet[r.empleado_id] || 0) + Number(r.importe || 0); });
-      const detRet = retirosMesDash.length === 0 ? `<p class="dash-det-vacio">Sin retiros de mercadería en ${mesLargo}.</p>` :
+      const detRet = retirosMesDash.length === 0 ? `<p class="dash-det-vacio">Sin retiros de mercadería en ${retirosMesLabel}.</p>` :
         `<div class="dash-det-grid" style="margin-bottom:10px;"><div class="dash-det-item"><b>${retirosMesDash.length}</b><span>Retiros</span></div><div class="dash-det-item"><b>${$d(retirosMesTotal)}</b><span>Total del mes</span></div></div>
          <ul class="simple-list" style="margin:0;">${Object.entries(porEmpRet).sort((a, b) => b[1] - a[1]).map(([id, imp]) => `<li><div><strong>${escapeHtml(nombreEmp(Number(id)))}</strong></div><b>${$d(imp)}</b></li>`).join('')}</ul>`;
       const fmtCortoDash = (n) => { n = Number(n || 0); return n >= 1e6 ? (n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' M' : n >= 1e3 ? Math.round(n / 1e3).toLocaleString('es-AR') + ' k' : '$' + n.toLocaleString('es-AR'); };
       window._dashDetalles = {
         vac:     { titulo: '🌴 De vacaciones hoy', html: detVac },
         prest:   { titulo: '💵 Préstamos activos', html: detPrest },
-        retiros: { titulo: `🛍 Retiros de mercadería de ${mesLargo}`, html: detRet },
+        retiros: { titulo: `🛍 Retiros de mercadería · ${retirosMesLabel}`, html: detRet },
         colab:   { titulo: 'Colaboradores activos', html: detColab },
         cumple:  { titulo: `🎂 Cumpleaños de ${mesLargo}`, html: detCumple },
         aniv:    { titulo: `🏆 Aniversarios de ${mesLargo}`, html: detAniv },
@@ -2005,10 +2019,10 @@ async function renderDashboard() {
         ['feriado', '#6366f1', '📅', feriadoTxt,                 'Próximo feriado'],
         ['vac',     '#3b82f6', '🌴', vacHoyDash.length,          'De vacaciones hoy'],
         ['prest',   '#0ea5e9', '💵', prestActivos.length,        'Préstamos activos'],
-        ['retiros', '#8b5cf6', '🛍', fmtCortoDash(retirosMesTotal), 'Retiros del mes'],
+        ['retiros', '#8b5cf6', '🛍', fmtCortoDash(retirosMesTotal), 'Retiros · ' + retirosMesLabel],
       ];
       return `<div class="dash-monedas">${monedas.map(([k, c, ico, num, nom]) => `
-        <button type="button" class="dash-mon" style="--c:${c};" data-det="${k}" aria-label="${nom}" onclick="dashDetalle('${k}', this)" onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
+        <button type="button" class="dash-mon dash-mon-${k}" style="--c:${c};" data-det="${k}" aria-label="${nom}" onclick="dashDetalle('${k}', this)" onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
           <span class="bola">${_dashMonedaHtml(ico, num)}</span>
           <span class="nom">${nom}</span>
         </button>`).join('')}</div>
