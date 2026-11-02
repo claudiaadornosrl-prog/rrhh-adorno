@@ -546,6 +546,40 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   .liq-toolbar-sticky .liq-titulo { font-size: 20px; }
 }
 @media (min-width: 1600px) { .main { max-width: 1560px; } }
+/* ── (2-nov-2026, JP) Dashboard: fichas como monedas (hub v59). --c = color de la moneda ── */
+.dash-monedas { display: flex; flex-wrap: wrap; gap: 26px 34px; justify-content: center; padding: 10px 0 6px; margin-bottom: 12px; }
+.dash-mon { --R: 58px; position: relative; width: calc(var(--R) * 2); height: calc(var(--R) * 2 + 34px); border: none; background: transparent; padding: 0; cursor: pointer; color: var(--text); -webkit-tap-highlight-color: transparent; }
+.dash-mon .bola { position: relative; display: block; width: calc(var(--R) * 2); height: calc(var(--R) * 2); border-radius: 50%; perspective: 420px; }
+.dash-mon .moneda { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(20deg) rotateY(0deg); }
+.dash-mon .canto { position: absolute; inset: 0; border-radius: 50%; background: color-mix(in srgb, var(--c) 58%, #000); }
+.dash-mon .canto.b { background: color-mix(in srgb, var(--c) 72%, #000); }
+.dash-mon .cara { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center; align-content: center; gap: 0; color: #fff;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+  background: radial-gradient(circle at 34% 28%, color-mix(in srgb, #fff 30%, var(--c)) 0%, var(--c) 55%, color-mix(in srgb, #000 16%, var(--c)) 100%);
+  box-shadow: inset 0 0 0 2.5px color-mix(in srgb, #fff 24%, var(--c)), inset 0 0 0 4.5px color-mix(in srgb, #000 12%, var(--c)); }
+.dash-mon .cara i { font-style: normal; font-size: 24px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
+.dash-mon .cara b { font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: -0.02em; text-shadow: 0 1px 2px rgba(0,0,0,.25); font-variant-numeric: tabular-nums; }
+.dash-mon .piso { position: absolute; left: 12%; right: 12%; bottom: -10px; height: 12px; border-radius: 50%; background: radial-gradient(closest-side, rgba(0,0,0,.26), transparent); pointer-events: none; }
+.dash-mon .nom { position: absolute; left: 50%; top: calc(var(--R) * 2 + 12px); transform: translateX(-50%); width: 130px; text-align: center; font-size: 11.5px; line-height: 1.2; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.dash-mon.abierta .cara { filter: brightness(1.1); }
+.dash-mon.abierta .nom { color: var(--text); }
+.dash-detalle { margin-bottom: 16px; padding: 14px 18px 16px; }
+.dash-det-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.dash-det-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.dash-det-grid { display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.dash-det-item b { display: block; font-size: 22px; font-weight: 700; }
+.dash-det-item span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.dash-det-sub { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 0 6px; }
+.dash-det-vacio { margin: 0; color: var(--muted); font-size: 13px; }
+@media (max-width: 600px) { .dash-monedas { gap: 18px 14px; } .dash-mon { --R: 46px; } .dash-mon .cara b { font-size: 24px; } .dash-mon .cara i { font-size: 20px; } .dash-mon .nom { width: 100px; font-size: 10.5px; } }
+/* (2-nov-2026, JP) "Para hacer" y "Para saber" lado a lado cuando están los dos */
+.dash-dos { display: grid; grid-template-columns: 1fr; gap: 0 14px; align-items: start; }
+.dash-dos:has(> .card + .card) { grid-template-columns: 1fr 1fr; }
+.dash-dos > .card { min-width: 0; }
+@media (max-width: 900px) { .dash-dos:has(> .card + .card) { grid-template-columns: 1fr; } }
+/* (2-nov-2026, JP) Números en la tipografía de la app (URW Gothic, la Avant Garde) en vez de monospace, alineados con tabular-nums */
+[style*="font-family:monospace"], [style*="font-family: monospace"], [style*="ui-monospace"], .ms-row .ms-k, .ms-row .ms-val, .liq-cierre-nom {
+  font-family: 'URW Gothic', 'Josefin Sans', sans-serif !important; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }

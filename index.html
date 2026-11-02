@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=38">
+<link rel="stylesheet" href="styles.css?v=40">
 </head>
 <body>
 
@@ -1612,6 +1612,54 @@ async function avisoAdminAbrir(id, tab) {
   if (tab) switchTab(tab); else renderPage('dashboard');
 }
 
+
+// ── (2-nov-2026, JP) Monedas del dashboard, estilo hub: canto de discos apilados, cara adelante y atrás; giran con el mouse ──
+function _dashMonedaHtml(ico, num) {
+  const T = 10; let capas = '';
+  for (let i = 0; i < T; i++) capas += `<span class="canto${i % 2 ? ' b' : ''}" style="transform:translateZ(${(i - (T - 1) / 2).toFixed(1)}px);"></span>`;
+  const cara = `<i>${ico}</i><b>${num}</b>`;
+  return `<span class="moneda">${capas}<span class="cara" style="transform:translateZ(${T / 2}px);">${cara}</span>` +
+    `<span class="cara" style="transform:rotateY(180deg) translateZ(${T / 2}px);">${cara}</span></span><span class="piso"></span>`;
+}
+const _DASH_TILT = 20, _DASH_VUELTA = 1500;
+const _dashRot = a => `rotateX(${_DASH_TILT}deg) rotateY(${a}deg)`;
+function _dashAngulo(m) {
+  const g = m._giro; if (!g) return m._ang || 0;
+  if (g.tipo === 'gira') return g.desde + ((g.anim.currentTime || 0) % _DASH_VUELTA) / _DASH_VUELTA * 360;
+  const p = g.anim.effect.getComputedTiming().progress;
+  return g.desde + (g.hasta - g.desde) * (p == null ? 1 : p);
+}
+function dashGirar(m, on) {
+  const mon = m && m.querySelector('.moneda');
+  if (!mon || !mon.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (on) {
+    if (m._giro && m._giro.tipo === 'gira') return;
+    const a = _dashAngulo(m) % 360;
+    if (m._giro) m._giro.anim.cancel();
+    m._giro = { tipo: 'gira', desde: a, anim: mon.animate([{ transform: _dashRot(a) }, { transform: _dashRot(a + 360) }], { duration: _DASH_VUELTA, iterations: Infinity }) };
+  } else if (m._giro && m._giro.tipo === 'gira') {
+    const a = _dashAngulo(m); m._giro.anim.cancel();
+    let hasta = (Math.floor(a / 180) + 1) * 180;
+    if (hasta - a < 100) hasta += 180;
+    const dur = Math.max(800, Math.min(1100, (hasta - a) / 360 * _DASH_VUELTA * 2));
+    mon.style.transform = _dashRot(hasta % 360);
+    const anim = mon.animate([{ transform: _dashRot(a) }, { transform: _dashRot(hasta) }], { duration: dur, easing: 'cubic-bezier(.33, .66, .5, 1)' });
+    m._giro = { tipo: 'frena', desde: a, hasta, anim };
+    anim.onfinish = () => { if (m._giro && m._giro.anim === anim) { m._giro = null; m._ang = hasta % 360; } };
+  }
+}
+// Clic en una moneda: muestra (o pliega) su detalle debajo de la fila
+function dashDetalle(k, btn) {
+  const det = document.getElementById('dash-detalle'); if (!det) return;
+  const d = (window._dashDetalles || {})[k];
+  const abierto = det.style.display !== 'none' && det.dataset.k === k;
+  document.querySelectorAll('.dash-mon').forEach(b => b.classList.toggle('abierta', b === btn && !abierto));
+  if (abierto || !d) { det.style.display = 'none'; det.dataset.k = ''; return; }
+  det.dataset.k = k;
+  det.innerHTML = `<div class="dash-det-head"><h3>${d.titulo}</h3><button type="button" class="liq-ib" aria-label="Cerrar" onclick="dashDetalle('${k}')">✖</button></div>${d.html}`;
+  det.style.display = 'block';
+}
+
 async function renderDashboard() {
   // Solo para admin/gerente — colaborador tiene su propio "mi-legajo"
   const isAdmin = session.rol === 'admin';
@@ -1893,30 +1941,46 @@ async function renderDashboard() {
       <div class="subtitle">${new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
     </div>
 
-    <div class="metrics-grid">
-      <div class="metric-card accent">
-        <div class="label">Colaboradores activos</div>
-        <div class="value">${totalEmp || 0}</div>
-        ${isAdmin ? `<div class="hint">Unicenter ${conteoPorLocal.unicenter||0} · Alcorta ${conteoPorLocal.alcorta||0} · Oficina ${conteoPorLocal.oficina||0}</div>` : '<div class="hint">' + (LOCALES[local]?.nombre || '') + '</div>'}
-      </div>
-
-      <div class="metric-card">
-        <div class="label">🎂 Cumpleaños este mes</div>
-        <div class="value">${cumpleEsteMes.length}</div>
-        <div class="hint">${cumpleEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : cumpleEsteMes.slice(0,3).map(c => `${c._dia}/${c._mes} ${c.nombre.split(' ')[0]}`).join(' · ')}</div>
-      </div>
-
-      <div class="metric-card accent" style="border-left-color:#f59e0b;">
-        <div class="label">🏆 Aniversarios este mes</div>
-        <div class="value">${aniversariosEsteMes.length}</div>
-        <div class="hint">${aniversariosEsteMes.length === 0 ? 'Ninguno en ' + hoy.toLocaleDateString('es-AR', { month: 'long' }) : aniversariosEsteMes.slice(0,3).map(a => `${a._dia}/${a._mes} ${a.nombre.split(' ')[0]} (${a._años} a.)`).join(' · ')}</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="label">Próximo feriado</div>
-        <div class="value" style="font-size:18px;">${proxFeriado ? new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : '—'}</div>
-        <div class="hint">${proxFeriado?.nombre || 'Sin feriados próximos'}</div>
-      </div>
+    <!-- (2-nov-2026, JP) Fichas como monedas (estilo hub): giran al pasar el mouse y al clic muestran el detalle abajo -->
+    ${(() => {
+      const mesLargo = hoy.toLocaleDateString('es-AR', { month: 'long' });
+      const detColab = isAdmin
+        ? `<div class="dash-det-grid">${['unicenter','alcorta','oficina'].map(l => `<div class="dash-det-item"><b>${conteoPorLocal[l] || 0}</b><span>${LOCALES[l]?.nombre || l}</span></div>`).join('')}</div>`
+        : `<div class="dash-det-grid"><div class="dash-det-item"><b>${totalEmp || 0}</b><span>${LOCALES[local]?.nombre || local}</span></div></div>`;
+      const detCumple = cumpleEsteMes.length === 0 ? `<p class="dash-det-vacio">Nadie cumple años en ${mesLargo}.</p>` : `
+        <ul class="simple-list" style="margin:0;">${cumpleEsteMes.map(c => {
+          const esHoy = c._dia === diaActual;
+          return `<li style="${esHoy ? 'background:#fef3c7;border-color:#fde68a;' : ''}"><div><strong>${escapeHtml(c.nombre.split(' ')[0])} ${escapeHtml(c.apellido)}</strong>${esHoy ? '<span class="emp-tag" style="background:#f59e0b;color:white;margin-left:8px;">¡HOY!</span>' : ''}<div class="meta">${c._dia} de ${mesLargo} · ${LOCALES[c.local]?.nombre || ''}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${c.id})">👤</button></li>`;
+        }).join('')}</ul>`;
+      const detAniv = aniversariosEsteMes.length === 0 && aniversariosProximos.length === 0 ? `<p class="dash-det-vacio">Sin aniversarios en ${mesLargo}.</p>` : `
+        ${aniversariosEsteMes.length ? `<div class="dash-det-sub">Este mes</div><ul class="simple-list" style="margin:0 0 10px;">${aniversariosEsteMes.map(a => `<li><div><strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong><div class="meta">${a._dia}/${a._mes} · ${a._años} ${a._años === 1 ? 'año' : 'años'} · ${LOCALES[a.local]?.nombre || ''}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${a.id})">👤</button></li>`).join('')}</ul>` : ''}
+        ${aniversariosProximos.length ? `<div class="dash-det-sub">Próximos 30 días</div><ul class="simple-list" style="margin:0;">${aniversariosProximos.map(a => {
+          const esHoy = a._diasFalta === 0;
+          return `<li style="${esHoy ? 'background:#d1faf1;border-color:#5eead4;' : ''}"><div><strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong>${esHoy ? `<span class="emp-tag" style="background:#0d9488;color:white;margin-left:8px;">¡HOY cumple ${a._años} años!</span>` : ''}<div class="meta">${esHoy ? `${a._años} años con nosotros` : `Cumple <strong>${a._años} ${a._años === 1 ? 'año' : 'años'}</strong> el ${a._aniv.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })} (en ${a._diasFalta} día${a._diasFalta === 1 ? '' : 's'})`}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${a.id})">👤</button></li>`;
+        }).join('')}</ul>` : ''}`;
+      const detFeriado = proxFeriado
+        ? `<div class="dash-det-grid"><div class="dash-det-item"><b>${new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</b><span>${escapeHtml(proxFeriado.nombre || '')}</span></div></div>`
+        : `<p class="dash-det-vacio">Sin feriados próximos cargados.</p>`;
+      window._dashDetalles = {
+        colab:   { titulo: 'Colaboradores activos', html: detColab },
+        cumple:  { titulo: `🎂 Cumpleaños de ${mesLargo}`, html: detCumple },
+        aniv:    { titulo: '🏆 Aniversarios laborales', html: detAniv },
+        feriado: { titulo: 'Próximo feriado', html: detFeriado },
+      };
+      const feriadoTxt = proxFeriado ? new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '') : '—';
+      const monedas = [
+        ['colab',   '#0d9488', '👥', totalEmp || 0,              'Colaboradores activos'],
+        ['cumple',  '#ec4899', '🎂', cumpleEsteMes.length,       'Cumpleaños este mes'],
+        ['aniv',    '#f59e0b', '🏆', aniversariosEsteMes.length, 'Aniversarios este mes'],
+        ['feriado', '#6366f1', '📅', feriadoTxt,                 'Próximo feriado'],
+      ];
+      return `<div class="dash-monedas">${monedas.map(([k, c, ico, num, nom]) => `
+        <button type="button" class="dash-mon" style="--c:${c};" data-det="${k}" aria-label="${nom}" onclick="dashDetalle('${k}', this)" onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
+          <span class="bola">${_dashMonedaHtml(ico, num)}</span>
+          <span class="nom">${nom}</span>
+        </button>`).join('')}</div>
+        <div id="dash-detalle" class="card dash-detalle" style="display:none;"></div>`;
+    })()}
     </div>
 
     ${avisosAdmin.length ? `
@@ -1952,7 +2016,7 @@ async function renderDashboard() {
         </div>
       ` : '';
 
-      let html = '';
+      let html = '<div class="dash-dos">';   // (2-nov-2026, JP) dos columnas si están los dos, ancho completo si hay uno
 
       // ━━ CRÍTICAS ━━
       if (totalCriticas > 0) {
@@ -2001,56 +2065,10 @@ async function renderDashboard() {
             </div>
           </div>`;
       }
-      return html;
+      return html + '</div>';
     })()}
 
-    ${(cumpleEsteMes.length > 0 || aniversariosProximos.length > 0) ? `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;">
-
-        ${cumpleEsteMes.length > 0 ? `
-        <div class="card">
-          <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;">🎂 Cumpleaños de ${hoy.toLocaleDateString('es-AR', { month: 'long' })}</h3>
-          <ul class="simple-list" style="margin:0;">
-            ${cumpleEsteMes.map(c => {
-              const esHoy = c._dia === diaActual;
-              return `
-                <li style="${esHoy ? 'background:#fef3c7;border-color:#fde68a;' : ''}">
-                  <div>
-                    <strong>${escapeHtml(c.nombre.split(' ')[0])} ${escapeHtml(c.apellido)}</strong>
-                    ${esHoy ? '<span class="emp-tag" style="background:#f59e0b;color:white;margin-left:8px;">¡HOY!</span>' : ''}
-                    <div class="meta">${c._dia} de ${hoy.toLocaleDateString('es-AR', { month: 'long' })} · ${LOCALES[c.local]?.nombre || ''}</div>
-                  </div>
-                  <button class="btn small" onclick="openEmpleadoModal(${c.id})">Ver</button>
-                </li>
-              `;
-            }).join('')}
-          </ul>
-        </div>
-        ` : ''}
-
-        ${aniversariosProximos.length > 0 ? `
-        <div class="card">
-          <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;">🏆 Próximos aniversarios laborales (30 días)</h3>
-          <ul class="simple-list" style="margin:0;">
-            ${aniversariosProximos.map(a => {
-              const esHoy = a._diasFalta === 0;
-              return `
-                <li style="${esHoy ? 'background:#d1faf1;border-color:#5eead4;' : ''}">
-                  <div>
-                    <strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong>
-                    ${esHoy ? `<span class="emp-tag" style="background:#0d9488;color:white;margin-left:8px;">¡HOY cumple ${a._años} años!</span>` : ''}
-                    <div class="meta">${esHoy ? `${a._años} años con nosotros` : `Cumple <strong>${a._años} ${a._años === 1 ? 'año' : 'años'}</strong> el ${a._aniv.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })} (en ${a._diasFalta} ${a._diasFalta === 1 ? 'día' : 'días'})`} · ${LOCALES[a.local]?.nombre || ''}</div>
-                  </div>
-                  <button class="btn small" onclick="openEmpleadoModal(${a.id})">Ver</button>
-                </li>
-              `;
-            }).join('')}
-          </ul>
-        </div>
-        ` : ''}
-
-      </div>
-    ` : ''}
+    <!-- (2-nov-2026, JP) los listados de cumpleaños/aniversarios de abajo pasaron al detalle de las monedas -->
   `;
   return html;
 }
