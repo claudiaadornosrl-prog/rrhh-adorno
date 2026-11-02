@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v441-asis-usuarios-iconos';
+const CACHE_VERSION = 'rrhh-v442-vac-resumen-iconos';
 const ASSETS = [
   './',
   './index.html',

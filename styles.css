@@ -537,6 +537,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 }
 .liq-tb:hover { transform: scale(1.25); }
 .liq-tb:active { transform: scale(1.05); }
+.liq-tb:disabled { cursor: default; transform: none; }
+.cal-toolbar #estado-cierre-mes { margin-right: 6px; }
 .liq-tb::after {
   content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%;
   transform: translate(-50%, -6px) scale(0.92); transform-origin: 50% 0;
