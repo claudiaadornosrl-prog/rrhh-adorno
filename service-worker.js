@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v456-dash-monedas-nom';
+const CACHE_VERSION = 'rrhh-v457-monedas-aire';
 const ASSETS = [
   './',
   './index.html',
