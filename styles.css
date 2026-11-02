@@ -616,3 +616,21 @@ select:not([multiple]) {
 }
 select:not([multiple]):focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(13,148,136,0.15); }
 select:not([multiple]):disabled { cursor: not-allowed; background-color: #f9fafb; color: var(--muted); }
+
+/* ── (2-nov-2026, JP) Todas las casillas de texto/número/fecha/búsqueda también en formato pastilla ──
+   Igual que los selects: muchos inputs traen border-radius 4/6/8px inline, por eso el !important.
+   Quedan afuera checkbox, radio, file, range, color y hidden. Los textarea van redondeados pero no pastilla. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]):not([type="submit"]):not([type="button"]) {
+  border-radius: 999px !important;
+  border: 1px solid var(--border);
+  background-color: #fff;
+  padding-left: 14px !important; padding-right: 14px !important;
+  line-height: 1.3;
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]):focus {
+  outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(13,148,136,0.15);
+}
+input:disabled, input[readonly] { background-color: #f9fafb; color: var(--muted); }
+input[type="search"]::-webkit-search-cancel-button { margin-right: 2px; }
+textarea { border-radius: 14px !important; border: 1px solid var(--border); padding: 10px 14px; }
+textarea:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(13,148,136,0.15); }
