@@ -586,6 +586,7 @@ async function renderLiquidaciones() {
         <!-- (2-nov-2026, JP) Acciones solo con ícono; el nombre sale en una pastilla al pasar el mouse (data-tip).
              Refrescar y Columnas salieron del kebab ⋮ y son íconos más. -->
         ${(liqState.subTab === 'sueldo') ? `
+          ${isAdmin ? `<button type="button" class="liq-tb" data-tip="Publicar a las chicas · ven su resumen en Mi sueldo por 24 h" aria-label="Publicar resumen 24 h" onclick="liqPublicarResumen('${local}','${periodo}')">📣</button>` : ''}
           ${isAdmin ? `<button type="button" class="liq-tb cerrar" data-tip="Cerrar mes de sueldos" aria-label="Cerrar mes" onclick="liqCerrarMes('${local}','${periodo}')">🔒</button>` : ''}
         ` : `
           ${isAdmin ? `<button type="button" class="liq-tb prof" data-tip="Proforma · liquidación provisoria para el banco" aria-label="Proforma" onclick="liqGenerarProforma('${local}','${periodo}')">📋</button>` : ''}
@@ -1079,6 +1080,7 @@ async function renderLiquidaciones() {
                   const _sacL   = c.sacPorEmpLiq[l.empleado_id] || 0;
                   const _sacRecL = c.esMesSAC ? Number(l.sac_recibo_neto || 0) : 0;
                   (window._liqResumenData = window._liqResumenData || {})[l.id] = {
+                    liq_id: l.id, empleado_id: l.empleado_id, local: l.local,   // (2-nov) para 📣 Mi sueldo
                     nombre: `${l.empleado?.apellido || ''} ${(l.empleado?.nombre || '').split(' ')[0]}`.trim(),
                     periodo: String(l.periodo).slice(0, 10),
                     fijo: +l.fijo || 0, comision: +l.comision || 0,
