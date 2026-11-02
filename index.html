@@ -6026,16 +6026,72 @@ function _miSueldoCalc(d) {
   return { totalMes, banco, subtotal, efectivo };
 }
 
-async function liqPublicarResumen(local, periodo) {
+// Datos del resumen desde la DB (misma lógica que la grilla: adelantos = préstamo de 1 cuota a tasa 0;
+// SAC en jun/dic = mejor total_negro del semestre / 12 × meses). No depende de lo que haya en pantalla.
+async function _miSueldoDatosDesdeDB(locales, periodo) {
+  const periodoFull = periodo + '-01';
+  const { data: liqs, error } = await sb.from('rrhh_liquidacion')
+    .select('id, empleado_id, local, fijo, comision, premio_cobra, premio_monto, viaticos, feriado_monto, extras, vacaciones_pago, total_negro, recibo_neto, sac_recibo_neto, mercaderia, ajuste, empleado:rrhh_empleados!inner(apellido, nombre, estado)')
+    .in('local', locales).eq('periodo', periodoFull);
+  if (error) throw error;
+  const filas = (liqs || []).filter(l => l.empleado?.estado === 'activo');
+  const empIds = [...new Set(filas.map(l => l.empleado_id))];
+  const adel = {}, pres = {}, inte = {}, sac = {};
+  if (empIds.length) {
+    const { data: pAct } = await sb.from('rrhh_prestamo').select('id, empleado_id, cuotas_totales, tasa_mensual')
+      .in('empleado_id', empIds).in('estado', ['activo', 'pagado']);
+    const pMap = {}; (pAct || []).forEach(p => { pMap[p.id] = p; });
+    const idsP = Object.keys(pMap).map(Number);
+    if (idsP.length) {
+      const { data: cs } = await sb.from('rrhh_prestamo_cuota').select('prestamo_id, monto_capital, monto_interes')
+        .eq('mes_descuento', periodoFull).neq('estado', 'cancelada').in('prestamo_id', idsP);
+      (cs || []).forEach(c => {
+        const pr = pMap[c.prestamo_id]; if (!pr) return;
+        const cap = Number(c.monto_capital || 0), intr = Number(c.monto_interes || 0);
+        if (pr.cuotas_totales === 1 && Number(pr.tasa_mensual || 0) === 0) adel[pr.empleado_id] = (adel[pr.empleado_id] || 0) + cap;
+        else { pres[pr.empleado_id] = (pres[pr.empleado_id] || 0) + cap; inte[pr.empleado_id] = (inte[pr.empleado_id] || 0) + intr; }
+      });
+    }
+    const [py, pm] = periodo.split('-').map(Number);
+    if (pm === 6 || pm === 12) {
+      const semStart = pm === 6 ? `${py}-01-01` : `${py}-07-01`, semEnd = pm === 6 ? `${py}-06-30` : `${py}-12-31`;
+      const { data: liqsSem } = await sb.from('rrhh_liquidacion').select('empleado_id, total_negro')
+        .in('empleado_id', empIds).gte('periodo', semStart).lte('periodo', semEnd);
+      const mejor = {}, meses = {};
+      (liqsSem || []).forEach(l => { const b = Number(l.total_negro || 0); if (!mejor[l.empleado_id] || b > mejor[l.empleado_id]) mejor[l.empleado_id] = b; meses[l.empleado_id] = (meses[l.empleado_id] || 0) + 1; });
+      Object.entries(mejor).forEach(([eid, v]) => { sac[eid] = (v / 12) * Math.min(6, meses[eid] || 0); });
+    }
+  }
+  return filas.map(l => {
+    const sac_ef = sac[l.empleado_id] || 0;
+    return {
+      liq_id: l.id, empleado_id: l.empleado_id, local: l.local, periodo: periodoFull,
+      nombre: `${l.empleado?.apellido || ''} ${(l.empleado?.nombre || '').split(' ')[0]}`.trim(),
+      fijo: +l.fijo || 0, comision: +l.comision || 0, premio: l.premio_cobra ? (+l.premio_monto || 0) : 0,
+      viaticos: +l.viaticos || 0, feriado: +l.feriado_monto || 0, extras: (+l.extras || 0) + (+l.vacaciones_pago || 0),
+      sac_ef, sac_rec: (sac_ef > 0) ? Number(l.sac_recibo_neto || 0) : 0,
+      total: (+l.total_negro || 0) + sac_ef, recibo: +l.recibo_neto || 0,
+      prestamos: pres[l.empleado_id] || 0, adelantos: adel[l.empleado_id] || 0, intereses: inte[l.empleado_id] || 0,
+      mercaderia: +l.mercaderia || 0, ajuste: +l.ajuste || 0,
+    };
+  });
+}
+
+// opts.auto = true → lo llama liqCerrarMes al cerrar el mes: sin confirm, solo toast.
+async function liqPublicarResumen(local, periodo, opts = {}) {
   if (!session || session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
-  const datos = Object.values(window._liqResumenData || {})
-    .filter(d => String(d.periodo || '').slice(0, 7) === periodo && (local === 'todos' || d.local === local) && d.empleado_id);
-  if (!datos.length) { toast('No hay filas cargadas en la grilla para publicar — abrí Sueldo con el mes y el local', 'error'); return; }
+  const locales = local === 'todos' ? ['alcorta', 'unicenter', 'oficina'] : [local];
+  let datos;
+  try { datos = await _miSueldoDatosDesdeDB(locales, periodo); }
+  catch (e) { toast('No pude leer las liquidaciones: ' + (e.message || e), 'error'); return; }
+  if (!datos.length) { if (!opts.auto) toast('No hay liquidaciones de ese mes y local para publicar', 'error'); return; }
   const [py, pm] = periodo.split('-').map(Number);
   const mesLbl = new Date(py, pm - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-  const lista = datos.map(d => d.nombre).sort().join('\n  • ');
-  if (!confirm(`📣 ¿Publicar el resumen de sueldo de ${mesLbl} a ${datos.length} colaboradora(s)?\n\n  • ${lista}\n\nCada una recibe una notificación y puede abrirlo UNA sola vez en "Mi sueldo" dentro de las 24 horas.\nSi ya estaba publicado, se renueva con los números de ahora y vuelve a poder abrirse una vez.`)) return;
-  toast('📣 Publicando…', '');
+  if (!opts.auto) {
+    const lista = datos.map(d => d.nombre).sort().join('\n  • ');
+    if (!confirm(`📣 ¿Publicar el resumen de sueldo de ${mesLbl} a ${datos.length} colaboradora(s)?\n\n  • ${lista}\n\nCada una recibe una notificación y puede abrirlo UNA sola vez en "Mi sueldo" dentro de las 24 horas.\nSi ya estaba publicado, se renueva con los números de ahora y vuelve a poder abrirse una vez.\n\n(Esto mismo pasa solo al cerrar el mes con 🔒.)`)) return;
+  }
+  toast('📣 Publicando el resumen a las colaboradoras…', '');
   const ahora = new Date();
   const expira = new Date(ahora.getTime() + 24 * 3600 * 1000);
   const filas = datos.map(d => {
@@ -6043,18 +6099,16 @@ async function liqPublicarResumen(local, periodo) {
     return {
       liquidacion_id: d.liq_id, empleado_id: d.empleado_id, periodo: d.periodo, local: d.local,
       snapshot: {
-        fijo: +d.fijo || 0, comision: +d.comision || 0, premio: +d.premio || 0, viaticos: +d.viaticos || 0,
-        feriado: +d.feriado || 0, extras: +d.extras || 0, sac_ef: +d.sac_ef || 0, sac_rec: +d.sac_rec || 0,
-        total: c.totalMes, recibo: +d.recibo || 0, prestamos: +d.prestamos || 0, adelantos: +d.adelantos || 0,
-        banco: c.banco, subtotal: c.subtotal, mercaderia: +d.mercaderia || 0, intereses: +d.intereses || 0,
-        ajuste: +d.ajuste || 0, efectivo: c.efectivo,
+        fijo: d.fijo, comision: d.comision, premio: d.premio, viaticos: d.viaticos, feriado: d.feriado, extras: d.extras,
+        sac_ef: d.sac_ef, sac_rec: d.sac_rec, total: c.totalMes, recibo: d.recibo, prestamos: d.prestamos, adelantos: d.adelantos,
+        banco: c.banco, subtotal: c.subtotal, mercaderia: d.mercaderia, intereses: d.intereses, ajuste: d.ajuste, efectivo: c.efectivo,
       },
-      publicada_at: ahora.toISOString(), expira_at: expira.toISOString(), publicada_por: session.email || session.user?.email || null,
+      publicada_at: ahora.toISOString(), expira_at: expira.toISOString(), publicada_por: (session.email || session.user?.email || null) + (opts.auto ? ' (cierre de mes)' : ''),
       vistas: 0, primera_vista_at: null, abierta_at: null, cerrada_at: null,
     };
   });
   const { error } = await sb.from('rrhh_liquidacion_publicada').upsert(filas, { onConflict: 'liquidacion_id' });
-  if (error) { toast('No se pudo publicar: ' + error.message, 'error'); return; }
+  if (error) { toast('No se pudo publicar el resumen: ' + error.message, 'error'); return; }
   let enviados = 0;
   for (const d of datos) {
     try {
@@ -6064,8 +6118,9 @@ async function liqPublicarResumen(local, periodo) {
       if (r && r.ok !== false) enviados++;
     } catch (_) {}
   }
-  try { auditLog('publicar_resumen', 'rrhh_liquidacion_publicada', null, null, null, `${local} ${periodo} · ${filas.length} colaboradoras · hasta ${expira.toISOString()}`); } catch (_) {}
-  toast(`📣 Publicado a ${filas.length} colaboradora(s) hasta ${expira.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${enviados} notificación(es) enviada(s)`, 'success');
+  try { auditLog('publicar_resumen', 'rrhh_liquidacion_publicada', null, null, null, `${local} ${periodo} · ${filas.length} colaboradoras · ${opts.auto ? 'auto al cerrar' : 'manual'} · hasta ${expira.toISOString()}`); } catch (_) {}
+  toast(`📣 Resumen publicado a ${filas.length} colaboradora(s) hasta ${expira.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} · ${enviados} notificación(es)`, 'success');
+  return { publicadas: filas.length, enviados };
 }
 
 // ── Vista de la colaboradora ──
@@ -17341,6 +17396,11 @@ async function liqCerrarMes(local, periodo) {
     ? `\n💵 ${cuotasAplicadas} cuota(s) de préstamo aplicadas${prestamosPagados>0?` · ${prestamosPagados} préstamo(s) finalizado(s)`:''}`
     : '';
 
+  // (2-nov-2026, JP) Al cerrar el mes se publica el resumen de sueldo a cada colaboradora
+  // (Mi sueldo, un solo uso, 24 h) y se le manda el push. Antes era manual con 📣.
+  try { await liqPublicarResumen(local, periodo, { auto: true }); }
+  catch (e) { console.warn('[liqCerrarMes] publicar resumen:', e); toast('⚠ El mes se cerró pero no pude publicar el resumen a las colaboradoras. Usá 📣.', 'error'); }
+
   // ═══════════════════════════════════════════════════════════════════════
   //  Fase 2B: cascada al mes siguiente
   //  Generar borradores del mes N+1 con los fijos copiados del mes N.
@@ -22697,7 +22757,7 @@ else init();
 <script src="manuales.js?v=25"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=8"></script>
+<script src="liquidaciones.js?v=9"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {
