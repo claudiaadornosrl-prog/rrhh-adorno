@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v427-liq-iconos-planos';
+const CACHE_VERSION = 'rrhh-v428-liq-acciones-planas';
 const ASSETS = [
   './',
   './index.html',

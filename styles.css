@@ -549,6 +549,12 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .liq-tb.tip-r::after { left: auto; right: 0; transform: translate(0, -6px) scale(0.92); transform-origin: 100% 0; }
 .liq-tb.tip-r:hover::after, .liq-tb.tip-r:focus-visible::after { transform: translate(0, 0) scale(1); }
 @media (hover: none) { .liq-tb::after { display: none; } }
+/* (2-nov-2026, JP) Columna Acciones de la grilla: candado, firma, ✏️ y 📸 sin fondo ni borde */
+.liq-ib { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; margin: 0 1px;
+  border: none; border-radius: 8px; background: transparent; font-size: 16px; line-height: 1; cursor: pointer; text-decoration: none;
+  vertical-align: middle; transition: transform 0.18s cubic-bezier(.34,1.56,.64,1); }
+.liq-ib:hover:not([disabled]) { transform: scale(1.25); }
+.liq-ib[disabled] { cursor: default; opacity: 0.85; }
 #liq-tabla-main tbody tr.liq-row:nth-child(even) { background: #f3f6fa; }
 #liq-tabla-main tbody tr.liq-row:nth-child(odd) { background: #fff; }
 #liq-tabla-main tbody tr.liq-row:hover { background: #e8f0f7; }

@@ -1060,19 +1060,19 @@ async function renderLiquidaciones() {
                 const fechaFirma = firmado ? new Date(firmado).toLocaleDateString('es-AR') : '';
                 const btnFirmado = firmado
                   ? (esUrl
-                      ? `<a class="btn small" href="${escapeHtml(url)}" target="_blank" rel="noopener" style="background:#d1fae5;color:#065f46;border-color:#86efac;text-decoration:none;" title="✓ Firmada el ${fechaFirma}. Click para abrir el archivo en OneDrive.">✓ Firmada</a>`
-                      : `<button class="btn small" style="background:#d1fae5;color:#065f46;border-color:#86efac;cursor:default;" disabled title="✓ Firmada el ${fechaFirma}. Archivo antiguo — sin link directo.">✓ Firmada</button>`)
+                      ? `<a class="liq-ib" href="${escapeHtml(url)}" target="_blank" rel="noopener" style="color:#065f46;" aria-label="Firmada" title="✓ Firmada el ${fechaFirma}. Click para abrir el archivo en OneDrive.">✅</a>`
+                      : `<button type="button" class="liq-ib" style="color:#065f46;" disabled aria-label="Firmada" title="✓ Firmada el ${fechaFirma}. Archivo antiguo — sin link directo.">✅</button>`)
                   : (mesCerr
-                      ? `<button class="btn small" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc;" disabled title="Mes cerrado — el sistema espera que llegue el PDF firmado por la colaboradora por Gmail o que lo subas manualmente.">🗓️ Esperando firma</button>`
-                      : `<button class="btn small" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" disabled title="No firmada — esperando que llegue el PDF firmado.">✗ No firmada</button>`);
+                      ? `<button type="button" class="liq-ib" disabled aria-label="Esperando firma" title="Esperando firma — mes cerrado; el sistema espera que llegue el PDF firmado por la colaboradora por Gmail o que lo subas manualmente.">🗓️</button>`
+                      : `<button type="button" class="liq-ib" disabled aria-label="No firmada" title="No firmada — esperando que llegue el PDF firmado.">✍️</button>`);
                 // Candado: cerrado si (mes cerrado a nivel local) O (liq en estado 'revisada'/'firmada'/'anulada')
                 const estaCerrado = !!mesCerr || l.estado === 'firmada' || l.estado === 'revisada' || l.estado === 'anulada';
                 const tipCandado = mesCerr
                   ? `🔒 Mes cerrado el ${(mesCerr.cerrado_at||'').split('T')[0]} por ${(mesCerr.cerrado_por||'').split('@')[0]}${c.isAdmin?' — para editar esta liq, primero reabrí el mes desde el botón 🔒 del header':''}`
                   : `🔒 Liquidación en estado "${l.estado}"${c.isAdmin?' — click para volver a borrador y editar':''}`;
                 const btnCandado = estaCerrado
-                  ? `<button class="btn small" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5;cursor:${(c.isAdmin && !mesCerr)?'pointer':'default'};" ${(c.isAdmin && !mesCerr)?`onclick="liqReabrirEmpleado(${l.id})"`:''} title="${tipCandado}">🔒</button>`
-                  : `<button class="btn small" style="background:#dcfce7;color:#166534;border-color:#86efac;cursor:default;" title="🔓 Abierta — se puede editar">🔓</button>`;
+                  ? `<button type="button" class="liq-ib" style="cursor:${(c.isAdmin && !mesCerr)?'pointer':'default'};" ${(c.isAdmin && !mesCerr)?`onclick="liqReabrirEmpleado(${l.id})"`:'disabled'} title="${tipCandado}">🔒</button>`
+                  : `<button type="button" class="liq-ib" disabled title="🔓 Abierta — se puede editar">🔓</button>`;
                 // 📸 Resumen efímero: snapshot en memoria para generar la imagen
                 // (solo admin — la imagen se dibuja en el navegador y NO se guarda)
                 if (c.isAdmin) {
@@ -1095,12 +1095,12 @@ async function renderLiquidaciones() {
                   };
                 }
                 const btnImagen = c.isAdmin
-                  ? `<button class="btn small" onclick="liqImagenResumen(${l.id})" title="📸 Generar imagen del resumen del sueldo (banco + efectivo) para mandarla por WhatsApp como foto con 'ver una vez'. La imagen se genera en tu compu y NO queda guardada en ningún lado.">📸</button>`
+                  ? `<button type="button" class="liq-ib" onclick="liqImagenResumen(${l.id})" title="📸 Generar imagen del resumen del sueldo (banco + efectivo) para mandarla por WhatsApp como foto con 'ver una vez'. La imagen se genera en tu compu y NO queda guardada en ningún lado.">📸</button>`
                   : '';
                 return `<td style="padding:8px;white-space:nowrap;">
                   ${btnCandado}
                   ${btnFirmado}
-                  ${c.isAdmin ? `<button class="btn small" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
+                  ${c.isAdmin ? `<button type="button" class="liq-ib" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
                   ${btnImagen}
                 </td>`;
               } },
