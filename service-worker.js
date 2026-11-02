@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v449-liq-un-renglon';
+const CACHE_VERSION = 'rrhh-v450-mi-sueldo-oculto';
 const ASSETS = [
   './',
   './index.html',

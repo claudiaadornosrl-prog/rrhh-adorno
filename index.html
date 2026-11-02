@@ -1394,6 +1394,18 @@ function renderSidebar() {
   sb_el.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { switchTab(btn.dataset.tab); toggleSidebar(false); });
   });
+  // (2-nov-2026, JP) "Mi sueldo" solo se ve cuando hay un resumen publicado sin abrir; al cerrarlo desaparece.
+  const _ms = sb_el.querySelector('.nav-item[data-tab="mi-sueldo"]');
+  if (_ms) { _ms.style.display = 'none'; _miSueldoActualizarNav(); }
+}
+
+async function _miSueldoActualizarNav() {
+  const btn = document.querySelector('#sidebar .nav-item[data-tab="mi-sueldo"]');
+  if (!btn || !session || !session.empleado_id) return;
+  try {
+    const { data: p } = await sb.rpc('rrhh_mi_sueldo');
+    btn.style.display = (p && p.disponible) ? '' : 'none';
+  } catch (_) { btn.style.display = 'none'; }
 }
 
 // ── Sidebar colapsable (tablet / teléfono) ──────────────────────
@@ -6155,7 +6167,13 @@ async function _miSueldoCerrarAhora(motivo) {
   if (!id) return;
   _miSueldoAbiertoId = null;
   try { await sb.rpc('rrhh_mi_sueldo_cerrar', { p_id: id }); } catch (_) {}
-  if (currentTab === 'mi-sueldo') switchTab('mi-sueldo');
+  // (2-nov-2026, JP) cerrado = se oculta hasta el próximo resumen
+  _miSueldoActualizarNav();
+  if (currentTab === 'mi-sueldo') {
+    const primera = (NAV[session.rol] || []).find(i => i.id !== 'mi-sueldo')?.id || 'mi-legajo';
+    toast('Resumen cerrado. Cuando se publique el próximo te llega un aviso.', 'info');
+    switchTab(primera);
+  }
 }
 function _miSueldoInstalarGuardia() {
   if (_miSueldoGuardiaOk) return;
