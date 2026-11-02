@@ -554,7 +554,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   border: none; border-radius: 8px; background: transparent; font-size: 16px; line-height: 1; cursor: pointer; text-decoration: none;
   vertical-align: middle; transition: transform 0.18s cubic-bezier(.34,1.56,.64,1); }
 .liq-ib:hover:not([disabled]) { transform: scale(1.25); }
-.liq-ib[disabled] { cursor: default; opacity: 0.85; }
+.liq-ib[disabled] { cursor: default; opacity: 1; color: var(--text); -webkit-text-fill-color: initial; }
 #liq-tabla-main tbody tr.liq-row:nth-child(even) { background: #f3f6fa; }
 #liq-tabla-main tbody tr.liq-row:nth-child(odd) { background: #fff; }
 #liq-tabla-main tbody tr.liq-row:hover { background: #e8f0f7; }

@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v428-liq-acciones-planas';
+const CACHE_VERSION = 'rrhh-v429-liq-acciones-nitidas';
 const ASSETS = [
   './',
   './index.html',
