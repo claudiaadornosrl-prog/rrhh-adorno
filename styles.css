@@ -559,30 +559,27 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 #liq-tabla-main tbody tr.liq-row:nth-child(odd) { background: #fff; }
 #liq-tabla-main tbody tr.liq-row:hover { background: #e8f0f7; }
 
-/* ── (2-nov-2026, JP) Mi sueldo: vista protegida 24 h ── */
-.secure-view { position: relative; overflow: hidden; padding: 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* ── (2-nov-2026, JP) Mi sueldo: resumen de un solo uso (sin título ni nombre; dos iniciales + número) ── */
+.secure-view { position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .secure-view * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.secure-wm { position: absolute; inset: -60% -40%; display: flex; flex-wrap: wrap; gap: 46px 70px; align-content: flex-start;
-  transform: rotate(-24deg); pointer-events: none; z-index: 2; opacity: 0.11; font-size: 12px; font-weight: 700;
-  letter-spacing: 0.02em; color: var(--accent); white-space: nowrap; }
-.secure-body { position: relative; z-index: 1; padding: 18px 20px 16px; transition: filter 0.15s ease; }
-.ms-head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
-.ms-title { font-size: 18px; font-weight: 700; }
-.ms-sub { color: var(--muted); font-size: 14px; margin-top: 2px; }
-.ms-expira { font-size: 12.5px; color: #92400e; background: #fef3c7; border-radius: 10px; padding: 8px 12px; line-height: 1.5; }
-.ms-sec { margin: 14px 0 6px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.ms-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 14px; }
-.ms-row .ms-val { font-family: ui-monospace, monospace; font-weight: 600; }
-.ms-lin span:first-child { padding-left: 10px; }
+.secure-view.ms-abierto { padding: 14px 16px 16px !important; display: grid !important; gap: 12px; }
+.secure-body { display: grid; }
+.ms-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px dashed var(--border); font-size: 15px; }
+.ms-row .ms-k { font-family: ui-monospace, monospace; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
+.ms-row .ms-val { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ms-sp { padding-top: 22px; }
 .ms-resta { color: #b45309; }
-.ms-resta span:first-child { padding-left: 10px; }
-.ms-tot { font-weight: 700; font-size: 15px; border-bottom: 2px solid var(--border); }
-.ms-foot { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.5; }
-.secure-cover { position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; text-align: center;
-  padding: 24px; font-weight: 600; color: var(--accent); background: rgba(246,247,251,0.96); }
-body.secure-hide .secure-body { filter: blur(18px); }
-body.secure-hide .secure-cover { display: flex; }
-@media print { .secure-view, .secure-view * { display: none !important; } body::after { content: 'Contenido protegido — no se imprime.'; display: block; padding: 40px; font-size: 18px; } }
+.ms-resta .ms-k { color: #b45309; }
+.ms-tot { font-weight: 800; border-bottom: 2px solid var(--border); }
+.ms-tot .ms-k { color: var(--text); }
+.ms-aviso { background: #fef3c7; color: #92400e; border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.ms-abrir, .ms-cerrar { width: 100%; justify-content: center; border-radius: 999px !important; padding: 12px !important; font-size: 15px !important; font-weight: 700; }
+.ms-foot { font-size: 12px; color: var(--muted); line-height: 1.5; text-align: center; }
+.ms-sello { display: grid; justify-items: center; gap: 8px; text-align: center; padding: 28px 16px !important; }
+.ms-ico { width: 56px; height: 56px; border-radius: 50%; background: var(--accent2-soft, #e6f4f1); color: var(--accent2); display: grid; place-items: center; font-size: 26px; }
+.ms-sello-t { font-weight: 700; font-size: 15px; }
+.ms-sello-s { color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 42ch; }
+@media print { .secure-view, .secure-view * { display: none !important; } }
 
 /* ── (30-oct-2026, JP) Aumentos: izquierda pastillas desplegables, derecha IPC; abajo todo el ancho ── */
 .aum-top { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }

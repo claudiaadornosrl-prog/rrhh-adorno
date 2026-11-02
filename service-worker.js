@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v431-grilla-limpia';
+const CACHE_VERSION = 'rrhh-v432-mi-sueldo-un-uso';
 const ASSETS = [
   './',
   './index.html',

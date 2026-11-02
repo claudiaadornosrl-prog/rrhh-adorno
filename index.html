@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=27">
+<link rel="stylesheet" href="styles.css?v=28">
 </head>
 <body>
 
@@ -6009,14 +6009,14 @@ async function subirMiFoto(inputEl) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  MI SUELDO — resumen publicado por 24 h (2-nov-2026, JP)
-//  El admin aprieta 📣 en Liquidación › Sueldo: por cada fila de la grilla se guarda un
-//  snapshot del resumen (lo mismo que la imagen 📸) en rrhh_liquidacion_publicada con
-//  expira_at = ahora + 24 h y se le manda un push a la colaboradora. Ella lo ve en la
-//  pestaña "Mi sueldo" mientras no venció (la RLS no devuelve filas vencidas).
-//  Capa disuasoria (no existe bloqueo real de captura en la web): marca de agua con nombre,
-//  DNI y hora; sin selección/copia/clic derecho/impresión; se tapa al perder el foco o
-//  cambiar de app; en PC se tapa y se limpia el portapapeles al apretar Impr Pant.
+//  MI SUELDO — resumen de UN SOLO USO (2-nov-2026, JP; preview aprobado)
+//  El admin aprieta 📣 en Liquidación › Sueldo: por cada fila de la grilla se guarda un snapshot
+//  del resumen en rrhh_liquidacion_publicada (expira_at = +24 h) y se le manda un push.
+//  La colaboradora ve en "Mi sueldo" un aviso con "Abrir ahora": la RPC rrhh_mi_sueldo_abrir
+//  entrega el snapshot UNA sola vez (marca abierta_at). La pantalla abierta no tiene título, mes,
+//  nombre ni empresa: solo dos iniciales y el número por renglón. Al cerrar, salir de la pestaña,
+//  cambiar de app o apretar Impr Pant se cierra (rrhh_mi_sueldo_cerrar) y no se puede volver a ver.
+//  Si no la abre, vence a las 24 h. (La captura no se puede bloquear en la web: por eso es anónimo.)
 // ═══════════════════════════════════════════════════════════════════════════
 function _miSueldoCalc(d) {
   const totalMes = +d.total || 0;
@@ -6034,7 +6034,7 @@ async function liqPublicarResumen(local, periodo) {
   const [py, pm] = periodo.split('-').map(Number);
   const mesLbl = new Date(py, pm - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const lista = datos.map(d => d.nombre).sort().join('\n  • ');
-  if (!confirm(`📣 ¿Publicar el resumen de sueldo de ${mesLbl} a ${datos.length} colaboradora(s)?\n\n  • ${lista}\n\nCada una recibe una notificación y lo ve en "Mi sueldo" durante 24 horas; después desaparece solo.\nSi ya estaba publicado, se renueva la ventana de 24 h con los números de ahora.`)) return;
+  if (!confirm(`📣 ¿Publicar el resumen de sueldo de ${mesLbl} a ${datos.length} colaboradora(s)?\n\n  • ${lista}\n\nCada una recibe una notificación y puede abrirlo UNA sola vez en "Mi sueldo" dentro de las 24 horas.\nSi ya estaba publicado, se renueva con los números de ahora y vuelve a poder abrirse una vez.`)) return;
   toast('📣 Publicando…', '');
   const ahora = new Date();
   const expira = new Date(ahora.getTime() + 24 * 3600 * 1000);
@@ -6043,7 +6043,6 @@ async function liqPublicarResumen(local, periodo) {
     return {
       liquidacion_id: d.liq_id, empleado_id: d.empleado_id, periodo: d.periodo, local: d.local,
       snapshot: {
-        nombre: d.nombre, periodo: d.periodo,
         fijo: +d.fijo || 0, comision: +d.comision || 0, premio: +d.premio || 0, viaticos: +d.viaticos || 0,
         feriado: +d.feriado || 0, extras: +d.extras || 0, sac_ef: +d.sac_ef || 0, sac_rec: +d.sac_rec || 0,
         total: c.totalMes, recibo: +d.recibo || 0, prestamos: +d.prestamos || 0, adelantos: +d.adelantos || 0,
@@ -6051,7 +6050,7 @@ async function liqPublicarResumen(local, periodo) {
         ajuste: +d.ajuste || 0, efectivo: c.efectivo,
       },
       publicada_at: ahora.toISOString(), expira_at: expira.toISOString(), publicada_por: session.email || session.user?.email || null,
-      vistas: 0, primera_vista_at: null,
+      vistas: 0, primera_vista_at: null, abierta_at: null, cerrada_at: null,
     };
   });
   const { error } = await sb.from('rrhh_liquidacion_publicada').upsert(filas, { onConflict: 'liquidacion_id' });
@@ -6060,7 +6059,7 @@ async function liqPublicarResumen(local, periodo) {
   for (const d of datos) {
     try {
       const r = await enviarPush(d.empleado_id, `💰 Tu sueldo de ${mesLbl} ya está`,
-        'Entrá a "Mi sueldo" para verlo. Queda disponible 24 horas y después desaparece.',
+        'Entrá a "Mi sueldo" para verlo. Se abre una sola vez y vence en 24 horas.',
         { url: './#mi-sueldo', tag: 'mi-sueldo-' + periodo });
       if (r && r.ok !== false) enviados++;
     } catch (_) {}
@@ -6069,126 +6068,126 @@ async function liqPublicarResumen(local, periodo) {
   toast(`📣 Publicado a ${filas.length} colaboradora(s) hasta ${expira.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${enviados} notificación(es) enviada(s)`, 'success');
 }
 
+// ── Vista de la colaboradora ──
 let _miSueldoGuardiaOk = false;
-let _miSueldoTimer = null;
-function _miSueldoActiva() { return currentTab === 'mi-sueldo' && !!document.getElementById('mi-sueldo-card'); }
-function _miSueldoTapar(ms) {
-  document.body.classList.add('secure-hide');
-  if (ms) setTimeout(() => { if (document.visibilityState === 'visible') document.body.classList.remove('secure-hide'); }, ms);
+let _miSueldoAbiertoId = null;   // id de la publicación que está abierta en pantalla (null si no hay)
+const _MS_FMT_FECHA = (iso, conDia) => new Date(iso).toLocaleString('es-AR', Object.assign(conDia ? { weekday: 'long' } : {}, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }));
+function _miSueldoMes(periodo) {
+  const [py, pm] = String(periodo).split('-').map(Number);
+  return new Date(py, pm - 1, 1).toLocaleDateString('es-AR', { month: 'long' });
+}
+async function _miSueldoCerrarAhora(motivo) {
+  const id = _miSueldoAbiertoId;
+  if (!id) return;
+  _miSueldoAbiertoId = null;
+  try { await sb.rpc('rrhh_mi_sueldo_cerrar', { p_id: id }); } catch (_) {}
+  if (currentTab === 'mi-sueldo') switchTab('mi-sueldo');
 }
 function _miSueldoInstalarGuardia() {
   if (_miSueldoGuardiaOk) return;
   _miSueldoGuardiaOk = true;
-  const bloquear = (e) => { if (_miSueldoActiva()) { e.preventDefault(); return false; } };
+  const activa = () => !!_miSueldoAbiertoId && !!document.getElementById('mi-sueldo-card');
+  const bloquear = (e) => { if (activa()) { e.preventDefault(); return false; } };
   ['contextmenu', 'copy', 'cut', 'dragstart', 'selectstart'].forEach(ev => document.addEventListener(ev, bloquear, { capture: true }));
   document.addEventListener('keydown', (e) => {
-    if (!_miSueldoActiva()) return;
+    if (!activa()) return;
     const k = (e.key || '').toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     if (k === 'printscreen' || (mod && ['p', 's', 'c', 'u', 'a'].includes(k)) || (mod && e.shiftKey && ['s', 'i', 'j', 'c'].includes(k)) || k === 'f12') {
-      e.preventDefault(); e.stopPropagation(); _miSueldoTapar(1500);
+      e.preventDefault(); e.stopPropagation();
       try { navigator.clipboard && navigator.clipboard.writeText(' '); } catch (_) {}
+      _miSueldoCerrarAhora('tecla');
     }
   }, { capture: true });
   document.addEventListener('keyup', (e) => {
-    if (!_miSueldoActiva()) return;
-    if ((e.key || '').toLowerCase() === 'printscreen') {
-      _miSueldoTapar(1500);
+    if (activa() && (e.key || '').toLowerCase() === 'printscreen') {
       try { navigator.clipboard && navigator.clipboard.writeText(' '); } catch (_) {}
+      _miSueldoCerrarAhora('printscreen');
     }
   }, { capture: true });
-  const ocultar = () => { if (_miSueldoActiva()) document.body.classList.add('secure-hide'); };
-  const mostrar = () => { setTimeout(() => { if (document.visibilityState === 'visible') document.body.classList.remove('secure-hide'); }, 250); };
-  document.addEventListener('visibilitychange', () => (document.visibilityState === 'hidden' ? ocultar() : mostrar()));
-  window.addEventListener('blur', ocultar);
-  window.addEventListener('focus', mostrar);
-  window.addEventListener('beforeprint', ocultar);
-  window.addEventListener('afterprint', mostrar);
+  // Salir de la pestaña / cambiar de app / imprimir → se cierra y no vuelve
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && activa()) _miSueldoCerrarAhora('oculto'); });
+  window.addEventListener('blur', () => { if (activa()) _miSueldoCerrarAhora('blur'); });
+  window.addEventListener('beforeprint', () => { if (activa()) _miSueldoCerrarAhora('print'); });
+  window.addEventListener('pagehide', () => { const id = _miSueldoAbiertoId; if (id) { _miSueldoAbiertoId = null; try { sb.rpc('rrhh_mi_sueldo_cerrar', { p_id: id }); } catch (_) {} } });
+}
+
+async function miSueldoAbrir(id) {
+  const btn = document.getElementById('mi-sueldo-abrir');
+  if (btn) { btn.disabled = true; btn.textContent = 'Abriendo…'; }
+  const { data: snap, error } = await sb.rpc('rrhh_mi_sueldo_abrir', { p_id: id });
+  if (error || !snap) {
+    toast(error ? ('No se pudo abrir: ' + error.message) : 'Este resumen ya no está disponible.', 'error');
+    switchTab('mi-sueldo'); return;
+  }
+  const d = snap;
+  const $ = (n) => '$ ' + Math.round(Math.abs(+n || 0)).toLocaleString('es-AR');
+  const filas = [];
+  const push = (k, v, tipo) => filas.push([k, v, tipo || 'lin']);
+  push('FI', d.fijo); push('CO', d.comision);
+  if (d.premio > 0)   push('PR', d.premio);
+  if (d.viaticos > 0) push('VI', d.viaticos);
+  if (d.feriado > 0)  push('FE', d.feriado);
+  if (d.extras > 0)   push('EX', d.extras);
+  if (d.sac_ef > 0)   push('SA', d.sac_ef);
+  push('TO', d.total, 'tot');
+  push('RE', d.recibo, 'sp');
+  if (d.sac_rec > 0)   push('RS', d.sac_rec);
+  if (d.prestamos > 0) push('CP', -d.prestamos, 'resta');
+  if (d.adelantos > 0) push('AD', -d.adelantos, 'resta');
+  push('BA', d.banco, 'tot');
+  push('SU', d.subtotal, 'sp');
+  if (d.mercaderia > 0) push('ME', -d.mercaderia, 'resta');
+  if (d.intereses > 0)  push('IN', -d.intereses, 'resta');
+  if (d.ajuste)         push('AJ', -d.ajuste, 'resta');
+  push('EF', d.efectivo, 'tot');
+  const html = filas.map(([k, v, tipo]) =>
+    `<div class="ms-row ms-${tipo}"><span class="ms-k">${k}</span><span class="ms-val">${v < 0 ? '− ' : ''}${$(v)}</span></div>`).join('');
+  const card = document.getElementById('mi-sueldo-card');
+  if (!card) return;
+  _miSueldoAbiertoId = id;
+  card.innerHTML = `
+    <div class="secure-body">${html}</div>
+    <button type="button" class="btn ms-cerrar" onclick="_miSueldoCerrarAhora('boton')">Cerrar</button>
+    <div class="ms-foot">Al cerrar no se puede volver a abrir.</div>`;
+  card.classList.add('ms-abierto');
 }
 
 async function renderMiSueldo() {
   if (!session || !session.empleado_id) return `<div class="page-header"><h2>Mi sueldo</h2></div><div class="card">Este usuario no tiene legajo asociado.</div>`;
   _miSueldoInstalarGuardia();
-  if (_miSueldoTimer) { clearInterval(_miSueldoTimer); _miSueldoTimer = null; }
-  const { data: pubs, error } = await sb.from('rrhh_liquidacion_publicada')
-    .select('id, periodo, snapshot, publicada_at, expira_at')
-    .eq('empleado_id', session.empleado_id)
-    .gt('expira_at', new Date().toISOString())
-    .order('periodo', { ascending: false }).limit(1);
-  if (error) return `<div class="page-header"><h2>Mi sueldo</h2></div><div class="card" style="color:var(--danger)">${escapeHtml(error.message)}</div>`;
-  const p = (pubs || [])[0];
-  const head = `<div class="page-header"><h2>Mi sueldo</h2><div class="subtitle">Resumen del mes, disponible 24 horas desde que se publica</div></div>`;
-  if (!p) {
-    return head + `
+  _miSueldoAbiertoId = null;
+  const { data: p, error } = await sb.rpc('rrhh_mi_sueldo');
+  const head = `<div class="page-header"><h2>Mi sueldo</h2></div>`;
+  if (error) return head + `<div class="card" style="color:var(--danger)">${escapeHtml(error.message)}</div>`;
+  const ninguno = head + `
       <div class="card" style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px;font-size:14px;color:#1e40af;line-height:1.6;">
-        🕐 Ahora no hay ningún resumen disponible.<br>
-        Cuando se publique tu liquidación te llega una notificación y lo ves acá durante <strong>24 horas</strong>. Después desaparece solo.
-        Si querés conservar los números, anotalos a mano mientras está visible.
+        🕐 Ahora no hay ningún resumen para ver.<br>
+        Cuando se publique tu liquidación te llega una notificación y lo podés abrir <strong>una sola vez</strong> dentro de las 24 horas.
+      </div>`;
+  if (!p) return ninguno;
+  if (p.abierta_at) {
+    return head + `
+      <div class="card ms-sello">
+        <div class="ms-ico">✓</div>
+        <div class="ms-sello-t">Ya viste el resumen de ${_miSueldoMes(p.periodo)}.</div>
+        <div class="ms-sello-s">Lo abriste el ${_MS_FMT_FECHA(p.abierta_at)}. Cuando se publique el próximo mes te llega un aviso nuevo.</div>
       </div>`;
   }
-  const d = p.snapshot || {};
-  const $ = (n) => '$ ' + Math.round(Math.abs(+n || 0)).toLocaleString('es-AR');
-  const [py, pm] = String(p.periodo).split('-').map(Number);
-  const mesLbl = new Date(py, pm - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-  const filas = [];
-  filas.push(['Composición del mes', null, 'seccion']);
-  filas.push(['Fijo', d.fijo, 'linea']);
-  filas.push(['Comisión', d.comision, 'linea']);
-  if (d.premio > 0)   filas.push(['Premio', d.premio, 'linea']);
-  if (d.viaticos > 0) filas.push(['Viáticos', d.viaticos, 'linea']);
-  if (d.feriado > 0)  filas.push(['Feriado', d.feriado, 'linea']);
-  if (d.extras > 0)   filas.push(['Extras', d.extras, 'linea']);
-  if (d.sac_ef > 0)   filas.push(['SAC', d.sac_ef, 'linea']);
-  filas.push(['Total del mes', d.total, 'total']);
-  filas.push(['Por banco', null, 'seccion']);
-  filas.push(['Recibo de sueldo (neto)', d.recibo, 'linea']);
-  if (d.sac_rec > 0)   filas.push(['Recibo SAC (neto)', d.sac_rec, 'linea']);
-  if (d.prestamos > 0) filas.push(['− Cuota préstamo (capital)', -d.prestamos, 'resta']);
-  if (d.adelantos > 0) filas.push(['− Adelantos', -d.adelantos, 'resta']);
-  filas.push(['Se acredita en banco', d.banco, 'total']);
-  filas.push(['En efectivo', null, 'seccion']);
-  filas.push(['Subtotal (total − recibos)', d.subtotal, 'linea']);
-  if (d.mercaderia > 0) filas.push(['− Mercadería', -d.mercaderia, 'resta']);
-  if (d.intereses > 0)  filas.push(['− Interés préstamo', -d.intereses, 'resta']);
-  if (d.ajuste)         filas.push([d.ajuste > 0 ? '− Ajustes' : '+ Ajustes', -d.ajuste, 'resta']);
-  filas.push(['Se paga en efectivo', d.efectivo, 'total']);
-  const filasHtml = filas.map(([lab, val, tipo]) => {
-    if (tipo === 'seccion') return `<div class="ms-sec">${lab}</div>`;
-    const cls = tipo === 'total' ? 'ms-tot' : (tipo === 'resta' ? 'ms-resta' : 'ms-lin');
-    return `<div class="ms-row ${cls}"><span>${lab}</span><span class="ms-val">${val < 0 ? '− ' : ''}${$(val)}</span></div>`;
-  }).join('');
-  const ed = session.empleadoData || {};
-  const nombreWm = (ed.nombre_completo || d.nombre || session.email || '').toUpperCase();
-  const ahoraTxt = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const wmTxt = escapeHtml(`${nombreWm} · DNI ${ed.dni || '—'} · ${ahoraTxt}`);
-  const wm = Array.from({ length: 48 }, () => `<span>${wmTxt}</span>`).join('');
-  const expira = new Date(p.expira_at);
-  const expiraTxt = expira.toLocaleString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  // Contador de vistas (best effort) y cuenta regresiva
-  try { sb.rpc('rrhh_liq_publicada_vista', { p_id: p.id }).then(() => {}, () => {}); } catch (_) {}
-  _miSueldoTimer = setInterval(() => {
-    const el = document.getElementById('mi-sueldo-restan');
-    if (!el) { clearInterval(_miSueldoTimer); _miSueldoTimer = null; return; }
-    const ms = expira - Date.now();
-    if (ms <= 0) { clearInterval(_miSueldoTimer); _miSueldoTimer = null; switchTab('mi-sueldo'); return; }
-    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-    el.textContent = `quedan ${h} h ${String(m).padStart(2, '0')} min`;
-  }, 15000);
-  const ms0 = expira - Date.now();
-  const restan0 = `quedan ${Math.floor(ms0 / 3600000)} h ${String(Math.floor((ms0 % 3600000) / 60000)).padStart(2, '0')} min`;
+  if (!p.disponible) {
+    return head + `
+      <div class="card ms-sello">
+        <div class="ms-ico" style="background:#fef3c7;color:#92400e;">⏳</div>
+        <div class="ms-sello-t">El resumen de ${_miSueldoMes(p.periodo)} venció sin abrirse.</div>
+        <div class="ms-sello-s">Estuvo disponible hasta el ${_MS_FMT_FECHA(p.expira_at)}. Si lo necesitás, pedilo en la oficina.</div>
+      </div>`;
+  }
   return head + `
-    <div class="card secure-view" id="mi-sueldo-card">
-      <div class="secure-wm" aria-hidden="true">${wm}</div>
-      <div class="secure-body">
-        <div class="ms-head">
-          <div><div class="ms-title">Resumen de sueldo · ${mesLbl.charAt(0).toUpperCase() + mesLbl.slice(1)}</div>
-          <div class="ms-sub">${escapeHtml(d.nombre || nombreWm)}</div></div>
-          <div class="ms-expira">⏳ Disponible hasta el ${expiraTxt}<br><span id="mi-sueldo-restan">${restan0}</span></div>
-        </div>
-        ${filasHtml}
-        <div class="ms-foot">🔒 Este resumen es personal y confidencial. Desaparece solo cuando vence. Si necesitás los números, anotalos a mano.</div>
-      </div>
-      <div class="secure-cover">🔒 Volvé a la app para ver tu resumen</div>
+    <div class="card secure-view" id="mi-sueldo-card" style="padding:16px;display:grid;gap:12px;">
+      <div style="font-weight:700;font-size:15px;">Tenés un resumen para ver.</div>
+      <div class="ms-aviso">Se abre <strong>una sola vez</strong>. Cuando lo cierres, salgas de la pestaña o cambies de app, desaparece. Tené a mano papel y lápiz si querés anotar los números.</div>
+      <button type="button" class="btn primary ms-abrir" id="mi-sueldo-abrir" onclick="miSueldoAbrir(${p.id})">Abrir ahora</button>
+      <div class="ms-foot" style="text-align:center;margin-top:0;">Si no lo abrís, vence el ${_MS_FMT_FECHA(p.expira_at, true)}</div>
     </div>`;
 }
 
