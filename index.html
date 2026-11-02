@@ -9598,21 +9598,23 @@ async function renderResumenContent() {
 
   cont.innerHTML = `
     <div id="sug-fichadas-panel" style="display:none;"></div>
-    <div class="metrics-grid">
-      <div class="metric-card accent"><div class="label">Colaboradores procesados</div><div class="value">${Object.keys(porEmp).length}</div></div>
-      <div class="metric-card"><div class="label">Días puntuales</div><div class="value">${tot.puntual}</div></div>
-      <div class="metric-card warn"><div class="label">Llegadas tarde</div><div class="value">${tot.tarde}</div><div class="hint">${fmtMin(tot.min_tarde)} acumulado</div></div>
-      <div class="metric-card" style="border-left:4px solid var(--danger);"><div class="label">Ausencias</div><div class="value">${tot.ausente}</div></div>
-      <div class="metric-card" style="border-left:4px solid #6366f1;"><div class="label">🎖 Pierden premio</div><div class="value">${(() => {
-        return Object.entries(porEmp).filter(([eid, r]) => {
-          const emp = lista.find(e => e.id == eid);
-          if (!emp) return false;
-          const max = getMaxErr(emp);
-          return (r.errores || 0) > max;
-        }).length;
-      })()}</div><div class="hint">empleados con +límite errores</div></div>
-      <div class="metric-card" style="border-left:4px solid #d97706;"><div class="label">⚠ Descuento al cierre</div><div class="value">${lista.filter(e => acumulado[e.id]?.supera).length}</div><div class="hint">tardanzas + salidas tempranas de más de 60 min</div></div>
-    </div>
+    <!-- (2-nov-2026, JP) fichas como monedas, igual que el dashboard -->
+    ${(() => {
+      const pierden = Object.entries(porEmp).filter(([eid, r]) => { const emp = lista.find(e => e.id == eid); return emp && (r.errores || 0) > getMaxErr(emp); }).length;
+      const descuento = lista.filter(e => acumulado[e.id]?.supera).length;
+      const ms = [
+        ['#0d9488', '👥', Object.keys(porEmp).length, 'Colaboradores procesados'],
+        ['#16a34a', '✓',  tot.puntual, 'Días puntuales'],
+        ['#f59e0b', '⏰', tot.tarde,   'Llegadas tarde · ' + fmtMin(tot.min_tarde)],
+        ['#dc2626', '✗',  tot.ausente, 'Ausencias'],
+        ['#6366f1', '🎖', pierden,     'Pierden premio'],
+        ['#d97706', '⚠️', descuento,   'Descuento al cierre · +60 min'],
+      ];
+      return `<div class="dash-monedas" style="margin:4px 0 14px;">${ms.map(([c, ico, num, nom]) => `
+        <button type="button" class="dash-mon" style="--c:${c};cursor:default;" aria-label="${nom}" onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
+          <span class="bola">${_dashMonedaHtml(ico, num)}</span><span class="nom">${nom}</span>
+        </button>`).join('')}</div>`;
+    })()}
 
     <table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-top:16px;">
       <thead>
