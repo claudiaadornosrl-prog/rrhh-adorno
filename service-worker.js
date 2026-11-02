@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v457-monedas-aire';
+const CACHE_VERSION = 'rrhh-v458-retiros-monedas';
 const ASSETS = [
   './',
   './index.html',

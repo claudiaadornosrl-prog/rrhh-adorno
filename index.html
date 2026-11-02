@@ -1952,19 +1952,18 @@ async function renderDashboard() {
           const esHoy = c._dia === diaActual;
           return `<li style="${esHoy ? 'background:#fef3c7;border-color:#fde68a;' : ''}"><div><strong>${escapeHtml(c.nombre.split(' ')[0])} ${escapeHtml(c.apellido)}</strong>${esHoy ? '<span class="emp-tag" style="background:#f59e0b;color:white;margin-left:8px;">¡HOY!</span>' : ''}<div class="meta">${c._dia} de ${mesLargo} · ${LOCALES[c.local]?.nombre || ''}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${c.id})">👤</button></li>`;
         }).join('')}</ul>`;
-      const detAniv = aniversariosEsteMes.length === 0 && aniversariosProximos.length === 0 ? `<p class="dash-det-vacio">Sin aniversarios en ${mesLargo}.</p>` : `
-        ${aniversariosEsteMes.length ? `<div class="dash-det-sub">Este mes</div><ul class="simple-list" style="margin:0 0 10px;">${aniversariosEsteMes.map(a => `<li><div><strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong><div class="meta">${a._dia}/${a._mes} · ${a._años} ${a._años === 1 ? 'año' : 'años'} · ${LOCALES[a.local]?.nombre || ''}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${a.id})">👤</button></li>`).join('')}</ul>` : ''}
-        ${aniversariosProximos.length ? `<div class="dash-det-sub">Próximos 30 días</div><ul class="simple-list" style="margin:0;">${aniversariosProximos.map(a => {
-          const esHoy = a._diasFalta === 0;
-          return `<li style="${esHoy ? 'background:#d1faf1;border-color:#5eead4;' : ''}"><div><strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong>${esHoy ? `<span class="emp-tag" style="background:#0d9488;color:white;margin-left:8px;">¡HOY cumple ${a._años} años!</span>` : ''}<div class="meta">${esHoy ? `${a._años} años con nosotros` : `Cumple <strong>${a._años} ${a._años === 1 ? 'año' : 'años'}</strong> el ${a._aniv.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })} (en ${a._diasFalta} día${a._diasFalta === 1 ? '' : 's'})`}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${a.id})">👤</button></li>`;
-        }).join('')}</ul>` : ''}`;
+      const detAniv = aniversariosEsteMes.length === 0 ? `<p class="dash-det-vacio">Sin aniversarios en ${mesLargo}.</p>` : `
+        <ul class="simple-list" style="margin:0;">${aniversariosEsteMes.map(a => {
+          const esHoy = a._dia === diaActual;
+          return `<li style="${esHoy ? 'background:#d1faf1;border-color:#5eead4;' : ''}"><div><strong>${escapeHtml(a.nombre.split(' ')[0])} ${escapeHtml(a.apellido)}</strong>${esHoy ? `<span class="emp-tag" style="background:#0d9488;color:white;margin-left:8px;">¡HOY cumple ${a._años} años!</span>` : ''}<div class="meta">${a._dia} de ${mesLargo} · ${a._años} ${a._años === 1 ? 'año' : 'años'} con nosotros · ${LOCALES[a.local]?.nombre || ''}</div></div><button type="button" class="liq-ib" title="Ver legajo" onclick="openEmpleadoModal(${a.id})">👤</button></li>`;
+        }).join('')}</ul>`;
       const detFeriado = proxFeriado
         ? `<div class="dash-det-grid"><div class="dash-det-item"><b>${new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</b><span>${escapeHtml(proxFeriado.nombre || '')}</span></div></div>`
         : `<p class="dash-det-vacio">Sin feriados próximos cargados.</p>`;
       window._dashDetalles = {
         colab:   { titulo: 'Colaboradores activos', html: detColab },
         cumple:  { titulo: `🎂 Cumpleaños de ${mesLargo}`, html: detCumple },
-        aniv:    { titulo: '🏆 Aniversarios laborales', html: detAniv },
+        aniv:    { titulo: `🏆 Aniversarios de ${mesLargo}`, html: detAniv },
         feriado: { titulo: 'Próximo feriado', html: detFeriado },
       };
       const feriadoTxt = proxFeriado ? new Date(proxFeriado.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '') : '—';
@@ -17821,16 +17820,24 @@ async function renderRetirosMercaderia() {
       </div>
     </div>
 
-    <div class="metrics-grid" style="margin:14px 0;">
-      <div class="metric-card"><div class="label">Retiros del mes</div><div class="value">${(retiros||[]).length}</div></div>
-      <div class="metric-card accent2"><div class="label">Total $ del mes</div><div class="value">${fmt(totalMes)}</div></div>
-      ${(pendientes||[]).length > 0 ? `<div class="metric-card" style="background:#fef2f2;border-left:4px solid #dc2626;"><div class="label" style="color:#991b1b;">⚠ Pendientes asignar</div><div class="value" style="color:#dc2626;">${pendientes.length}</div></div>` : ''}
-      ${dupesPares.length > 0 ? `<div class="metric-card" style="background:#fef9c3;border-left:4px solid #eab308;"><div class="label" style="color:#854d0e;">🔁 Posibles duplicados</div><div class="value" style="color:#a16207;">${dupesPares.length}</div></div>` : ''}
-    </div>
+    <!-- (2-nov-2026, JP) fichas como monedas, igual que el dashboard -->
+    ${(() => {
+      const fmtCorto = (n) => { n = Number(n || 0); return n >= 1e6 ? (n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' M' : n >= 1e3 ? Math.round(n / 1e3).toLocaleString('es-AR') + ' k' : '$' + n.toLocaleString('es-AR'); };
+      const ms = [
+        ['#0d9488', '🛍', (retiros || []).length, 'Retiros del mes', ''],
+        ['#6366f1', '💲', fmtCorto(totalMes), 'Total del mes · ' + fmt(totalMes), ''],
+      ];
+      if ((pendientes || []).length > 0) ms.push(['#dc2626', '⚠️', pendientes.length, 'Pendientes de asignar', "document.querySelector('.ret-panel-pendientes')?.scrollIntoView({behavior:'smooth',block:'start'})"]);
+      if (dupesPares.length > 0) ms.push(['#eab308', '🔁', dupesPares.length, 'Posibles duplicados', "document.querySelector('.ret-panel-dupes')?.scrollIntoView({behavior:'smooth',block:'start'})"]);
+      return `<div class="dash-monedas" style="margin:6px 0 18px;">${ms.map(([c, ico, num, nom, oc]) => `
+        <button type="button" class="dash-mon" style="--c:${c};${oc ? '' : 'cursor:default;'}" aria-label="${nom}" ${oc ? `onclick="${oc}"` : ''} onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
+          <span class="bola">${_dashMonedaHtml(ico, num)}</span><span class="nom">${nom}</span>
+        </button>`).join('')}</div>`;
+    })()}
 
     ${isAdmin && dupesPares.length > 0 ? `
       <div class="card" style="margin-bottom:14px;background:#fef9c3;border-left:4px solid #eab308;">
-        <div class="section-title" style="color:#854d0e;">🔁 Posibles retiros duplicados (${dupesPares.length})</div>
+        <div class="section-title ret-panel-dupes" style="color:#854d0e;">🔁 Posibles retiros duplicados (${dupesPares.length})</div>
         <div style="font-size:12px;color:#854d0e;margin-bottom:10px;">
           El sync detectó retiros con mismo empleado, fecha (±3 días) e importe igual. Puede ser que el mismo retiro se haya cargado dos veces (ej. en ALCO1 y ALCO2, o como movimiento de stock y también como remito). Revisá cada par y descartá el que no corresponde.
         </div>
@@ -17867,7 +17874,7 @@ async function renderRetirosMercaderia() {
 
     ${isAdmin && (pendientes||[]).length > 0 ? `
       <div class="card" style="margin-bottom:14px;background:#fef2f2;border-left:4px solid #dc2626;">
-        <div class="section-title" style="color:#991b1b;">🚨 Retiros pendientes de asignar (${pendientes.length})</div>
+        <div class="section-title ret-panel-pendientes" style="color:#991b1b;">🚨 Retiros pendientes de asignar (${pendientes.length})</div>
         <div style="font-size:12px;color:#7f1d1d;margin-bottom:10px;">El sync no pudo identificar al empleado. Asignalo manualmente:</div>
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#fee2e2;text-align:left;">
