@@ -555,6 +555,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   vertical-align: middle; transition: transform 0.18s cubic-bezier(.34,1.56,.64,1); }
 .liq-ib:hover:not([disabled]) { transform: scale(1.25); }
 .liq-ib[disabled] { cursor: default; opacity: 1; color: var(--text); -webkit-text-fill-color: initial; }
+/* (2-nov-2026, JP) candado cerrado en negro para distinguirlo del abierto (los dos emojis son naranjas) */
+.liq-ib-cerrado { filter: grayscale(1) brightness(0.3); }
 #liq-tabla-main tbody tr.liq-row:nth-child(even) { background: #f3f6fa; }
 #liq-tabla-main tbody tr.liq-row:nth-child(odd) { background: #fff; }
 #liq-tabla-main tbody tr.liq-row:hover { background: #e8f0f7; }

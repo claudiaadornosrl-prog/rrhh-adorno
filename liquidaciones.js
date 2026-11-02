@@ -1048,7 +1048,7 @@ async function renderLiquidaciones() {
                   ? `🔒 Mes cerrado el ${(mesCerr.cerrado_at||'').split('T')[0]} por ${(mesCerr.cerrado_por||'').split('@')[0]}${c.isAdmin?' — para editar esta liq, primero reabrí el mes desde el botón 🔒 del header':''}`
                   : `🔒 Liquidación en estado "${l.estado}"${c.isAdmin?' — click para volver a borrador y editar':''}`;
                 const btnCandado = estaCerrado
-                  ? `<button type="button" class="liq-ib" style="cursor:${(c.isAdmin && !mesCerr)?'pointer':'default'};" ${(c.isAdmin && !mesCerr)?`onclick="liqReabrirEmpleado(${l.id})"`:'disabled'} title="${tipCandado}">🔒</button>`
+                  ? `<button type="button" class="liq-ib liq-ib-cerrado" style="cursor:${(c.isAdmin && !mesCerr)?'pointer':'default'};" ${(c.isAdmin && !mesCerr)?`onclick="liqReabrirEmpleado(${l.id})"`:'disabled'} title="${tipCandado}">🔒</button>`
                   : `<button type="button" class="liq-ib" disabled title="🔓 Abierta — se puede editar">🔓</button>`;
                 // 📸 Resumen efímero: snapshot en memoria para generar la imagen
                 // (solo admin — la imagen se dibuja en el navegador y NO se guarda)
