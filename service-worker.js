@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v443-prestamos-filas';
+const CACHE_VERSION = 'rrhh-v444-asis-iconos-junto';
 const ASSETS = [
   './',
   './index.html',

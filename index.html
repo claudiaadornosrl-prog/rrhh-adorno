@@ -5202,7 +5202,7 @@ async function renderMiCalendario() {
         <button onclick="cambiarMiMes(1)">›</button>
       </div>
       <button class="btn" onclick="miCalState.mes = mesActualString(); switchTab('mi-calendario');">Hoy</button>
-      <span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">
+      <span style="margin-left:4px;display:inline-flex;gap:2px;align-items:center;">
         <button type="button" class="liq-tb" data-tip="Pedir permiso" aria-label="Pedir permiso" onclick="abrirNuevoPermisoEmpleado()">🙋</button>
         <button type="button" class="liq-tb tip-r" data-tip="Reportar un problema del turno" aria-label="Reportar turno" onclick="abrirReporteTurno()">🚩</button>
       </span>
@@ -8153,7 +8153,7 @@ async function renderCalendario(cont) {
       </select>` : ''}
       <button class="btn" onclick="asisState.mes = mesActualString(); document.getElementById('main').innerHTML = '<div class=spinner></div>'; renderAsistenciasAdmin().then(h => document.getElementById('main').innerHTML = h);">Hoy</button>
       ${(isAdmin || session.rol==='gerente') ? `
-      <span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">
+      <span style="margin-left:4px;display:inline-flex;gap:2px;align-items:center;">
         <button type="button" class="liq-tb" data-tip="Generar mes desde default" aria-label="Generar mes desde default" onclick="generarMesDesdeDefault()">⚡</button>
         <button type="button" class="liq-tb tip-r" data-tip="Limpiar mes" aria-label="Limpiar mes" onclick="limpiarMes()">🗑️</button>
       </span>` : ''}
@@ -8841,11 +8841,13 @@ async function renderResumenMensual(cont) {
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : ''}
-      <span id="estado-cierre-mes" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
-      <button type="button" class="liq-tb" id="btn-procesar-mes" data-tip="Procesar mes · cruza fichadas con turnos" aria-label="Procesar mes" onclick="procesarMesUI()">⚙️</button>
-      <button type="button" class="liq-tb liq-ib-cerrado tip-r" id="btn-cerrar-mes" data-tip="Cerrar mes de asistencias" aria-label="Cerrar mes" onclick="cerrarMesUI()" style="display:none;">🔒</button>
-      <button type="button" class="liq-tb liq-ib-cerrado tip-r" id="btn-cerrar-todos" data-tip="Cerrar todos los locales pendientes" aria-label="Cerrar todos pendientes" onclick="cerrarTodosLocalesUI()" style="display:none;">🔒</button>
-      <button type="button" class="liq-tb tip-r" id="btn-reabrir-mes" data-tip="Reabrir mes" aria-label="Reabrir mes" onclick="reabrirMesUI()" style="display:none;">🔓</button>
+      <span style="margin-left:4px;display:inline-flex;gap:2px;align-items:center;">
+        <button type="button" class="liq-tb" id="btn-procesar-mes" data-tip="Procesar mes · cruza fichadas con turnos" aria-label="Procesar mes" onclick="procesarMesUI()">⚙️</button>
+        <button type="button" class="liq-tb liq-ib-cerrado" id="btn-cerrar-mes" data-tip="Cerrar mes de asistencias" aria-label="Cerrar mes" onclick="cerrarMesUI()" style="display:none;">🔒</button>
+        <button type="button" class="liq-tb liq-ib-cerrado" id="btn-cerrar-todos" data-tip="Cerrar todos los locales pendientes" aria-label="Cerrar todos pendientes" onclick="cerrarTodosLocalesUI()" style="display:none;">🔒</button>
+        <button type="button" class="liq-tb" id="btn-reabrir-mes" data-tip="Reabrir mes" aria-label="Reabrir mes" onclick="reabrirMesUI()" style="display:none;">🔓</button>
+      </span>
+      <span id="estado-cierre-mes" style="margin-left:8px;font-size:12px;color:var(--muted);"></span>
     </div>
 
     <div id="resumen-content"><div class="spinner"></div></div>
