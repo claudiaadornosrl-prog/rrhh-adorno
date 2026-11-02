@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v447-asis-tabs-iconos';
+const CACHE_VERSION = 'rrhh-v448-vac-tabs-tooltip';
 const ASSETS = [
   './',
   './index.html',

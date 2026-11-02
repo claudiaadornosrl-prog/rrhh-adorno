@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=35">
+<link rel="stylesheet" href="styles.css?v=36">
 </head>
 <body>
 
@@ -4118,26 +4118,21 @@ async function renderVacacionesAdmin() {
   if (!isAdmin && !vacState._touched) vacState.tab = 'saldos';
 
   const html = `
-    <div class="page-header">
-      <h2>Vacaciones</h2>
-      <div class="subtitle">${isAdmin ? 'Aprobaciones, saldos y calendario' : 'Equipo de ' + (LOCALES[localFiltro]?.nombre || localFiltro)}</div>
-    </div>
-
-    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;display:flex;justify-content:space-between;align-items:end;">
-      <div>
-        <button class="modal-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" style="border-bottom:2px solid transparent;padding:12px 14px;">⏳ Pendientes</button>
-        <button class="modal-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" style="border-bottom:2px solid transparent;padding:12px 14px;">✅ Próximas</button>
-        <button class="modal-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" style="border-bottom:2px solid transparent;padding:12px 14px;">🧮 Saldos</button>
-        <button class="modal-tab ${vacState.tab==='historial'?'active':''}" data-vactab="historial" style="border-bottom:2px solid transparent;padding:12px 14px;">📋 Historial</button>
-      </div>
-      <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;">
+    <!-- (2-nov-2026, JP) título + pestañas solo ícono + acciones, todo en un renglón -->
+    <div class="toolbar asis-tabsrow">
+      <h2 class="liq-titulo">Vacaciones</h2>
+      <button type="button" class="liq-tb asis-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" data-tip="Pendientes de aprobar" aria-label="Pendientes">⏳</button>
+      <button type="button" class="liq-tb asis-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" data-tip="Próximas (aprobadas)" aria-label="Próximas">✅</button>
+      <button type="button" class="liq-tb asis-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" data-tip="Saldos de días" aria-label="Saldos">🧮</button>
+      <button type="button" class="liq-tb asis-tab ${vacState.tab==='historial'?'active':''}" data-vactab="historial" data-tip="Historial" aria-label="Historial">📋</button>
+      <span style="margin-left:14px;display:inline-flex;gap:2px;align-items:center;">
         <button type="button" class="liq-tb" data-tip="Asignar vacaciones" aria-label="Asignar vacaciones" onclick="abrirAsignarVacacion()">➕</button>
         <button type="button" class="liq-tb" data-tip="Pagar vacaciones" aria-label="Pagar vacaciones" onclick="abrirPagarVacaciones()">💵</button>
-        <button type="button" class="liq-tb tip-r" data-tip="Carga masiva de vacaciones" aria-label="Carga masiva" onclick="abrirCargaMasivaVac()">📥</button>
-      </div>
+        <button type="button" class="liq-tb" data-tip="Carga masiva de vacaciones" aria-label="Carga masiva" onclick="abrirCargaMasivaVac()">📥</button>
+      </span>
     </div>
 
-    <div id="vac-content" style="margin-top:20px;">
+    <div id="vac-content" style="margin-top:4px;">
       <div class="spinner"></div>
     </div>
   `;

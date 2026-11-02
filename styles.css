@@ -546,7 +546,8 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: 0 0 auto;
   transition: transform 0.18s cubic-bezier(.34,1.56,.64,1);
 }
-.liq-tb:hover { transform: scale(1.25); }
+.liq-tb:hover { transform: scale(1.25); z-index: 81; }
+.liq-export-dd:has(#liq-export-menu[style*='block']) .liq-tb::after { display: none; }
 .liq-tb:active { transform: scale(1.05); }
 .liq-tb:disabled { cursor: default; transform: none; }
 .cal-toolbar #estado-cierre-mes { margin-right: 6px; }
@@ -555,7 +556,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   transform: translate(-50%, -6px) scale(0.92); transform-origin: 50% 0;
   background: var(--accent); color: #fff; font-size: 12px; font-weight: 500; line-height: 1;
   padding: 7px 12px; border-radius: 999px; white-space: nowrap; pointer-events: none;
-  opacity: 0; z-index: 19; transition: transform 0.14s ease-in, opacity 0.1s ease-in;
+  opacity: 0; z-index: 80; transition: transform 0.14s ease-in, opacity 0.1s ease-in;
 }
 .liq-tb:hover::after, .liq-tb:focus-visible::after {
   opacity: 1; transform: translate(-50%, 0) scale(1);
