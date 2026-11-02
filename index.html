@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=32">
+<link rel="stylesheet" href="styles.css?v=33">
 </head>
 <body>
 
@@ -1341,6 +1341,9 @@ if (navigator.serviceWorker) {
     if (t && typeof switchTab === 'function') switchTab(t);
   });
 }
+
+// (2-nov-2026, JP) Mes corto para los filtros: "Oct 26"
+function mesCortoLabel(y, m) { return ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1] + ' ' + String(y).slice(-2); }
 
 function renderUserInfo() {
   let name = session.email;
@@ -2408,7 +2411,7 @@ async function renderEmpleados() {
       <input type="search" id="emp-search" placeholder="Buscar por nombre, DNI, CUIL…" value="${escapeHtml(empleadosState.search)}">
       ${isAdmin ? `
       <select id="emp-filter-local">
-        <option value="">Todos los locales</option>
+        <option value="">Todos</option>
         <option value="unicenter" ${empleadosState.local==='unicenter'?'selected':''}>Unicenter</option>
         <option value="alcorta"   ${empleadosState.local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${empleadosState.local==='oficina'  ?'selected':''}>Oficina</option>
@@ -3988,7 +3991,7 @@ async function renderDocumentosAdmin() {
       </select>
       ${isAdmin ? `
       <select id="doc-filter-local">
-        <option value="">Todos los locales</option>
+        <option value="">Todos</option>
         <option value="unicenter" ${docState.local==='unicenter'?'selected':''}>Unicenter</option>
         <option value="alcorta"   ${docState.local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${docState.local==='oficina'  ?'selected':''}>Oficina</option>
@@ -5198,10 +5201,9 @@ async function renderMiCalendario() {
     <div class="cal-toolbar">
       <div class="month-nav">
         <button onclick="cambiarMiMes(-1)">‹</button>
-        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <span class="month-label">${mesCortoLabel(y, m)}</span>
         <button onclick="cambiarMiMes(1)">›</button>
       </div>
-      <button class="btn" onclick="miCalState.mes = mesActualString(); switchTab('mi-calendario');">Hoy</button>
       <span style="margin-left:4px;display:inline-flex;gap:2px;align-items:center;">
         <button type="button" class="liq-tb" data-tip="Pedir permiso" aria-label="Pedir permiso" onclick="abrirNuevoPermisoEmpleado()">🙋</button>
         <button type="button" class="liq-tb tip-r" data-tip="Reportar un problema del turno" aria-label="Reportar turno" onclick="abrirReporteTurno()">🚩</button>
@@ -8141,17 +8143,16 @@ async function renderCalendario(cont) {
     <div class="cal-toolbar">
       <div class="month-nav">
         <button onclick="cambiarMes(-1)" title="Mes anterior">‹</button>
-        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <span class="month-label">${mesCortoLabel(y, m)}</span>
         <button onclick="cambiarMes(1)" title="Mes siguiente">›</button>
       </div>
       ${isAdmin ? `
       <select id="cal-local" onchange="cambiarLocal(this.value)">
-        <option value="">Todos los locales</option>
+        <option value="">Todos</option>
         <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>
         <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : ''}
-      <button class="btn" onclick="asisState.mes = mesActualString(); document.getElementById('main').innerHTML = '<div class=spinner></div>'; renderAsistenciasAdmin().then(h => document.getElementById('main').innerHTML = h);">Hoy</button>
       ${(isAdmin || session.rol==='gerente') ? `
       <span style="margin-left:4px;display:inline-flex;gap:2px;align-items:center;">
         <button type="button" class="liq-tb" data-tip="Generar mes desde default" aria-label="Generar mes desde default" onclick="generarMesDesdeDefault()">⚡</button>
@@ -8717,12 +8718,12 @@ async function renderFichadas(cont) {
     <div class="cal-toolbar">
       <div class="month-nav">
         <button onclick="cambiarMes(-1)">‹</button>
-        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <span class="month-label">${mesCortoLabel(y, m)}</span>
         <button onclick="cambiarMes(1)">›</button>
       </div>
       ${isAdmin ? `
       <select id="cal-local" onchange="cambiarLocal(this.value)">
-        <option value="">Todos los locales</option>
+        <option value="">Todos</option>
         <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
@@ -8831,12 +8832,12 @@ async function renderResumenMensual(cont) {
     <div class="cal-toolbar">
       <div class="month-nav">
         <button onclick="cambiarMes(-1)">‹</button>
-        <span class="month-label">${new Date(asisState.mes + '-01T12:00:00').toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <span class="month-label">${mesCortoLabel(...asisState.mes.split('-').map(Number))}</span>
         <button onclick="cambiarMes(1)">›</button>
       </div>
       ${isAdmin ? `
       <select id="cal-local" onchange="cambiarLocal(this.value)">
-        <option value="">Todos los locales</option>
+        <option value="">Todos</option>
         <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
@@ -13700,10 +13701,10 @@ async function renderExtrasAdmin(cont) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
       <div class="month-nav">
         <button onclick="cambiarMesExtras(-1)">‹</button>
-        <span class="month-label">${new Date(y, m-1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</span>
+        <span class="month-label">${mesCortoLabel(y, m)}</span>
         <button onclick="cambiarMesExtras(1)">›</button>
       </div>
-      <button class="btn accent2" onclick="abrirNuevoExtraAdmin()">+ Cargar hora extra</button>
+      <button type="button" class="liq-tb" data-tip="Cargar hora extra" aria-label="Cargar hora extra" onclick="abrirNuevoExtraAdmin()">➕</button>
     </div>
     <div id="extras-tope-panel"></div>
     <div id="extras-pagos-panel"></div>
@@ -14294,7 +14295,7 @@ async function renderBancoAdmin(cont) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
       ${isAdmin ? `
       <select onchange="bancoState.local=this.value;renderAsisTab()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;">
-        <option value="" ${!localFiltro?'selected':''}>Todos los locales</option>
+        <option value="" ${!localFiltro?'selected':''}>Todos</option>
         <option value="unicenter" ${localFiltro==='unicenter'?'selected':''}>Unicenter</option>
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>

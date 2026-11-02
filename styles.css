@@ -410,7 +410,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .cal-toolbar > select, .cal-toolbar > .btn { height: 40px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; display: inline-flex; align-items: center; border-radius: 999px; }
 .cal-toolbar .month-nav button { background: transparent; border: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text); font-size: 14px; }
 .cal-toolbar .month-nav button:hover { background: #f3f4f6; }
-.cal-toolbar .month-label { padding: 8px 16px; font-weight: 600; font-size: 14px; min-width: 140px; text-align: center; }
+.cal-toolbar .month-label, .month-nav .month-label { padding: 8px 10px; font-weight: 600; font-size: 14px; min-width: 0; text-align: center; white-space: nowrap; }
 
 /* ── Menú lateral colapsable ─────────────────────────────────────
    Hasta 1100px (tablets en horizontal, tablets en vertical y teléfonos)
