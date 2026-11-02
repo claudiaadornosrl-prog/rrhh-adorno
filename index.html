@@ -17697,7 +17697,10 @@ async function renderRetirosMercaderia() {
         nuevo: d,
         original: origMap[d.posible_duplicado_de] || null,
         nombreEmp: empMap[d.empleado_id] || '—',
-      }));
+      }))
+      // (2-nov-2026, JP) Si el ORIGINAL ya se descartó/canceló, el duplicado quedó resuelto: el par no se muestra más
+      // (antes seguía apareciendo con el botón "Descartar A", como si el descarte hubiera fallado).
+      .filter(p => !p.original || !['descartado', 'cancelado'].includes(p.original.estado));
     }
   }
 
@@ -20430,13 +20433,7 @@ async function renderPrestamos() {
     </div>
     ${solicHTML}
 
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-      <h3 style="margin:0 0 12px;">➕ Otorgar nuevo préstamo</h3>
-      <button class="btn primary" onclick="prestamoAbrirNuevo()">📤 Crear préstamo</button>
-      <button class="btn" style="background:#0891b2;color:white;border-color:#0891b2;margin-left:8px;" onclick="adelantoAbrirNuevo()">💵 Nuevo adelanto</button>
-      <button class="btn" style="background:#16a34a;color:white;border-color:#16a34a;margin-left:8px;" onclick="exportarAdelantosGalicia()" title="Descargar el .xls con los adelantos del mes, en el formato que toma el Office Banking del Galicia">📊 Exportar Galicia adelantos</button>
-      <button class="btn" style="background:#6366f1;color:white;border-color:#6366f1;margin-left:8px;" onclick="activarPropuestasBulk()" title="Activar todas las propuestas pendientes (las que cargaste con 'Esperar confirmación' tildado pero ya están acordadas)">🔓 Activar propuestas</button>
-    </div>
+    <!-- (2-nov-2026, JP) sin ficha "Otorgar nuevo préstamo": las acciones van como íconos en el renglón de filtros -->
 
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
       <span style="font-size:13px;color:var(--muted);">Estado:</span>
@@ -20455,6 +20452,12 @@ async function renderPrestamos() {
       </select>
       <input type="search" id="prest-buscar" placeholder="🔍 Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value, this)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
       ${(prestamoState.q || prestamoState.local) ? `<button class="btn small" onclick="_prestamoSetQ(''); _prestamoSetLocal(''); switchTab('prestamos');">↺ Limpiar</button>` : ''}
+      <span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">
+        <button type="button" class="liq-tb" data-tip="Crear préstamo" aria-label="Crear préstamo" onclick="prestamoAbrirNuevo()">➕</button>
+        <button type="button" class="liq-tb" data-tip="Nuevo adelanto · 1 cuota sin interés" aria-label="Nuevo adelanto" onclick="adelantoAbrirNuevo()">💵</button>
+        <button type="button" class="liq-tb" data-tip="Exportar adelantos para Galicia (.xls)" aria-label="Exportar Galicia adelantos" onclick="exportarAdelantosGalicia()">📊</button>
+        <button type="button" class="liq-tb tip-r" data-tip="Activar propuestas pendientes" aria-label="Activar propuestas" onclick="activarPropuestasBulk()">🔓</button>
+      </span>
     </div>
 
     <div class="card">

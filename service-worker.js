@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v439-candado-negro';
+const CACHE_VERSION = 'rrhh-v440-prestamos-iconos';
 const ASSETS = [
   './',
   './index.html',
