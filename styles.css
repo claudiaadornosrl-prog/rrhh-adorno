@@ -567,7 +567,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 @media (min-width: 1600px) { .main { max-width: 1560px; } }
 /* ── (2-nov-2026, JP) Dashboard: fichas como monedas (hub v59). --c = color de la moneda ── */
 .dash-monedas { display: flex; flex-wrap: wrap; gap: 30px 40px; justify-content: center; padding: 14px 0 0; margin-bottom: 18px; }
-.dash-mon { --R: 54px; position: relative; width: calc(var(--R) * 2 + 24px); height: calc(var(--R) * 2 + 88px); border: none; background: transparent; padding: 0; cursor: pointer; color: var(--text); -webkit-tap-highlight-color: transparent; }
+.dash-mon { --R: 54px; position: relative; width: calc(var(--R) * 2 + 24px); height: calc(var(--R) * 2 + 88px); border: none; background: transparent; padding: 0; cursor: pointer; color: var(--text); -webkit-tap-highlight-color: transparent; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }   /* un <button> centra su contenido verticalmente: la moneda bajaba y se pegaba al nombre */
 .dash-mon .bola { position: relative; display: block; width: calc(var(--R) * 2); height: calc(var(--R) * 2); margin: 0 auto; border-radius: 50%; perspective: 420px; }
 .dash-mon .moneda { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(20deg) rotateY(0deg); }
 .dash-mon .canto { position: absolute; inset: 0; border-radius: 50%; background: color-mix(in srgb, var(--c) 58%, #000); }
