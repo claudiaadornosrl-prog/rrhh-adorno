@@ -12299,8 +12299,7 @@ async function permisoAvisarMismoDia(empleado_id, fecha, excluirId) {
     if (excluirId) q = q.neq('id', excluirId);
     const { data } = await q;
     if (!data || !data.length) return true;
-    const lista = data.map(p => `• #${p.id} ${p.tipo}${p.hora_desde ? ' ' + p.hora_desde.slice(0, 5) + (p.hora_hasta ? '-' + p.hora_hasta.slice(0, 5) : '') : ''}${p.motivo ? ' (' + p.motivo + ')' : ''} · ${p.estado}`).join('
-');
+    const lista = data.map(p => `• #${p.id} ${p.tipo}${p.hora_desde ? ' ' + p.hora_desde.slice(0, 5) + (p.hora_hasta ? '-' + p.hora_hasta.slice(0, 5) : '') : ''}${p.motivo ? ' (' + p.motivo + ')' : ''} · ${p.estado}`).join('\n');
     return confirm(`⚠ Ese día ya tiene ${data.length === 1 ? 'un permiso cargado' : data.length + ' permisos cargados'}:
 
 ${lista}
