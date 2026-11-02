@@ -1021,32 +1021,7 @@ async function renderLiquidaciones() {
                 const ef = Math.max(0, subtotal - mercaderia - intrLive - ajuste);
                 return `<td style="padding:8px;font-family:monospace;background:#fde2e8;font-weight:600;" title="Efectivo neto = Subtotal − Mercadería − Intereses − Ajustes${intrLive>0?' (interés descontado: $'+Math.round(intrLive).toLocaleString('es-AR')+')':''}">${ef>0?c.fmt(ef):'—'}</td>`;
               } },
-            { id:'firma',     label:'Firma',
-              tdRender:(l,c)=>{
-                // Chip del sueldo mensual
-                let chipMensual = '';
-                if (l.pdf_firmado_at) {
-                  const fecha = new Date(l.pdf_firmado_at).toLocaleDateString('es-AR');
-                  chipMensual = `<span style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="Recibo mensual firmado el ${fecha}">📄 ${fecha}</span>`;
-                } else if (l.pdf_enviado_at) {
-                  chipMensual = `<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="Recibo mensual enviado para firmar">📄 ⏳</span>`;
-                }
-                // Chip del SAC (solo en junio/diciembre y si tiene SAC neto)
-                let chipSAC = '';
-                if (c.esMesSAC && Number(l.sac_recibo_neto || 0) > 0) {
-                  if (l.sac_pdf_firmado_at) {
-                    const fechaSac = new Date(l.sac_pdf_firmado_at).toLocaleDateString('es-AR');
-                    chipSAC = `<span style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="SAC firmado el ${fechaSac}">🎁 ${fechaSac}</span>`;
-                  } else {
-                    chipSAC = `<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;" title="SAC pendiente de firma">🎁 ⏳</span>`;
-                  }
-                }
-                if (chipMensual || chipSAC) {
-                  return `<td style="padding:8px;text-align:center;"><div style="display:flex;flex-direction:column;gap:3px;align-items:center;">${chipMensual}${chipSAC}</div></td>`;
-                }
-                // (2-nov-2026, JP) sin chip "Mes cerrado": el candado 🔒 de Acciones ya lo indica
-                return `<td style="padding:8px;text-align:center;color:var(--muted);font-size:11px;">—</td>`;
-              } },
+            // (2-nov-2026, JP) columna Firma eliminada: el estado va en Acciones (✍️ para firmar / 🖋️ firmada; 🎁 SAC en jun/dic)
             { id:'detalle',   label:'Acciones',
               tdRender:(l,c)=>{
                 const firmado = l.pdf_firmado_at;
@@ -1061,6 +1036,12 @@ async function renderLiquidaciones() {
                   : (mesCerr
                       ? `<button type="button" class="liq-ib" disabled aria-label="Esperando firma" title="Esperando firma — mes cerrado; el sistema espera que llegue el PDF firmado por la colaboradora por Gmail o que lo subas manualmente.">✍️</button>`
                       : `<button type="button" class="liq-ib" disabled aria-label="No firmada" title="No firmada — esperando que llegue el PDF firmado.">✍️</button>`);
+                let btnSac = '';
+                if (c.esMesSAC && Number(l.sac_recibo_neto || 0) > 0) {
+                  btnSac = l.sac_pdf_firmado_at
+                    ? `<button type="button" class="liq-ib" disabled aria-label="SAC firmado" title="🎁 SAC firmado el ${new Date(l.sac_pdf_firmado_at).toLocaleDateString('es-AR')}">🎁</button>`
+                    : `<button type="button" class="liq-ib" disabled aria-label="SAC sin firmar" title="🎁 SAC pendiente de firma" style="filter:grayscale(1);opacity:0.6;">🎁</button>`;
+                }
                 // Candado: cerrado si (mes cerrado a nivel local) O (liq en estado 'revisada'/'firmada'/'anulada')
                 const estaCerrado = !!mesCerr || l.estado === 'firmada' || l.estado === 'revisada' || l.estado === 'anulada';
                 const tipCandado = mesCerr
@@ -1093,7 +1074,7 @@ async function renderLiquidaciones() {
                 const btnImagen = '';   // (2-nov-2026, JP) 📸 eliminado: lo reemplaza Mi sueldo (📣 / cierre de mes, con datos de la DB)
                 return `<td style="padding:8px;white-space:nowrap;">
                   ${btnCandado}
-                  ${btnFirmado}
+                  ${btnFirmado}${btnSac}
                   ${c.isAdmin ? `<button type="button" class="liq-ib" onclick="liqEditar(${l.id})" title="Editar manualmente">✏️</button>` : ''}
                   ${btnImagen}
                 </td>`;
@@ -1108,7 +1089,7 @@ async function renderLiquidaciones() {
           const BANCO_COLS = new Set([
             'empleada','cat','antiguedad','dias',
             'bruto','descuentos','recibo','sac',
-            'prestamos','adelantos','banco','firma','detalle'
+            'prestamos','adelantos','banco','detalle'
           ]);
           const OCULTAS_EN_SUELDO = new Set(['cat','puntos','antiguedad','bruto','descuentos']);
           const colsAvailable = ALL_COLS
