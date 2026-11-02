@@ -20503,15 +20503,15 @@ async function renderPrestamos() {
               <td style="padding:8px;text-align:right;font-family:monospace;font-weight:600;">${fmt(r.saldo)}</td>
               <td style="padding:8px;">${estadoChip(p.estado)}</td>
               <td style="padding:8px;text-align:right;">
-                <button class="btn small" onclick="prestamoAbrirDetalle(${p.id})" title="Ver detalle">📝</button>
+                <button type="button" class="liq-ib" onclick="prestamoAbrirDetalle(${p.id})" title="Ver detalle">📝</button>
                 ${p.estado === 'propuesto' ? `
-                  <button class="btn small" onclick="prestamoEditarPropuesta(${p.id})" title="Editar propuesta" style="color:#6366f1;">✏️</button>
-                  <button class="btn small" onclick="prestamoBorrarPropuesta(${p.id})" title="Borrar propuesta" style="color:#dc2626;">🗑️</button>
+                  <button type="button" class="liq-ib" onclick="prestamoEditarPropuesta(${p.id})" title="Editar propuesta" style="color:#6366f1;">✏️</button>
+                  <button type="button" class="liq-ib" onclick="prestamoBorrarPropuesta(${p.id})" title="Borrar propuesta" style="color:#dc2626;">🗑️</button>
                 ` : ''}
                 ${p.estado === 'activo' ? `
-                  <button class="btn small" onclick="prestamoRefinanciarAdmin(${p.id})" title="Refinanciar: sumar capital adicional al saldo y rearmar el plan" style="color:#7c3aed;">💸</button>
-                  <button class="btn small" onclick="prestamoMarcarHistorico(${p.id}, ${p.cuotas_totales})" title="Marcar cuotas viejas como pagadas (para préstamos cargados desde MEMOSOFT)" style="color:#0891b2;">📌</button>
-                  <button class="btn small" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>
+                  <button type="button" class="liq-ib" onclick="prestamoRefinanciarAdmin(${p.id})" title="Refinanciar: sumar capital adicional al saldo y rearmar el plan" style="color:#7c3aed;">💸</button>
+                  <button type="button" class="liq-ib" onclick="prestamoMarcarHistorico(${p.id}, ${p.cuotas_totales})" title="Marcar cuotas viejas como pagadas (para préstamos cargados desde MEMOSOFT)" style="color:#0891b2;">📌</button>
+                  <button type="button" class="liq-ib" onclick="prestamoCancelar(${p.id})" title="Cancelar anticipado" style="color:#dc2626;">🚫</button>
                 ` : ''}
               </td>
             </tr>`;
@@ -20555,8 +20555,8 @@ async function renderPrestamos() {
                 <td style="padding:10px 14px;text-align:center;">${estadoChip(a.estado)}</td>
                 <td style="padding:10px 14px;text-align:right;font-size:12px;color:var(--muted);">${fechaOt}</td>
                 <td style="padding:10px 14px;text-align:right;">
-                  <button class="btn small" onclick="prestamoAbrirDetalle(${a.id})" title="Ver detalle">📝</button>
-                  ${a.estado === 'activo' ? `<button class="btn small" onclick="prestamoCancelar(${a.id})" title="Cancelar" style="color:#dc2626;">🚫</button>` : ''}
+                  <button type="button" class="liq-ib" onclick="prestamoAbrirDetalle(${a.id})" title="Ver detalle">📝</button>
+                  ${a.estado === 'activo' ? `<button type="button" class="liq-ib" onclick="prestamoCancelar(${a.id})" title="Cancelar" style="color:#dc2626;">🚫</button>` : ''}
                 </td>
               </tr>`;
             }).join('')}

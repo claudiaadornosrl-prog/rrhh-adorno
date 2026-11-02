@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v442-vac-resumen-iconos';
+const CACHE_VERSION = 'rrhh-v443-prestamos-filas';
 const ASSETS = [
   './',
   './index.html',
