@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v425-prestamos-buscar';
+const CACHE_VERSION = 'rrhh-v426-liq-iconos';
 const ASSETS = [
   './',
   './index.html',

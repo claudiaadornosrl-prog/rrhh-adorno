@@ -583,18 +583,18 @@ async function renderLiquidaciones() {
           <input type="number" id="liq-ventas" value="${ventasMes}" style="width:160px;text-align:right;font-family:monospace;" ${isAdmin?'':'disabled'}>
           ${isAdmin ? `<button class="btn small" onclick="liqGuardarVentas('${local}','${periodo}')">💾 Guardar</button>` : ''}
         `}
+        <!-- (2-nov-2026, JP) Acciones solo con ícono; el nombre sale en una pastilla al pasar el mouse (data-tip).
+             Refrescar y Columnas salieron del kebab ⋮ y son íconos más. -->
         ${(liqState.subTab === 'sueldo') ? `
-          <!-- ════ BOTONES DE SUELDO (colores jerarquizados v204) ════ -->
-          ${isAdmin ? `<button class="btn" style="background:white;color:#b91c1c;border:1px solid #fecaca;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='white'" onclick="liqCerrarMes('${local}','${periodo}')" title="Cierra formalmente el mes una vez abonados los sueldos. Al cerrar, se generan automáticamente los borradores proforma del mes siguiente con los fijos actualizados.">🔒 Cerrar mes</button>` : ''}
+          ${isAdmin ? `<button type="button" class="liq-tb cerrar" data-tip="Cerrar mes de sueldos" aria-label="Cerrar mes" onclick="liqCerrarMes('${local}','${periodo}')">🔒</button>` : ''}
         ` : `
-          <!-- ════ BOTONES DE BANCO (colores jerarquizados v204) ════ -->
-          ${isAdmin ? `<button class="btn" style="background:white;color:#92400e;border:1px solid #fcd34d;" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='white'" onclick="liqGenerarProforma('${local}','${periodo}')" title="Genera la liquidación PROFORMA (base para transferencia bancaria, antes del cierre del mes). Pregunta por descuentos especiales.">📋 Proforma</button>` : ''}
-          ${isAdmin ? `<button class="btn primary" onclick="liqGenerarDefinitivo('${local}','${periodo}')" title="Genera la liquidación DEFINITIVA (re-aplica paritaria vigente, compara con proforma si existe, genera PDFs firmables).">✅ Definitivo</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="background:white;color:#6b21a8;border:1px solid #ddd6fe;" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='white'" onclick="liqGenerarDobleBlanco('${local}','${periodo}')" title="Procesa SOLO colaboradoras en modo doble_blanco (Contreras, Escasany). Recalcula importes + recibo + solver inverso del ítem 0018 Comisiones.">💎 Doble Blanco</button>` : ''}
-          ${(isAdmin || isGerente || soloBanco) ? `<button class="btn" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')" title="Descargar PDF combinado con TODOS los recibos del mes — listo para imprimir y firmar">🖨️ Imprimir recibos</button>` : ''}
+          ${isAdmin ? `<button type="button" class="liq-tb prof" data-tip="Proforma · liquidación provisoria para el banco" aria-label="Proforma" onclick="liqGenerarProforma('${local}','${periodo}')">📋</button>` : ''}
+          ${isAdmin ? `<button type="button" class="liq-tb def" data-tip="Definitivo · recibos finales con la escala vigente" aria-label="Definitivo" onclick="liqGenerarDefinitivo('${local}','${periodo}')">✅</button>` : ''}
+          ${isAdmin ? `<button type="button" class="liq-tb dob" data-tip="Doble blanco · Contreras y Escasany (ítem 0018)" aria-label="Doble blanco" onclick="liqGenerarDobleBlanco('${local}','${periodo}')">💎</button>` : ''}
+          ${(isAdmin || isGerente || soloBanco) ? `<button type="button" class="liq-tb" data-tip="Imprimir recibos · PDF con todos los recibos del mes" aria-label="Imprimir recibos" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')">🖨️</button>` : ''}
           ${(isAdmin || soloBanco) ? `
             <div class="liq-export-dd" style="position:relative;display:inline-block;">
-              <button class="btn" onclick="liqToggleExportMenu(this, event)" title="Descargar archivos para el estudio contable">📤 Exportar ▾</button>
+              <button type="button" class="liq-tb" data-tip="Exportar · Galicia, LSD ARCA, planilla blanca" aria-label="Exportar" onclick="liqToggleExportMenu(this, event)">📤</button>
               <div id="liq-export-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);min-width:220px;z-index:20;overflow:hidden;">
                 <button class="liq-export-item" onclick="liqCloseExportMenu();exportarGaliciaXLSX('${local}','${periodo}')" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'" title="Descargar .xlsx con formato Galicia Office para subir al portal">
                   <span style="font-size:15px;">📤</span> <span><strong>Galicia</strong><br><span style="font-size:11px;color:var(--muted);">.xlsx para Office Banking</span></span>
@@ -609,21 +609,8 @@ async function renderLiquidaciones() {
             </div>
           ` : ''}
         `}
-
-        <!-- ══════ KEBAB MENU ⋮ (utilidades ocasionales) ══════ -->
-        ${isAdmin ? `
-        <div class="liq-kebab-dd" style="position:relative;display:inline-block;">
-          <button class="btn" onclick="liqToggleKebabMenu(this, event)" title="Más opciones" style="padding:6px 10px;font-size:16px;line-height:1;">⋮</button>
-          <div id="liq-kebab-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);min-width:200px;z-index:20;overflow:hidden;">
-            <button class="liq-kebab-item" onclick="liqCloseKebabMenu();switchTab('liquidaciones')" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'" title="Recargar desde la base de datos">
-              <span style="font-size:15px;">🔄</span> <span>Refrescar</span>
-            </button>
-            <button class="liq-kebab-item" onclick="liqCloseKebabMenu();liqAbrirConfigCols()" style="width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'" title="Mostrar/ocultar y reordenar columnas">
-              <span style="font-size:15px;">⚙️</span> <span>Columnas</span>
-            </button>
-          </div>
-        </div>
-        ` : ''}
+        ${isAdmin ? `<button type="button" class="liq-tb" data-tip="Refrescar · recargar desde la base" aria-label="Refrescar" onclick="switchTab('liquidaciones')">🔄</button>` : ''}
+        ${isAdmin ? `<button type="button" class="liq-tb tip-r" data-tip="Columnas · mostrar, ocultar y reordenar" aria-label="Columnas" onclick="liqAbrirConfigCols()">⚙️</button>` : ''}
       </div>
     </div>
 
@@ -734,7 +721,7 @@ async function renderLiquidaciones() {
                 const mono = l.empleado?.monotributista
                   ? ' <span style="background:#f3e8ff;color:#7c3aed;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;font-weight:600;" title="Monotributista — factura por banco, NO va al LSD">🟣 MT</span>'
                   : '';
-                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;position:sticky;left:0;background:white;z-index:2;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
+                return `<td style="padding:8px;text-align:left;font-weight:600;cursor:pointer;position:sticky;left:0;background:inherit;z-index:2;box-shadow:2px 0 4px -2px rgba(0,0,0,0.08);" onclick="liqHistoricoEmpleada(${l.empleado_id})" title="Ver últimos 12 meses">${c.escapeHtml(l.empleado?.apellido || '')} <span style="color:var(--muted);font-weight:400;">${c.escapeHtml((l.empleado?.nombre || '').split(' ')[0])}</span>${mono}</td>`;
               } },
             { id:'local',     label:'Local',      sortKey:'local', condition:c=>c.local==='todos', thOpts:{align:'text-align:left'},
               tdRender:(l,c)=>`<td style="padding:8px;text-align:left;font-size:11px;"><span class="emp-tag" style="background:#eef2ff;color:#4338ca;font-size:10px;">${c.escapeHtml(LOCALES[l.local]?.nombre || l.local)}</span></td>` },
@@ -1175,7 +1162,7 @@ async function renderLiquidaciones() {
           }).join('');
           const bodyHtml = (liqs||[]).map(l => {
             const nombreNorm = ((l.empleado?.apellido || '') + ' ' + (l.empleado?.nombre || '')).toLowerCase();
-            return `<tr data-search="${escapeHtml(nombreNorm)}" style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`;
+            return `<tr class="liq-row" data-search="${escapeHtml(nombreNorm)}" style="border-top:1px solid var(--border);text-align:right;">${cols.map(col => col.tdRender(l, ctxL)).join('')}</tr>`;
           }).join('') + eventualesLiq.map((e, i) => liqEventualFila(e, i, cols, fmt)).join('');
 
           // ─── TFOOT con totales de columnas numéricas ───

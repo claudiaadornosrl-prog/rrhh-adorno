@@ -490,10 +490,11 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   .liq-subtabs button { padding: 8px 10px !important; }
   .liq-acciones { gap: 6px; display: contents !important; }
   .liq-acciones .liq-kebab-dd, .liq-acciones > .btn, .liq-acciones > .liq-export-dd { margin-left: 0; }
-  .liq-acciones > .btn:first-of-type { margin-left: auto; }
+  .liq-acciones > .btn:first-of-type, .liq-acciones > .liq-tb:first-of-type { margin-left: auto; }
   .liq-ventas3 { order: 10; flex-basis: 100%; font-size: 11px !important; }
   .liq-ventas3 > div { padding: 2px 6px !important; }
   .liq-acciones .btn { padding: 6px 10px; font-size: 13px; }
+  .liq-tb { width: 34px; height: 34px; font-size: 16px; }
   .liq-toolbar-sticky + .cal-toolbar { gap: 6px !important; padding: 8px !important; }
   .liq-toolbar-sticky + .cal-toolbar > span[style*='width:1px'] { display: none; }
   .liq-toolbar-sticky + .cal-toolbar select { padding: 5px 4px !important; }
@@ -523,6 +524,40 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
+
+/* ── (2-nov-2026, JP) Liquidación: acciones solo ícono + pastilla con el nombre al pasar el mouse; grilla a rayas ── */
+.liq-tb {
+  position: relative; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
+  background: #fff; color: var(--text); font-size: 17px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: 0 0 auto;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.liq-tb:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.12); background: #f8fafc; }
+.liq-tb.prof { color: #92400e; border-color: #fcd34d; }
+.liq-tb.prof:hover { background: #fef3c7; }
+.liq-tb.def { background: var(--accent); border-color: var(--accent); }
+.liq-tb.def:hover { background: var(--accent2); border-color: var(--accent2); }
+.liq-tb.dob { color: #6b21a8; border-color: #ddd6fe; }
+.liq-tb.dob:hover { background: #f5f3ff; }
+.liq-tb.cerrar { color: #b91c1c; border-color: #fecaca; }
+.liq-tb.cerrar:hover { background: #fef2f2; }
+.liq-tb::after {
+  content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%;
+  transform: translate(-50%, -6px) scale(0.92); transform-origin: 50% 0;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 500; line-height: 1;
+  padding: 7px 12px; border-radius: 999px; white-space: nowrap; pointer-events: none;
+  opacity: 0; z-index: 19; transition: transform 0.14s ease-in, opacity 0.1s ease-in;
+}
+.liq-tb:hover::after, .liq-tb:focus-visible::after {
+  opacity: 1; transform: translate(-50%, 0) scale(1);
+  transition: transform 0.28s cubic-bezier(.34,1.56,.64,1), opacity 0.08s ease-out;
+}
+.liq-tb.tip-r::after { left: auto; right: 0; transform: translate(0, -6px) scale(0.92); transform-origin: 100% 0; }
+.liq-tb.tip-r:hover::after, .liq-tb.tip-r:focus-visible::after { transform: translate(0, 0) scale(1); }
+@media (hover: none) { .liq-tb::after { display: none; } }
+#liq-tabla-main tbody tr.liq-row:nth-child(even) { background: #f3f6fa; }
+#liq-tabla-main tbody tr.liq-row:nth-child(odd) { background: #fff; }
+#liq-tabla-main tbody tr.liq-row:hover { background: #e8f0f7; }
 
 /* ── (30-oct-2026, JP) Aumentos: izquierda pastillas desplegables, derecha IPC; abajo todo el ancho ── */
 .aum-top { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }
