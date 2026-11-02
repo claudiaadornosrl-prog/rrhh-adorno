@@ -6077,7 +6077,8 @@ async function _miSueldoDatosDesdeDB(locales, periodo) {
   });
 }
 
-// opts.auto = true → lo llama liqCerrarMes al cerrar el mes: sin confirm, solo toast.
+// (2-nov-2026, JP) Se llama SOLO desde liqCerrarMes (auto). El botón 📣 manual se eliminó; si hace falta reenviar,
+// correr desde la consola: liqPublicarResumen(local, periodo) (pide confirm).
 async function liqPublicarResumen(local, periodo, opts = {}) {
   if (!session || session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const locales = local === 'todos' ? ['alcorta', 'unicenter', 'oficina'] : [local];
@@ -22757,7 +22758,7 @@ else init();
 <script src="manuales.js?v=25"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=9"></script>
+<script src="liquidaciones.js?v=10"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v433-mi-sueldo-al-cerrar';
+const CACHE_VERSION = 'rrhh-v434-sin-megafono';
 const ASSETS = [
   './',
   './index.html',
