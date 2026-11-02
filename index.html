@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=45">
+<link rel="stylesheet" href="styles.css?v=46">
 </head>
 <body>
 
@@ -2525,6 +2525,14 @@ async function renderEmpleados() {
   return html;
 }
 
+// (2-nov-2026, JP) Foto del padrón como moneda gruesa (misma foto adelante y atrás) que gira al pasar el mouse
+function _empMonedaHtml(inner) {
+  const T = 8; let capas = '';
+  for (let i = 0; i < T; i++) capas += `<span class="canto${i % 2 ? ' b' : ''}" style="transform:translateZ(${(i - (T - 1) / 2).toFixed(1)}px);"></span>`;
+  return `<span class="moneda">${capas}<span class="cara" style="transform:translateZ(${T / 2}px);">${inner}</span>` +
+    `<span class="cara" style="transform:rotateY(180deg) translateZ(${T / 2}px);">${inner}</span></span>`;
+}
+
 async function renderEmpleadosList() {
   const cont = document.getElementById('emp-list-container');
   cont.innerHTML = '<div class="spinner"></div>';
@@ -2565,7 +2573,7 @@ async function renderEmpleadosList() {
 
   cont.innerHTML = '<div class="emp-grid">' + lista.map(e => `
     <div class="emp-card" data-id="${e.id}">
-      <div class="emp-avatar">${e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" alt="">` : escapeHtml(initials(e.apellido, e.nombre))}</div>
+      <div class="emp-avatar emp-coin">${_empMonedaHtml(e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" alt="">` : `<span class="ini">${escapeHtml(initials(e.apellido, e.nombre))}</span>`)}</div>
       <div class="emp-info">
         <div class="name">${escapeHtml(e.nombre_completo)}</div>
         <div class="meta">
@@ -8055,6 +8063,24 @@ function mesActualString() {
 // cerrado (rrhh_meses_cerrados), se arranca ahí (la encargada entra a cerrar octubre, no a ver noviembre).
 // Admin sin filtro de local: basta con que falte cerrar uno de los 3. Mira hasta 3 meses para atrás.
 // Solo decide el arranque: si el usuario navega con ‹ › se respeta lo que eligió.
+// (2-nov-2026) Versión general: último mes sin cerrar para esos locales (hasta 3 atrás); si todo está cerrado, el actual.
+async function mesPredeterminadoAbierto(locales) {
+  const hoy = mesActualString();
+  try {
+    if (!locales || !locales.length) return hoy;
+    let [y, m] = hoy.split('-').map(Number);
+    let candidato = hoy;
+    for (let i = 0; i < 3; i++) {
+      m -= 1; if (m < 1) { m = 12; y -= 1; }
+      const { data } = await sb.from('rrhh_meses_cerrados').select('local').eq('año', y).eq('mes', m).in('local', locales);
+      const cerrados = new Set((data || []).map(r => r.local));
+      if (locales.every(l => cerrados.has(l))) break;
+      candidato = `${y}-${String(m).padStart(2, '0')}`;
+    }
+    return candidato;
+  } catch (_) { return hoy; }
+}
+
 async function asisMesPredeterminado() {
   const hoy = mesActualString();
   try {
@@ -17773,13 +17799,27 @@ window.retmercState = window.retmercState || (() => {
 })();
 
 function retmercCambiarMes(periodo) {
+  window.retmercState._tocado = true;
   window.retmercState.periodo = periodo;
   switchTab('retiros');
+}
+
+// (2-nov-2026) clic en la moneda de pendientes/duplicados: va al recuadro y lo resalta un momento
+function retIrAPanel(sel) {
+  const t = document.querySelector(sel); if (!t) return;
+  const card = t.closest('.card') || t;
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  card.classList.add('ret-flash'); setTimeout(() => card.classList.remove('ret-flash'), 1800);
 }
 
 async function renderRetirosMercaderia() {
   const isAdmin = session.rol === 'admin';
   const localFiltro = isAdmin ? null : session.empleadoData?.local;
+  // (2-nov-2026, JP) misma regla que Asistencias: mientras el mes anterior no esté cerrado, se muestra ese mes
+  if (!window.retmercState._tocado && !window.retmercState._auto) {
+    window.retmercState.periodo = await mesPredeterminadoAbierto(localFiltro ? [localFiltro] : ['unicenter', 'alcorta', 'oficina']);
+    window.retmercState._auto = true;
+  }
   const periodo = window.retmercState.periodo;
   const [y, m] = periodo.split('-').map(Number);
   const desde = `${periodo}-01`;
@@ -17875,8 +17915,8 @@ async function renderRetirosMercaderia() {
         ['#0d9488', '🛍', (retiros || []).length, 'Retiros del mes', ''],
         ['#6366f1', '💲', fmtCorto(totalMes), 'Total del mes · ' + fmt(totalMes), ''],
       ];
-      if ((pendientes || []).length > 0) ms.push(['#dc2626', '⚠️', pendientes.length, 'Pendientes de asignar', "document.querySelector('.ret-panel-pendientes')?.scrollIntoView({behavior:'smooth',block:'start'})"]);
-      if (dupesPares.length > 0) ms.push(['#eab308', '🔁', dupesPares.length, 'Posibles duplicados', "document.querySelector('.ret-panel-dupes')?.scrollIntoView({behavior:'smooth',block:'start'})"]);
+      if ((pendientes || []).length > 0) ms.push(['#dc2626', '⚠️', pendientes.length, 'Pendientes de asignar', "retIrAPanel('.ret-panel-pendientes')"]);
+      if (dupesPares.length > 0) ms.push(['#eab308', '🔁', dupesPares.length, 'Posibles duplicados', "retIrAPanel('.ret-panel-dupes')"]);
       return `<div class="dash-monedas" style="margin:6px 0 18px;">${ms.map(([c, ico, num, nom, oc]) => `
         <button type="button" class="dash-mon" style="--c:${c};${oc ? '' : 'cursor:default;'}" aria-label="${nom}" ${oc ? `onclick="${oc}"` : ''} onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
           <span class="bola">${_dashMonedaHtml(ico, num)}</span><span class="nom">${nom}</span>
@@ -18079,6 +18119,7 @@ async function renderRetirosMercaderia() {
 }
 
 window.retmercCambiarMes = function(p) {
+  window.retmercState._tocado = true;
   window.retmercState.periodo = p;
   switchTab('retiros');
 };
