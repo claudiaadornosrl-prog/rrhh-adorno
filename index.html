@@ -7986,8 +7986,32 @@ function mesActualString() {
   return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}`;
 }
 
+// (2-nov-2026, JP) Mes predeterminado de Asistencias: mientras el mes anterior del local que se mira no esté
+// cerrado (rrhh_meses_cerrados), se arranca ahí (la encargada entra a cerrar octubre, no a ver noviembre).
+// Admin sin filtro de local: basta con que falte cerrar uno de los 3. Mira hasta 3 meses para atrás.
+// Solo decide el arranque: si el usuario navega con ‹ › se respeta lo que eligió.
+async function asisMesPredeterminado() {
+  const hoy = mesActualString();
+  try {
+    const isAdmin = session.rol === 'admin';
+    const locales = isAdmin ? (asisState.local ? [asisState.local] : ['unicenter', 'alcorta', 'oficina'])
+                            : [session.local_gerencia].filter(Boolean);
+    if (!locales.length) return hoy;
+    let [y, m] = hoy.split('-').map(Number);
+    let candidato = hoy;
+    for (let i = 0; i < 3; i++) {
+      m -= 1; if (m < 1) { m = 12; y -= 1; }
+      const { data } = await sb.from('rrhh_meses_cerrados').select('local').eq('año', y).eq('mes', m).in('local', locales);
+      const cerrados = new Set((data || []).map(r => r.local));
+      if (locales.every(l => cerrados.has(l))) break;      // ese mes ya está cerrado → el candidato es el siguiente
+      candidato = `${y}-${String(m).padStart(2, '0')}`;    // falta cerrar → retroceder
+    }
+    return candidato;
+  } catch (_) { return hoy; }
+}
+
 async function renderAsistenciasAdmin() {
-  if (!asisState.mes) asisState.mes = mesActualString();
+  if (!asisState.mes) asisState.mes = await asisMesPredeterminado();
   const isAdmin = session.rol === 'admin';
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
 
@@ -8429,6 +8453,7 @@ async function renderCalendarioGrid() {
 }
 
 function cambiarMes(delta) {
+  asisState._mesTocado = true;
   const [y, m] = asisState.mes.split('-').map(Number);
   let ny = y, nm = m + delta;
   if (nm < 1)  { nm = 12; ny -= 1; }
@@ -8440,6 +8465,14 @@ function cambiarMes(delta) {
 
 function cambiarLocal(local) {
   asisState.local = local;
+  // (2-nov-2026) si el usuario no navegó el mes a mano, recalcular el predeterminado para ese local
+  if (!asisState._mesTocado) {
+    asisMesPredeterminado().then(m => {
+      if (m !== asisState.mes) { asisState.mes = m; document.getElementById('main').innerHTML = '<div class="spinner"></div>'; renderAsistenciasAdmin().then(h => document.getElementById('main').innerHTML = h); }
+      else if (typeof renderAsisTab === 'function') renderAsisTab(); else renderCalendarioGrid();
+    });
+    return;
+  }
   // Re-rendear segun el tab actual (resumen mensual, calendario, fichadas, etc.)
   // En vez de solo el calendario.
   if (typeof renderAsisTab === 'function') renderAsisTab();
