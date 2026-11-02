@@ -525,6 +525,15 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 }
 .liq-titulo { margin: 0 10px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap; }
 @media (max-width: 768px) { .liq-titulo { font-size: 18px; flex-basis: 100%; } }
+/* (2-nov-2026, JP) Asistencias: título + pestañas solo ícono + filtros de la pestaña activa en un renglón */
+.asis-tabsrow { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.asis-tab.active { box-shadow: inset 0 -3px 0 var(--accent2); border-radius: 10px 10px 4px 4px; }
+.asis-tab.active:hover { transform: scale(1.1); }
+.asis-badge { position: absolute; top: 0; right: 0; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; text-align: center; }
+.asis-filtros-slot { display: inline-flex; align-items: center; gap: 10px; margin-left: 14px; flex-wrap: wrap; }
+.asis-filtros-slot > .cal-toolbar, .asis-filtros-slot > .asis-filtros { margin-bottom: 0; }
+.asis-filtros-slot .month-nav { height: 40px; }
+@media (max-width: 768px) { .asis-filtros-slot { margin-left: 0; flex-basis: 100%; } }
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }

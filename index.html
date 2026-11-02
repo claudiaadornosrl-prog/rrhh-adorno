@@ -498,7 +498,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=34">
+<link rel="stylesheet" href="styles.css?v=35">
 </head>
 <body>
 
@@ -7979,23 +7979,22 @@ async function renderAsistenciasAdmin() {
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
 
   const html = `
-    <div class="page-header">
-      <h2>Asistencias</h2>
-      <div class="subtitle">${isAdmin ? 'Planificación y control de turnos' : 'Planificación de ' + (LOCALES[localFiltro]?.nombre || localFiltro)}</div>
+    <!-- (2-nov-2026, JP) Título, pestañas solo ícono y los filtros de la pestaña activa, todo en un renglón.
+         Los filtros los renderiza cada sub-pestaña; renderAsisTab los mueve a #asis-filtros-slot. -->
+    <div class="toolbar asis-tabsrow">
+      <h2 class="liq-titulo">Asistencias</h2>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" data-tip="Calendarios" aria-label="Calendarios">📅</button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='resumen'?'active':''}" data-asistab="resumen" data-tip="Resumen mensual" aria-label="Resumen mensual">📊</button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='banco'?'active':''}" data-asistab="banco" data-tip="Banco de minutos" aria-label="Banco de minutos">🏦</button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='permisos'?'active':''}" data-asistab="permisos" data-tip="Permisos" aria-label="Permisos">🙋<span id="badge-permisos-pend" class="asis-badge" style="display:none;"></span></button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='extras'?'active':''}" data-asistab="extras" data-tip="Horas extras" aria-label="Horas extras">⏰</button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='reportes'?'active':''}" data-asistab="reportes" data-tip="Reportes de turno" aria-label="Reportes de turno">🚩</button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='fichadas'?'active':''}" data-asistab="fichadas" data-tip="Fichadas" aria-label="Fichadas">🕐</button>
+      <button type="button" class="liq-tb asis-tab ${asisState.tab==='horarios'?'active':''}" data-asistab="horarios" data-tip="Horarios" aria-label="Horarios">🕰️</button>
+      <span id="asis-filtros-slot" class="asis-filtros-slot"></span>
     </div>
 
-    <div class="toolbar" style="border-bottom:1px solid var(--border);padding-bottom:0;margin-bottom:0;">
-      <button class="modal-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" style="border-bottom:2px solid transparent;padding:12px 14px;">📅 Calendarios</button>
-      <button class="modal-tab ${asisState.tab==='resumen'?'active':''}"    data-asistab="resumen"    style="border-bottom:2px solid transparent;padding:12px 14px;">📊 Resumen mensual</button>
-      <button class="modal-tab ${asisState.tab==='banco'?'active':''}"      data-asistab="banco"      style="border-bottom:2px solid transparent;padding:12px 14px;">🏦 Banco</button>
-      <button class="modal-tab ${asisState.tab==='permisos'?'active':''}"   data-asistab="permisos"   style="border-bottom:2px solid transparent;padding:12px 14px;">🙋 Permisos <span id="badge-permisos-pend" style="display:none;background:var(--danger);color:white;border-radius:99px;padding:1px 7px;font-size:10px;margin-left:4px;"></span></button>
-      <button class="modal-tab ${asisState.tab==='extras'?'active':''}"     data-asistab="extras"     style="border-bottom:2px solid transparent;padding:12px 14px;">⏰ Extras</button>
-      <button class="modal-tab ${asisState.tab==='reportes'?'active':''}"   data-asistab="reportes"   style="border-bottom:2px solid transparent;padding:12px 14px;">🚩 Reportes</button>
-      <button class="modal-tab ${asisState.tab==='fichadas'?'active':''}"   data-asistab="fichadas"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕐 Fichadas</button>
-      <button class="modal-tab ${asisState.tab==='horarios'?'active':''}"   data-asistab="horarios"   style="border-bottom:2px solid transparent;padding:12px 14px;">🕰️ Horarios</button>
-    </div>
-
-    <div id="asis-content" style="margin-top:20px;"><div class="spinner"></div></div>
+    <div id="asis-content" style="margin-top:4px;"><div class="spinner"></div></div>
   `;
   setTimeout(() => {
     document.querySelectorAll('[data-asistab]').forEach(b => {
@@ -8105,6 +8104,12 @@ async function renderAsisTab() {
   else if (asisState.tab === 'extras')     await renderExtrasAdmin(cont);
   else if (asisState.tab === 'banco')      await renderBancoAdmin(cont);
   else if (asisState.tab === 'horarios')   await renderHorariosAdmin(cont);
+  // (2-nov-2026, JP) Los filtros de la pestaña suben al renglón de las pestañas
+  try {
+    const slot = document.getElementById('asis-filtros-slot');
+    const filtros = cont.querySelector(':scope > .cal-toolbar, :scope > .asis-filtros');
+    if (slot && filtros) { slot.innerHTML = ''; slot.appendChild(filtros); }
+  } catch (_) {}
   // Actualizar badge de pendientes
   actualizarBadgePermisos();
 }
@@ -13698,7 +13703,7 @@ async function renderExtrasAdmin(cont) {
   const fechaHasta = new Date(y, m, 0).toISOString().split('T')[0];
 
   cont.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+    <div class="asis-filtros" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <div class="month-nav">
         <button onclick="cambiarMesExtras(-1)">‹</button>
         <span class="month-label">${mesCortoLabel(y, m)}</span>
@@ -14292,7 +14297,7 @@ async function renderBancoAdmin(cont) {
   const localFiltro = isAdmin ? bancoState.local : session.local_gerencia;
 
   cont.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+    <div class="asis-filtros" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       ${isAdmin ? `
       <select onchange="bancoState.local=this.value;renderAsisTab()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;">
         <option value="" ${!localFiltro?'selected':''}>Todos</option>

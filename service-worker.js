@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v446-liq-titulo-renglon';
+const CACHE_VERSION = 'rrhh-v447-asis-tabs-iconos';
 const ASSETS = [
   './',
   './index.html',
