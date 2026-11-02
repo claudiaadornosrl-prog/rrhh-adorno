@@ -1942,21 +1942,21 @@ async function renderDashboard() {
     if (!isAdmin && local) qPA = qPA.eq('empleado.local', local);
     const { data: _pa } = await qPA; prestActivos = _pa || [];
     // (2-nov-2026, JP) misma regla que Asistencias: mientras el mes anterior no esté cerrado, la ficha muestra ese mes
-    let _ry = hoy.getFullYear(), _rm = mesActual;
+    let _ry = hoy.getFullYear(), _rmes = mesActual;
     {
       const _locs = isAdmin ? ['unicenter', 'alcorta', 'oficina'] : [local].filter(Boolean);
-      let y2 = _ry, m2 = _rm;
+      let y2 = _ry, m2 = _rmes;
       for (let i = 0; i < 3 && _locs.length; i++) {
         m2 -= 1; if (m2 < 1) { m2 = 12; y2 -= 1; }
         const { data: _c } = await sb.from('rrhh_meses_cerrados').select('local').eq('año', y2).eq('mes', m2).in('local', _locs);
         const _set = new Set((_c || []).map(r => r.local));
         if (_locs.every(l => _set.has(l))) break;
-        _ry = y2; _rm = m2;
+        _ry = y2; _rmes = m2;
       }
     }
-    retirosMesLabel = mesCortoLabel(_ry, _rm);
-    const _mesIni = `${_ry}-${String(_rm).padStart(2, '0')}-01`;
-    const _mesFin = new Date(_ry, _rm, 0).toISOString().split('T')[0];
+    retirosMesLabel = mesCortoLabel(_ry, _rmes);
+    const _mesIni = `${_ry}-${String(_rmes).padStart(2, '0')}-01`;
+    const _mesFin = new Date(_ry, _rmes, 0).toISOString().split('T')[0];
     let qRM = sb.from('rrhh_retiros_mercaderia').select('id, importe, fecha, empleado_id, local').in('estado', ['asignado', 'descontado']).gte('fecha', _mesIni).lte('fecha', _mesFin);
     if (!isAdmin && local) qRM = qRM.eq('local', local);
     const { data: _rm } = await qRM; retirosMesDash = _rm || [];
