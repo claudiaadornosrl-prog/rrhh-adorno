@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v448-vac-tabs-tooltip';
+const CACHE_VERSION = 'rrhh-v449-liq-un-renglon';
 const ASSETS = [
   './',
   './index.html',

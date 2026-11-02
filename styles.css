@@ -534,6 +534,14 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 .asis-filtros-slot > .cal-toolbar, .asis-filtros-slot > .asis-filtros { margin-bottom: 0; }
 .asis-filtros-slot .month-nav { height: 40px; }
 @media (max-width: 768px) { .asis-filtros-slot { margin-left: 0; flex-basis: 100%; } }
+/* (2-nov-2026, JP) En escritorio la barra de Liquidación va en UN renglón: título, Sueldo/Banco, ventas e íconos */
+@media (min-width: 1101px) {
+  .liq-toolbar-sticky { flex-wrap: nowrap; gap: 8px; }
+  .liq-toolbar-sticky .liq-acciones { flex-wrap: nowrap !important; gap: 6px !important; min-width: 0; }
+  .liq-toolbar-sticky .liq-ventas3 { white-space: nowrap; flex-shrink: 1; min-width: 0; overflow: hidden; }
+  .liq-toolbar-sticky .liq-subtabs button { padding: 8px 12px !important; }
+  .liq-toolbar-sticky .liq-titulo { font-size: 20px; }
+}
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
