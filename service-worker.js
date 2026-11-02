@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v430-mi-sueldo-24h';
+const CACHE_VERSION = 'rrhh-v431-grilla-limpia';
 const ASSETS = [
   './',
   './index.html',

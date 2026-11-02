@@ -1045,11 +1045,7 @@ async function renderLiquidaciones() {
                 if (chipMensual || chipSAC) {
                   return `<td style="padding:8px;text-align:center;"><div style="display:flex;flex-direction:column;gap:3px;align-items:center;">${chipMensual}${chipSAC}</div></td>`;
                 }
-                // Fallback si el mes está cerrado a nivel local
-                const mesCerr = c.cierresSueldosPorLocal && c.cierresSueldosPorLocal[l.local];
-                if (mesCerr) {
-                  return `<td style="padding:8px;text-align:center;"><span style="background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;" title="Mes cerrado el ${(mesCerr.cerrado_at||'').split('T')[0]} — falta que llegue el PDF firmado por la empleada">🗓️ Mes cerrado</span></td>`;
-                }
+                // (2-nov-2026, JP) sin chip "Mes cerrado": el candado 🔒 de Acciones ya lo indica
                 return `<td style="padding:8px;text-align:center;color:var(--muted);font-size:11px;">—</td>`;
               } },
             { id:'detalle',   label:'Acciones',
@@ -1096,9 +1092,7 @@ async function renderLiquidaciones() {
                     mercaderia: +l.mercaderia || 0, ajuste: +l.ajuste || 0,
                   };
                 }
-                const btnImagen = c.isAdmin
-                  ? `<button type="button" class="liq-ib" onclick="liqImagenResumen(${l.id})" title="📸 Generar imagen del resumen del sueldo (banco + efectivo) para mandarla por WhatsApp como foto con 'ver una vez'. La imagen se genera en tu compu y NO queda guardada en ningún lado.">📸</button>`
-                  : '';
+                const btnImagen = '';   // (2-nov-2026, JP) 📸 eliminado: lo reemplaza 📣 Mi sueldo (los datos _liqResumenData siguen para eso)
                 return `<td style="padding:8px;white-space:nowrap;">
                   ${btnCandado}
                   ${btnFirmado}
