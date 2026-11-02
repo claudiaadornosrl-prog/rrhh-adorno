@@ -1056,10 +1056,10 @@ async function renderLiquidaciones() {
                 const fechaFirma = firmado ? new Date(firmado).toLocaleDateString('es-AR') : '';
                 const btnFirmado = firmado
                   ? (esUrl
-                      ? `<a class="liq-ib" href="${escapeHtml(url)}" target="_blank" rel="noopener" style="color:#065f46;" aria-label="Firmada" title="✓ Firmada el ${fechaFirma}. Click para abrir el archivo en OneDrive.">✅</a>`
-                      : `<button type="button" class="liq-ib" style="color:#065f46;" disabled aria-label="Firmada" title="✓ Firmada el ${fechaFirma}. Archivo antiguo — sin link directo.">✅</button>`)
+                      ? `<a class="liq-ib" href="${escapeHtml(url)}" target="_blank" rel="noopener" style="color:#065f46;" aria-label="Firmada" title="✓ Firmada el ${fechaFirma}. Click para abrir el archivo en OneDrive.">🖋️</a>`
+                      : `<button type="button" class="liq-ib" style="color:#065f46;" disabled aria-label="Firmada" title="✓ Firmada el ${fechaFirma}. Archivo antiguo — sin link directo.">🖋️</button>`)
                   : (mesCerr
-                      ? `<button type="button" class="liq-ib" disabled aria-label="Esperando firma" title="Esperando firma — mes cerrado; el sistema espera que llegue el PDF firmado por la colaboradora por Gmail o que lo subas manualmente.">🗓️</button>`
+                      ? `<button type="button" class="liq-ib" disabled aria-label="Esperando firma" title="Esperando firma — mes cerrado; el sistema espera que llegue el PDF firmado por la colaboradora por Gmail o que lo subas manualmente.">✍️</button>`
                       : `<button type="button" class="liq-ib" disabled aria-label="No firmada" title="No firmada — esperando que llegue el PDF firmado.">✍️</button>`);
                 // Candado: cerrado si (mes cerrado a nivel local) O (liq en estado 'revisada'/'firmada'/'anulada')
                 const estaCerrado = !!mesCerr || l.estado === 'firmada' || l.estado === 'revisada' || l.estado === 'anulada';

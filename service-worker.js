@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v435-noti-abre-tab';
+const CACHE_VERSION = 'rrhh-v436-firma-iconos';
 const ASSETS = [
   './',
   './index.html',
