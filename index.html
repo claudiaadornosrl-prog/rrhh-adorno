@@ -17687,16 +17687,27 @@ async function liqCerrarMes(local, periodo) {
       switchTab('liquidaciones'); return;
     }
   }
+  // (3-nov-2026, JP) Solo se cierra lo que sigue ABIERTO. Con 'todos', los locales ya cerrados se saltean
+  // (antes se volvían a firmar y se republicaba "Mi sueldo" con push nuevo a Alcorta y Oficina).
+  const _todosLoc = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
+  const _yaCerrados = [];
+  const locales = [];
+  for (const loc of _todosLoc) { if (await liqMesEstaCerrado(loc, periodo)) _yaCerrados.push(loc); else locales.push(loc); }
+  if (!locales.length) {
+    toast(`${periodo} ya está cerrado en ${_yaCerrados.join(', ')}. Para reabrir, elegí ese local y tocá el candado.`, 'info');
+    return;
+  }
   toast('🔍 Validando cierre...', 'info');
-  const errores = await liqValidarCierreMes(local, periodo);
+  let errores = [];
+  for (const loc of locales) errores = errores.concat(await liqValidarCierreMes(loc, periodo));
   if (errores.length > 0) {
     alert('⚠️ No se puede cerrar el mes — corregí estos puntos:\n\n' + errores.map(e => '• ' + e).join('\n'));
     return;
   }
-  const target = local === 'todos' ? 'TODOS los locales' : local;
-  if (!confirm(`Cerrar mes ${periodo} para ${target}?\n\n✓ Ventas cargadas\n✓ Asistencias cerradas\n✓ Aumentos cerrados\n\nDespués podras modificar liquidaciones pero saldra un aviso.`)) return;
+  const target = locales.length > 1 ? locales.join(', ') : locales[0];
+  const _notaCerrados = _yaCerrados.length ? `\n(Ya cerrado, no se toca: ${_yaCerrados.join(', ')})` : '';
+  if (!confirm(`Cerrar mes ${periodo} para ${target}?${_notaCerrados}\n\n✓ Ventas cargadas\n✓ Asistencias cerradas\n✓ Aumentos cerrados\n\nDespués podras modificar liquidaciones pero saldra un aviso.`)) return;
   const obs = prompt('Observación del cierre (opcional):') || null;
-  const locales = local === 'todos' ? ['alcorta','unicenter','oficina'] : [local];
   let okCount = 0;
   const noFirmadas = [];
   if (_esGerenteLocal) {
@@ -17775,7 +17786,7 @@ async function liqCerrarMes(local, periodo) {
     const labelMes = new Date(yMes, mMes-1, 1).toLocaleDateString('es-AR', { month:'long', year:'numeric' });
     for (const d of (directoras || [])) {
       if (!d.empleado_id) continue;
-      const localTxt = local === 'todos' ? 'todos los locales' : local;
+      const localTxt = locales.join(', ');
       enviarPush(
         d.empleado_id,
         '📊 Mes cerrado · Liquidación lista',
@@ -17823,8 +17834,10 @@ async function liqCerrarMes(local, periodo) {
 
   // (2-nov-2026, JP) Al cerrar el mes se publica el resumen de sueldo a cada colaboradora
   // (Mi sueldo, un solo uso, 24 h) y se le manda el push. Antes era manual con 📣.
-  try { await liqPublicarResumen(local, periodo, { auto: true }); }
-  catch (e) { console.warn('[liqCerrarMes] publicar resumen:', e); toast('⚠ El mes se cerró pero no pude publicar el resumen a las colaboradoras. Usá 📣.', 'error'); }
+  for (const loc of locales) {
+    try { await liqPublicarResumen(loc, periodo, { auto: true }); }
+    catch (e) { console.warn('[liqCerrarMes] publicar resumen:', loc, e); toast(`⚠ ${loc} se cerró pero no pude publicar el resumen a las colaboradoras.`, 'error'); }
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   //  Fase 2B: cascada al mes siguiente
@@ -23321,7 +23334,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=38"></script>
+<script src="manuales.js?v=39"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=20"></script>
