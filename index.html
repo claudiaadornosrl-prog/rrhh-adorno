@@ -16148,7 +16148,9 @@ function liqWireScrollDoble() {
   }, { passive: true });
   // Igualar ancho del inner al scrollWidth de la tabla — así ambas barras
   // tienen el mismo rango de scroll.
-  const sync = () => { inner.style.width = tabla.scrollWidth + 'px'; };
+  // (3-nov-2026, JP: "la barrita vibra") El ancho del riel de arriba tiene que ser el scrollWidth del CONTENEDOR
+  // (incluye los 14px de padding de cada lado), no el de la tabla: si no, los dos rangos difieren y se empujan.
+  const sync = () => { inner.style.width = main.scrollWidth + 'px'; };
   sync();
   // Re-sync cuando la ventana cambia de tamaño (columnas se reflowean)
   if (window._liqResizeObs) window._liqResizeObs.disconnect();
@@ -16156,20 +16158,12 @@ function liqWireScrollDoble() {
     window._liqResizeObs = new ResizeObserver(() => { sync(); ajustarAltura(); });
     window._liqResizeObs.observe(tabla);
   } catch (e) { /* ResizeObserver no soportado — no rompe nada */ }
-  // Sincronizar scroll (guard con flag para evitar loop infinito)
-  let bloqueado = false;
-  top.addEventListener('scroll', () => {
-    if (bloqueado) return;
-    bloqueado = true;
-    main.scrollLeft = top.scrollLeft;
-    requestAnimationFrame(() => { bloqueado = false; });
-  });
-  main.addEventListener('scroll', () => {
-    if (bloqueado) return;
-    bloqueado = true;
-    top.scrollLeft = main.scrollLeft;
-    requestAnimationFrame(() => { bloqueado = false; });
-  });
+  // Sincronizar scroll. El flag con rAF no alcanzaba: el evento "eco" del otro contenedor llegaba después de
+  // liberar el flag y volvía a empujar → vibración. Ahora solo se copia si realmente difieren (el eco llega con el
+  // mismo valor y no hace nada).
+  const copiar = (desde, hacia) => { if (Math.abs(hacia.scrollLeft - desde.scrollLeft) >= 1) hacia.scrollLeft = desde.scrollLeft; };
+  top.addEventListener('scroll', () => copiar(top, main), { passive: true });
+  main.addEventListener('scroll', () => copiar(main, top), { passive: true });
 }
 
 // Filtra las filas de la tabla del Liquidador SIN recargar desde Supabase.
