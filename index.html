@@ -2935,6 +2935,8 @@ async function renderTabDatos() {
   const d = empModalState.formData;
   const editing = empModalState.editing && isAdmin;
   const categorias = await getCategorias();
+  // (3-nov-2026) fotos del DNI del bucket privado 'legajos', firmadas (1 hora); las ve quien tenga permiso en Storage
+  const [dniFrenteUrl, dniDorsoUrl] = empModalState.isNew ? [null, null] : await legajosFirmados([d.dni_foto_frente_url, d.dni_foto_dorso_url]);
 
   body.innerHTML = `
     <div class="section-title">Identidad</div>
@@ -3189,6 +3191,12 @@ async function renderTabDatos() {
         <input type="text" data-field="cbu" value="${escapeHtml(d.cbu||'')}" ${!editing?'disabled':''} maxlength="22">
       </div>
     </div>
+    ${empModalState.isNew ? '' : `
+    <div class="section-title">Foto del DNI <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px;">(la sube la colaboradora desde Mi legajo · enlace privado, vence en 1 hora)</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      ${_dniFotoHtml(dniFrenteUrl, 'Frente', false)}
+      ${_dniFotoHtml(dniDorsoUrl, 'Dorso', false)}
+    </div>`}
   `;
 
   // Wire inputs (input para text/number, change para checkbox/select)
@@ -5823,6 +5831,31 @@ function cambiarMiMes(delta) {
 //  Validación de legajo completo para empleadas
 //  Si faltan campos críticos, la colaboradora queda forzada en Mi legajo.
 // ════════════════════════════════════════════════════════════
+// (3-nov-2026) Bucket 'legajos' PRIVADO: en la base se guarda el path dentro del bucket
+// (ej. "12/dni-frente-1780...jpg") y se firma al mostrar (vence en 1 hora).
+// Tolera valores viejos guardados como URL publica: les saca el prefijo .../legajos/.
+function legajoPathDe(v) {
+  if (!v) return null;
+  const m = String(v).match(/\/legajos\/([^?#]+)/);
+  try { return m ? decodeURIComponent(m[1]) : String(v); } catch (_) { return m ? m[1] : String(v); }
+}
+async function legajosFirmados(valores) {
+  const paths = (valores || []).map(legajoPathDe);
+  const validos = [...new Set(paths.filter(Boolean))];
+  if (!validos.length) return paths.map(() => null);
+  const { data, error } = await sb.storage.from('legajos').createSignedUrls(validos, 3600);
+  if (error || !data) { console.warn('legajosFirmados', error); return paths.map(() => null); }
+  const map = {};
+  data.forEach(d => { if (d && d.signedUrl) map[d.path] = d.signedUrl; });
+  return paths.map(pth => (pth && map[pth]) || null);
+}
+function _dniFotoHtml(url, label, editable) {
+  const img = url
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img src="${escapeHtml(url)}" alt="${label}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;"></a>`
+    : `<div style="height:120px;background:${editable ? '#fee2e2' : '#f3f4f6'};border:2px dashed ${editable ? '#fca5a5' : '#d1d5db'};border-radius:8px;display:flex;align-items:center;justify-content:center;color:${editable ? '#991b1b' : '#6b7280'};font-size:13px;">Falta foto</div>`;
+  return `<div><div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${label}</div>${img}</div>`;
+}
+
 const CAMPOS_LEGAJO_CRITICOS = [
   { campo: 'dni',                 label: 'DNI' },
   { campo: 'fecha_nacimiento',    label: 'Fecha de nacimiento' },
@@ -5864,6 +5897,7 @@ async function renderMiLegajo() {
   const { data: full } = await sb.from('rrhh_empleados').select('*, categoria:rrhh_categorias_cct(nombre)').eq('id', emp.id).single();
 
   const faltantes = (session.rol === 'empleado') ? legajoIncompleto(full) : [];
+  const [dniFrenteUrl, dniDorsoUrl] = await legajosFirmados([full?.dni_foto_frente_url, full?.dni_foto_dorso_url]);
   const banner = faltantes.length > 0 ? `
     <div class="card" style="background:#fee2e2;border-left:4px solid #dc2626;padding:14px;margin-bottom:14px;">
       <div style="font-size:14px;font-weight:600;color:#991b1b;margin-bottom:6px;">
@@ -5971,18 +6005,18 @@ async function renderMiLegajo() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
         <div>
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Frente</div>
-          ${full?.dni_foto_frente_url ? `
-            <a href="${escapeHtml(full.dni_foto_frente_url)}" target="_blank">
-              <img src="${escapeHtml(full.dni_foto_frente_url)}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;">
+          ${dniFrenteUrl ? `
+            <a href="${escapeHtml(dniFrenteUrl)}" target="_blank" rel="noopener">
+              <img src="${escapeHtml(dniFrenteUrl)}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;">
             </a>
           ` : `<div style="height:120px;background:#fee2e2;border:2px dashed #fca5a5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#991b1b;font-size:13px;">Falta foto</div>`}
           <input type="file" accept="image/*" onchange="subirMiDniFoto(this, 'frente')" style="margin-top:6px;font-size:12px;width:100%;">
         </div>
         <div>
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Dorso</div>
-          ${full?.dni_foto_dorso_url ? `
-            <a href="${escapeHtml(full.dni_foto_dorso_url)}" target="_blank">
-              <img src="${escapeHtml(full.dni_foto_dorso_url)}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;">
+          ${dniDorsoUrl ? `
+            <a href="${escapeHtml(dniDorsoUrl)}" target="_blank" rel="noopener">
+              <img src="${escapeHtml(dniDorsoUrl)}" style="width:100%;max-height:160px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#f9fafb;">
             </a>
           ` : `<div style="height:120px;background:#fee2e2;border:2px dashed #fca5a5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#991b1b;font-size:13px;">Falta foto</div>`}
           <input type="file" accept="image/*" onchange="subirMiDniFoto(this, 'dorso')" style="margin-top:6px;font-size:12px;width:100%;">
@@ -6053,11 +6087,11 @@ async function subirMiDniFoto(input, lado) {
   toast('Subiendo…', 'info');
   const { data, error } = await sb.storage.from('legajos').upload(path, file, { upsert: true });
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  const { data: pub } = sb.storage.from('legajos').getPublicUrl(path);
+  // (3-nov-2026) bucket privado: se guarda el path dentro del bucket y se firma al mostrar
   const campo = lado === 'frente' ? 'dni_foto_frente_url' : 'dni_foto_dorso_url';
-  const { error: e2 } = await sb.from('rrhh_empleados').update({ [campo]: pub.publicUrl }).eq('id', session.empleado_id);
+  const { error: e2 } = await sb.from('rrhh_empleados').update({ [campo]: path }).eq('id', session.empleado_id);
   if (e2) { toast('Error guardando URL: ' + e2.message, 'error'); return; }
-  if (session.empleadoData) session.empleadoData[campo] = pub.publicUrl;
+  if (session.empleadoData) session.empleadoData[campo] = path;
   toast('Foto del DNI guardada ✓', 'success');
   switchTab('mi-legajo');
 }
@@ -23341,7 +23375,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=40"></script>
+<script src="manuales.js?v=41"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=20"></script>
