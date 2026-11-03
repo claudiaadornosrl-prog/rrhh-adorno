@@ -725,6 +725,7 @@ window.ADORNO_SSO = (function () {
 
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
+<script src="/hub/seguridad.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
@@ -1020,9 +1021,17 @@ const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
   var inOrig = sb.auth.signInWithPassword.bind(sb.auth);
   sb.auth.signInWithPassword = async function (cred) {
     var r = await inOrig(cred);
-    if (!r.error && r.data && r.data.user) ADORNO_SSO.recordar(mod, r.data.user.email);
+    if (!r.error && r.data && r.data.user) {
+      // (3-nov-2026, hardening) si la cuenta tiene el código del celular, se pide antes de dejar entrar
+      if (window.ADORNO_MFA && !(await ADORNO_MFA.pedirCodigo(sb))) {
+        await outOrig({ scope: 'local' });
+        return { data: { user: null, session: null }, error: { message: 'Hace falta el código del celular para entrar.' } };
+      }
+      ADORNO_SSO.recordar(mod, r.data.user.email);
+    }
     return r;
   };
+  if (window.ADORNO_MFA) ADORNO_MFA.alCargar(sb);   // sesión guardada de antes de activar el código del celular
   var outOrig = sb.auth.signOut.bind(sb.auth);
   sb.auth.signOut = async function () {
     ADORNO_SSO.olvidarModulos();
@@ -23375,7 +23384,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=41"></script>
+<script src="manuales.js?v=42"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=20"></script>
