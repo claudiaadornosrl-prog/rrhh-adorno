@@ -22983,10 +22983,12 @@ async function liqGuardarAjuste(liqId, empleadoId, periodo) {
 //  columna nueva en la grilla: la suma del mes entra en "Ajustes" (trigger rrhh_adelantos_ef_sync → ajuste =
 //  ajuste_manual + adelantos). Mes por defecto: el último sin cerrar (misma regla que Asistencias).
 // ═══════════════════════════════════════════════════════════════════════════
-window.adelEfState = window.adelEfState || { periodo: null, empleado: '' };
+window.adelEfState = window.adelEfState || { periodo: null, empleado: null };   // empleado null = todavía no elegido → arranca en JP
 async function renderAdelantosEfectivo() {
   if (!session || session.rol !== 'admin') return `<div class="page-header"><h2>Adelantos de efectivo</h2></div><div class="card">Solo admin.</div>`;
   if (!adelEfState.periodo) adelEfState.periodo = await mesPredeterminadoAbierto(['unicenter', 'alcorta', 'oficina']);
+  // (3-nov-2026, JP) por defecto el filtro arranca en su propio usuario; el resto queda por si hay una excepción
+  if (adelEfState.empleado === null) adelEfState.empleado = session.empleado_id ? String(session.empleado_id) : '';
   const periodo = adelEfState.periodo;
   const [py, pm] = periodo.split('-').map(Number);
   const { data: emps } = await sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado', 'activo').order('apellido');
@@ -23106,7 +23108,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=27"></script>
+<script src="manuales.js?v=28"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=16"></script>

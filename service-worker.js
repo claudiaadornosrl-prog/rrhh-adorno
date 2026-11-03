@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v473-ajuste-hover';
+const CACHE_VERSION = 'rrhh-v474-adel-default-jp';
 const ASSETS = [
   './',
   './index.html',

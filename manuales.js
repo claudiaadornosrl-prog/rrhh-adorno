@@ -182,7 +182,7 @@ const MANUAL_ADMIN = [
     tab: 'adelantos-ef', icon: '💸', titulo: 'Adelantos de efectivo',
     desc: 'Retiros de plata o compras pagadas con la cuenta de la empresa (nafta con factura A, etc.) que se descuentan del efectivo del mes. No es una baja de sueldo.',
     pasos: [
-      '➕ cargás colaboradora (por defecto vos), fecha, importe, tipo (retiro de efectivo o compra pagada por la empresa), concepto y, si querés, el comprobante.',
+      'La pantalla arranca filtrada en tu usuario (con el desplegable podés ver a otra colaboradora o a todas). ➕ carga un adelanto: colaboradora (por defecto vos), fecha, importe, tipo (retiro de efectivo o compra pagada por la empresa), concepto y, si querés, el comprobante.',
       'Se imputa al mes que elijas; por defecto el último mes sin cerrar.',
       'La suma del mes entra en la columna Ajustes de Liquidación y baja el Efectivo. Total, recibo y banco no cambian. En "Mi sueldo" aparece dentro de AJ.',
       'Pasando el mouse por la celda Ajustes de la grilla ves el detalle: cada adelanto con fecha, concepto e importe, y la parte manual. Click en la celda abre el ajuste para editar la parte manual. Borrar un adelanto devuelve el importe al efectivo.',
