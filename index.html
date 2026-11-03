@@ -16281,7 +16281,17 @@ function liqWireScrollDoble() {
   // Sincronizar scroll. El flag con rAF no alcanzaba: el evento "eco" del otro contenedor llegaba después de
   // liberar el flag y volvía a empujar → vibración. Ahora solo se copia si realmente difieren (el eco llega con el
   // mismo valor y no hace nada).
-  const copiar = (desde, hacia) => { if (Math.abs(hacia.scrollLeft - desde.scrollLeft) >= 1) hacia.scrollLeft = desde.scrollLeft; };
+  // (3-nov-2026, JP: "arrastrando el pulgar se traba") Además, mientras una barra es la FUENTE (recibió el primer
+  // evento y sigue recibiendo), la otra solo la sigue y nunca le devuelve nada: el eco que llegaba durante el
+  // arrastre con el mouse apretado peleaba con el mouse y la trababa. La fuente se libera a los 150 ms sin eventos.
+  let fuente = null, tFuente = null;
+  const copiar = (desde, hacia) => {
+    if (fuente && fuente !== desde) return;   // eco de la que sigue: ignorar
+    fuente = desde;
+    clearTimeout(tFuente); tFuente = setTimeout(() => { fuente = null; }, 150);
+    const x = Math.round(desde.scrollLeft);
+    if (Math.abs(hacia.scrollLeft - x) >= 1) hacia.scrollLeft = x;
+  };
   top.addEventListener('scroll', () => copiar(top, main), { passive: true });
   main.addEventListener('scroll', () => copiar(main, top), { passive: true });
 }
@@ -23220,7 +23230,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else init();
 
 </script>
-<script src="recibos-pdf.js?v=15"></script>
+<script src="recibos-pdf.js?v=16"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
 <script src="manuales.js?v=34"></script>
 <script src="exportaciones.js?v=6"></script>

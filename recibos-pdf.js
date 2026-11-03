@@ -119,7 +119,7 @@ async function _pdfPreviewDibujar(doc) {
       cv.style.height = Math.round(vp.height / dpr) + 'px';
       cv.style.cssText += 'display:block;margin:0 auto 10px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);';
       cont.appendChild(cv);
-      await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      await page.render({ canvasContext: cv.getContext('2d'), viewport: vp, intent: 'print' }).promise;   // 'print': no depende de requestAnimationFrame
     }
   } catch (e) {
     console.warn('Visor móvil de PDF', e);
