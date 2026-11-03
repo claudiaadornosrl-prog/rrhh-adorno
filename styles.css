@@ -605,6 +605,27 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   box-shadow: 0 6px 18px rgba(0,0,0,.18); opacity: 0; transform: translateY(-4px) scale(.95); transition: opacity .12s, transform .18s cubic-bezier(.34,1.56,.64,1); pointer-events: none; }
 .touch-tip.on { opacity: 1; transform: translateY(0) scale(1); }
 @media (hover: none) { .liq-tb, .liq-ib, .nav-item, .asis-tab { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
+/* ── (3-nov-2026, JP) Nada se desborda horizontalmente en el celular ──
+   iOS: input[type=date]/[type=time]/[type=month] y select tienen ancho mínimo propio y no respetan width:100%
+   salvo que se les saque la apariencia nativa y min-width:0. La fila de hijos (nombre + fecha + botón) se parte. */
+input, select, textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
+input[type="date"], input[type="time"], input[type="month"], input[type="datetime-local"] { -webkit-appearance: none; appearance: none; display: block; min-height: 38px; }
+.form-grid > * { min-width: 0; }
+.modal { max-width: min(900px, 100vw - 16px); }
+.modal-body { overflow-x: hidden; overflow-wrap: anywhere; }
+.modal-header .title { min-width: 0; flex: 1; }
+.modal-header h3, .modal-header .meta { overflow-wrap: anywhere; }
+#hijos-list > div { flex-wrap: wrap; }
+#hijos-list input[type="text"] { flex: 1 1 140px; }
+#hijos-list input[type="date"] { flex: 1 1 130px; }
+@media (max-width: 768px) {
+  .main { overflow-x: clip; }                     /* clip no crea contenedor de scroll: el sticky sigue andando */
+  .modal-body { padding: 16px 14px; }
+  .modal-footer { flex-wrap: wrap; padding: 12px 14px; }
+  .card > table, .modal-body > table { display: block; overflow-x: auto; max-width: 100%; }
+  .page-header h2, .liq-titulo { overflow-wrap: anywhere; }
+  .emp-tag, .meta { overflow-wrap: anywhere; }
+}
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
