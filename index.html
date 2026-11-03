@@ -1031,36 +1031,36 @@ const NAV = {
     { id: 'manual',        label: 'Manual',                icon: '📖', section: 'Admin' },
     { id: 'mi-sueldo',     label: 'Mi sueldo',             icon: '🧾', section: 'Admin' },   // oculto salvo que haya resumen sin abrir
   ],
-  gerente: [
-    { id: 'dashboard',   label: 'Mi local',     icon: '📊', section: 'Mi local' },
-    { id: 'empleados',   label: 'Mi equipo',    icon: '👥', section: 'Mi local' },
-    { id: 'asistencias', label: 'Asistencias',  icon: '🕐', section: 'Mi local' },
-    { id: 'vacaciones',  label: 'Vacaciones',   icon: '🌴', section: 'Mi local' },
-    { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Mi local' },
-    { id: 'aumentos',    label: 'Aumentos',     icon: '📈', section: 'Mi local' },
-    { id: 'prestamos',   label: 'Préstamos',    icon: '💵', section: 'Mi local' },
-    { id: 'liquidaciones', label: 'Liquidación', icon: '🧮', section: 'Mi local' },
-    { id: 'mi-legajo',   label: 'Mi legajo',    icon: '👤', section: 'Mi cuenta' },
-    { id: 'mis-recibos', label: 'Mis recibos',  icon: '💰', section: 'Mi cuenta' },   // (4-oct, JP) las encargadas también bajan sus recibos
-    { id: 'mi-sueldo',   label: 'Mi sueldo',    icon: '🧾', section: 'Mi cuenta' },   // (2-nov, JP) resumen publicado por 24 h
-    { id: 'manual',      label: '📖 Manual',     icon: '📖', section: null },
+  gerente: [   // (3-nov-2026, JP) mismo orden que el admin
+    { id: 'dashboard',     label: 'Mi local',           icon: '📊', section: null },
+    { id: 'liquidaciones', label: 'Liquidación',        icon: '🧮', section: null },
+    { id: 'asistencias',   label: 'Asistencias',        icon: '🕐', section: null },
+    { id: 'vacaciones',    label: 'Vacaciones',         icon: '🌴', section: null },
+    { id: 'retiros',       label: 'Retiros mercadería', icon: '🛍', section: null },
+    { id: 'prestamos',     label: 'Préstamos',          icon: '💵', section: null },
+    { id: 'aumentos',      label: 'Aumentos',           icon: '📈', section: null },
+    { id: 'empleados',     label: 'Mi equipo',          icon: '👥', section: null },
+    { id: 'mi-legajo',     label: 'Mi legajo',          icon: '👤', section: 'Mi cuenta' },
+    { id: 'mis-recibos',   label: 'Mis recibos',        icon: '💰', section: 'Mi cuenta' },
+    { id: 'mi-sueldo',     label: 'Mi sueldo',          icon: '🧾', section: 'Mi cuenta' },   // oculto salvo resumen sin abrir
+    { id: 'manual',        label: 'Manual',             icon: '📖', section: 'Mi cuenta' },
   ],
   directora: [
-    { id: 'empleados',     label: 'Colaboradores', icon: '👥', section: null },
     { id: 'liquidaciones', label: 'Liquidación',   icon: '🧮', section: null },
+    { id: 'empleados',     label: 'Colaboradores', icon: '👥', section: null },
   ],
-  empleado: [
-    { id: 'mi-calendario', label: 'Mi calendario', icon: '📅', section: null },
-    { id: 'mi-legajo',     label: 'Mi legajo',     icon: '👤', section: null },
-    { id: 'mis-recibos',   label: 'Mis recibos',   icon: '💰', section: null },
-    { id: 'mi-sueldo',     label: 'Mi sueldo',     icon: '🧾', section: null },   // (2-nov, JP) resumen publicado por 24 h
-    { id: 'mis-vacaciones',label: 'Mis vacaciones',icon: '🌴', section: null },
-    { id: 'mis-permisos',  label: 'Mis permisos',  icon: '🙋', section: null },
-    { id: 'mi-banco',      label: 'Mi banco',      icon: '🏦', section: null },
-    { id: 'mis-prestamos', label: 'Mis préstamos', icon: '💵', section: null },
+  empleado: [   // (3-nov-2026, JP) mismo criterio: inicio, sueldo, asistencias, vacaciones, préstamos, legajo, buzón, manual
+    { id: 'mi-calendario', label: 'Mi calendario',       icon: '📅', section: null },
+    { id: 'mis-recibos',   label: 'Mis recibos',         icon: '💰', section: null },
+    { id: 'mi-sueldo',     label: 'Mi sueldo',           icon: '🧾', section: null },   // oculto salvo resumen sin abrir
+    { id: 'mis-permisos',  label: 'Mis permisos',        icon: '🙋', section: null },
+    { id: 'mi-banco',      label: 'Mi banco',            icon: '🏦', section: null },
+    { id: 'mis-vacaciones',label: 'Mis vacaciones',      icon: '🌴', section: null },
+    { id: 'mis-prestamos', label: 'Mis préstamos',       icon: '💵', section: null },
     { id: 'mis-certif',    label: 'Mis certif. médicos', icon: '🏥', section: null },
-    { id: 'buzon',         label: 'Buzón anónimo', icon: '✉️', section: null },
-    { id: 'manual',        label: '📖 Manual',     icon: '📖', section: null },
+    { id: 'mi-legajo',     label: 'Mi legajo',           icon: '👤', section: null },
+    { id: 'buzon',         label: 'Buzón anónimo',       icon: '✉️', section: null },
+    { id: 'manual',        label: 'Manual',              icon: '📖', section: null },
   ]
 };
 
