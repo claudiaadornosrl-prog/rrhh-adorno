@@ -184,7 +184,8 @@ window.ADORNO_MILES = (function () {
     pill.style.display = 'block';
     const w = pill.offsetWidth, h = pill.offsetHeight;
     let x = r.left + r.width / 2 - w / 2; x = Math.max(8, Math.min(window.innerWidth - w - 8, x));
-    let y = r.bottom + 8; if (y + h > window.innerHeight - 8) y = r.top - h - 8;
+    // (3-nov-2026, JP) la pastilla va ARRIBA del ícono (el pulgar tapa lo de abajo); si no hay lugar, abajo
+    let y = r.top - h - 14; if (y < 8) y = r.bottom + 14;
     pill.style.left = x + 'px'; pill.style.top = y + 'px';
     pill.classList.add('on');
     clearTimeout(ocultar); ocultar = setTimeout(esconder, 2200);
