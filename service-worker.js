@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v500-doble-factor';
+const CACHE_VERSION = 'rrhh-v501-cara-30-dias';
 const ASSETS = [
   './',
   './index.html',
