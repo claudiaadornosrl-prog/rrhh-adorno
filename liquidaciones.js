@@ -577,7 +577,7 @@ async function renderLiquidaciones() {
       </div>
       <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:8px;"></span>
       <div class="liq-acciones" style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        ${local === 'todos' ? `
+        ${liqState.subTab !== 'sueldo' ? '' : local === 'todos' ? `
           <div class="liq-ventas3" style="display:flex;gap:6px;font-size:12px;">
             ${['alcorta','unicenter','oficina'].map(loc => `
               <div style="background:#f3f4f6;border-radius:6px;padding:4px 8px;">
@@ -595,6 +595,7 @@ async function renderLiquidaciones() {
         ${(liqState.subTab === 'sueldo') ? `
           ${isAdmin ? `<button type="button" class="liq-tb cerrar" data-tip="Cerrar mes de sueldos" aria-label="Cerrar mes" onclick="liqCerrarMes('${local}','${periodo}')">🔒</button>` : ''}
         ` : `
+          <span class="liq-banco-acc">
           ${isAdmin ? `<button type="button" class="liq-tb prof" data-tip="Proforma · liquidación provisoria para el banco" aria-label="Proforma" onclick="liqGenerarProforma('${local}','${periodo}')">📋</button>` : ''}
           ${isAdmin ? `<button type="button" class="liq-tb def" data-tip="Definitivo · recibos finales con la escala vigente" aria-label="Definitivo" onclick="liqGenerarDefinitivo('${local}','${periodo}')">✅</button>` : ''}
           ${isAdmin ? `<button type="button" class="liq-tb dob" data-tip="Doble blanco · Contreras y Escasany (ítem 0018)" aria-label="Doble blanco" onclick="liqGenerarDobleBlanco('${local}','${periodo}')">💎</button>` : ''}
@@ -615,9 +616,27 @@ async function renderLiquidaciones() {
               </div>
             </div>
           ` : ''}
+          ${isAdmin ? `<button type="button" class="liq-tb" data-tip="Refrescar · recargar desde la base" aria-label="Refrescar" onclick="switchTab('liquidaciones')">🔄</button>` : ''}
+          ${isAdmin ? `<button type="button" class="liq-tb tip-r" data-tip="Columnas · mostrar, ocultar y reordenar" aria-label="Columnas" onclick="liqAbrirConfigCols()">⚙️</button>` : ''}
+          </span>
+          <!-- (3-nov-2026, JP) En celular los íconos de Banco no entran en un renglón: van dentro de un menú ⋮ -->
+          <div class="liq-kebab-dd liq-kebab-m" style="position:relative;display:none;">
+            <button type="button" class="liq-tb" aria-label="Más acciones" onclick="liqToggleKebabMenu(this, event)">⋮</button>
+            <div id="liq-kebab-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:white;border:1px solid var(--border);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,0.12);min-width:230px;z-index:40;overflow:hidden;">
+              ${[
+                isAdmin ? ['📋', 'Proforma', `liqGenerarProforma('${local}','${periodo}')`] : null,
+                isAdmin ? ['✅', 'Definitivo', `liqGenerarDefinitivo('${local}','${periodo}')`] : null,
+                isAdmin ? ['💎', 'Doble blanco', `liqGenerarDobleBlanco('${local}','${periodo}')`] : null,
+                (isAdmin || isGerente || soloBanco) ? ['🖨️', 'Imprimir recibos', `descargarTodosRecibosCombinados('${local}','${periodo}')`] : null,
+                (isAdmin || soloBanco) ? ['📤', 'Exportar Galicia (.xlsx)', `exportarGaliciaXLSX('${local}','${periodo}')`] : null,
+                (isAdmin || soloBanco) ? ['📄', 'Exportar LSD ARCA (.txt)', `generarLSDTxtAuto('${periodo}','${local}')`] : null,
+                (isAdmin || soloBanco) ? ['📋', 'Planilla blanca (.xlsx)', `exportarPlanillaBlancaLiq('${local}','${periodo}')`] : null,
+                isAdmin ? ['🔄', 'Refrescar', `switchTab('liquidaciones')`] : null,
+                isAdmin ? ['⚙️', 'Columnas', `liqAbrirConfigCols()`] : null,
+              ].filter(Boolean).map(([ico, txt, fn]) => `<button type="button" class="liq-kebab-item" onclick="liqCloseKebabMenu();${fn}" style="width:100%;text-align:left;padding:11px 14px;border:none;background:transparent;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);"><span style="font-size:17px;">${ico}</span>${txt}</button>`).join('')}
+            </div>
+          </div>
         `}
-        ${isAdmin ? `<button type="button" class="liq-tb" data-tip="Refrescar · recargar desde la base" aria-label="Refrescar" onclick="switchTab('liquidaciones')">🔄</button>` : ''}
-        ${isAdmin ? `<button type="button" class="liq-tb tip-r" data-tip="Columnas · mostrar, ocultar y reordenar" aria-label="Columnas" onclick="liqAbrirConfigCols()">⚙️</button>` : ''}
       </div>
     </div>
 

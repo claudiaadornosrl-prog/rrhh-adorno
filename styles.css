@@ -626,6 +626,19 @@ input[type="date"], input[type="time"], input[type="month"], input[type="datetim
   .page-header h2, .liq-titulo { overflow-wrap: anywhere; }
   .emp-tag, .meta { overflow-wrap: anywhere; }
 }
+/* (3-nov-2026, JP) Celular: la foto del padrón va plana (el 3D de la moneda se veía roto en iPhone) y los íconos de
+   Liquidación › Banco se guardan en un menú ⋮ para que la barra quede en un renglón */
+@media (hover: none), (max-width: 768px) {
+  .emp-coin .moneda { transform: none !important; animation: none !important; transform-style: flat; }
+  .emp-coin .canto { display: none; }
+  .emp-coin .cara + .cara { display: none; }
+  .emp-coin .cara { transform: none !important; -webkit-backface-visibility: visible; backface-visibility: visible; }
+}
+@media (max-width: 768px) {
+  .liq-banco-acc { display: none !important; }
+  .liq-kebab-m { display: inline-block !important; margin-left: auto; }
+  .liq-kebab-item:first-child { border-top: none !important; }
+}
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
