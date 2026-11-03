@@ -140,6 +140,7 @@ const MANUAL_ADMIN = [
       'Click en una ficha abre el legajo completo: datos, CBU, obra social, categoría CCT, fecha de ingreso, foto, documentos y la pestaña de sueldo (fijo, comisión, premio, viáticos, modo de liquidación cct_negro o doble_blanco).',
       'Contreras y Escasany están en modo doble blanco: cobran todo por recibo; el sistema les arma el ítem 0018 Comisiones para que el neto del recibo sea el total.',
       'Desde la ficha también se da de baja o se reactiva, y se ve el historial de aumentos.',
+      'Foto: en la ficha, tocá el círculo de la foto (o las iniciales) y elegí una imagen JPG, PNG o WebP de hasta 5 MB; la de WhatsApp sirve. Se ve en el padrón, en el calendario y en los avisos.',
     ],
     img: null,
   },

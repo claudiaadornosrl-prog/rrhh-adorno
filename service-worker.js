@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v476-tactil-nombres';
+const CACHE_VERSION = 'rrhh-v477-foto-ficha';
 const ASSETS = [
   './',
   './index.html',

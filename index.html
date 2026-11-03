@@ -2712,6 +2712,19 @@ async function openEmpleadoModal(empleadoId) {
     document.getElementById('emp-modal-avatar').innerHTML = data.foto_url
       ? `<img src="${escapeHtml(data.foto_url)}">`
       : escapeHtml(initials(data.apellido, data.nombre));
+    // (3-nov-2026, JP) El admin cambia la foto tocando el avatar de la ficha
+    {
+      const av = document.getElementById('emp-modal-avatar');
+      if (session.rol === 'admin') {
+        av.style.cursor = 'pointer'; av.title = 'Tocá para subir o cambiar la foto (JPG, PNG o WebP, hasta 5 MB)';
+        av.onclick = () => {
+          let inp = document.getElementById('emp-modal-foto-file');
+          if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.id = 'emp-modal-foto-file'; inp.accept = 'image/jpeg,image/png,image/webp'; inp.style.display = 'none'; document.body.appendChild(inp); }
+          inp.onchange = () => subirFotoEmpleado(data.id, inp);
+          inp.value = ''; inp.click();
+        };
+      } else { av.style.cursor = ''; av.title = ''; av.onclick = null; }
+    }
     renderModalTabs();
     renderModalBody();
   }
@@ -6144,10 +6157,33 @@ async function probarMiPush() {
   }
 }
 
+// (3-nov-2026, JP) Foto desde la ficha de Colaboradores (admin). Sube a rrhh-fotos/<id>/avatar.<ext> y guarda foto_url.
+async function subirFotoEmpleado(empId, inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { toast('La foto tiene que ser JPG, PNG o WebP (las de WhatsApp son JPG; si es HEIC del iPhone, convertila o mandala por WhatsApp primero)', 'error'); return; }
+  if (file.size > 5 * 1024 * 1024) { toast('La foto no puede superar 5 MB', 'error'); return; }
+  toast('Subiendo foto…', '');
+  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  const path = `${empId}/avatar.${ext}`;
+  const { error: upErr } = await sb.storage.from('rrhh-fotos').upload(path, file, { upsert: true, contentType: file.type });
+  if (upErr) { toast('Error subiendo: ' + upErr.message, 'error'); return; }
+  const { data: pub } = sb.storage.from('rrhh-fotos').getPublicUrl(path);
+  const url = pub.publicUrl + '?v=' + Date.now();
+  let { error } = await sb.from('rrhh_empleados').update({ foto_url: url }).eq('id', empId);
+  if (error && empId === session.empleado_id) ({ error } = await sb.rpc('rrhh_actualizar_mi_foto', { p_url: url }));
+  if (error) { toast('Error guardando: ' + error.message, 'error'); return; }
+  if (empId === session.empleado_id && session.empleadoData) session.empleadoData.foto_url = url;
+  const av = document.getElementById('emp-modal-avatar'); if (av) av.innerHTML = `<img src="${escapeHtml(url)}">`;
+  try { auditLog('cambiar_foto', 'rrhh_empleados', empId, 'foto_url', null, url); } catch (_) {}
+  toast('Foto actualizada ✓', 'success');
+  if (currentTab === 'empleados' && typeof renderEmpleadosList === 'function') renderEmpleadosList();
+}
+
 async function subirMiFoto(inputEl) {
   const file = inputEl.files && inputEl.files[0];
   if (!file) return;
-  if (!file.type.startsWith('image/')) { toast('El archivo debe ser una imagen', 'error'); return; }
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { toast('La foto tiene que ser JPG, PNG o WebP (las de WhatsApp son JPG; si es HEIC del iPhone, convertila o mandala por WhatsApp primero)', 'error'); return; }
   if (file.size > 5 * 1024 * 1024) { toast('La foto no puede superar 5 MB', 'error'); return; }
   toast('Subiendo foto…', '');
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
@@ -23151,7 +23187,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=29"></script>
+<script src="manuales.js?v=30"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=16"></script>
