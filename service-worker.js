@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v481-tablas-scroll';
+const CACHE_VERSION = 'rrhh-v482-viaticos-amarillo';
 const ASSETS = [
   './',
   './index.html',

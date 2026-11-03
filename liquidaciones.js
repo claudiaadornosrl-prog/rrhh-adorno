@@ -793,9 +793,9 @@ async function renderLiquidaciones() {
                 const titulo = prorr
                   ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago. Fórmula: $${Math.round(fijoFull).toLocaleString('es-AR')} × ${l.dias_trabajados}/30 = $${Math.round(+l.fijo).toLocaleString('es-AR')}`
                   : (c.isAdmin ? 'Click para editar manualmente' : '');
-                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
+                const style = prorr ? 'background:#fef3c7;text-align:center;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');   /* (3-nov-2026, JP) prorrateado = amarillo centrado, sin ⚠ */
                 const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'fijo', 'Fijo', ${+l.fijo})"` : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.fijo)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${titulo}">${c.fmt(l.fijo)}</td>`;
               } },
             { id:'comision',  label:'Comisión',   sortKey:'comision',
               tdRender:(l,c)=>{
@@ -849,7 +849,7 @@ async function renderLiquidaciones() {
                 }
                 const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'') + (desglose?'cursor:help;':'');
                 const click = (!prorr && c.isAdmin) ? `onclick="liqEditarCelda(${l.id}, 'comision', 'Comisión', ${+l.comision})"` : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${c.escapeHtml(titulo)}">${c.fmt(l.comision)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${c.escapeHtml(titulo)}">${c.fmt(l.comision)}</td>`;
               } },
             { id:'premios',   label:'Premios',    sortKey:'premios',
               tdRender:(l,c)=>{
@@ -900,9 +900,9 @@ async function renderLiquidaciones() {
                     ? `🚨 Prorrateado por ${30 - l.dias_trabajados} día(s) sin pago.`
                     : (c.isAdmin ? 'Click para editar manualmente' : '');
                 }
-                const style = prorr ? 'background:#fef3c7;border-left:3px solid #f59e0b;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');
+                const style = prorr ? 'background:#fef3c7;text-align:center;cursor:help;' : (c.isAdmin?'cursor:pointer;':'');   /* (3-nov-2026, JP) prorrateado = amarillo centrado, sin ⚠ */
                 const click = c.isAdmin ? `onclick="liqEditarCelda(${l.id}, 'viaticos', 'Viáticos', ${+l.viaticos})"` : '';
-                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${c.escapeHtml(titulo)}">${c.fmt(l.viaticos)}${prorr?' <sup style="color:#f59e0b;">⚠</sup>':''}</td>`;
+                return `<td style="padding:8px;font-family:monospace;${style}" ${click} title="${c.escapeHtml(titulo)}">${c.fmt(l.viaticos)}</td>`;
               } },
             { id:'feriado',   label:'Feriado',    sortKey:'feriado',
               tdRender:(l,c)=>{
