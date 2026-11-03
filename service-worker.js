@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v486-tactil-arriba';
+const CACHE_VERSION = 'rrhh-v487-menu-orden';
 const ASSETS = [
   './',
   './index.html',

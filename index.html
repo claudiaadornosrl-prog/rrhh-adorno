@@ -1016,20 +1016,20 @@ const _LOCALES_FIN = {
 
 // Navegación por rol
 const NAV = {
-  admin: [
-    { id: 'dashboard',   label: 'Dashboard',     icon: '📊', section: null },
-    { id: 'empleados',   label: 'Colaboradores',     icon: '👥', section: 'Personal' },
-    { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
-    { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
-    { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
-    { id: 'adelantos-ef', label: 'Adelantos de efectivo', icon: '💸', section: 'Personal' },   // (3-nov, JP)
-    { id: 'manual',      label: 'Manual',        icon: '📖', section: 'Admin' },   // (3-nov, JP) manual del admin
-    { id: 'prestamos',   label: 'Préstamos',     icon: '💵', section: 'Personal' },
-    { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
-    { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
-    { id: 'buzon-admin', label: 'Buzón anónimo', icon: '✉️', section: 'Admin' },
-    { id: 'config',      label: 'Configuración', icon: '⚙️', section: 'Admin' },
-    { id: 'mi-sueldo',   label: 'Mi sueldo',     icon: '🧾', section: 'Admin' },   // (2-nov, JP) también lo ve él
+  admin: [   // (3-nov-2026, JP) orden pedido por él
+    { id: 'dashboard',     label: 'Dashboard',             icon: '📊', section: null },
+    { id: 'liquidaciones', label: 'Liquidación',           icon: '🧮', section: null },
+    { id: 'asistencias',   label: 'Asistencias',           icon: '🕐', section: null },
+    { id: 'vacaciones',    label: 'Vacaciones',            icon: '🌴', section: null },
+    { id: 'retiros',       label: 'Retiros mercadería',    icon: '🛍', section: null },
+    { id: 'prestamos',     label: 'Préstamos',             icon: '💵', section: null },
+    { id: 'adelantos-ef',  label: 'Adelantos de efectivo', icon: '💸', section: null },
+    { id: 'aumentos',      label: 'Aumentos',              icon: '📈', section: null },
+    { id: 'empleados',     label: 'Colaboradores',         icon: '👥', section: null },
+    { id: 'buzon-admin',   label: 'Buzón anónimo',         icon: '✉️', section: 'Admin' },
+    { id: 'config',        label: 'Configuración',         icon: '⚙️', section: 'Admin' },
+    { id: 'manual',        label: 'Manual',                icon: '📖', section: 'Admin' },
+    { id: 'mi-sueldo',     label: 'Mi sueldo',             icon: '🧾', section: 'Admin' },   // oculto salvo que haya resumen sin abrir
   ],
   gerente: [
     { id: 'dashboard',   label: 'Mi local',     icon: '📊', section: 'Mi local' },
