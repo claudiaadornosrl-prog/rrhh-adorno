@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v488-menu-orden-todos';
+const CACHE_VERSION = 'rrhh-v490-recibo-movil';
 const ASSETS = [
   './',
   './index.html',

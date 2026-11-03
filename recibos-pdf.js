@@ -66,20 +66,80 @@ function _mostrarPdfInline(doc, titulo, opts = {}) {
   const url = doc.output('bloburl');
   const old = document.getElementById('pdf-preview-modal');
   if (old) old.remove();
+  // (3-nov-2026, JP) En celu/tablet el <iframe> con un PDF no se renderiza (Chrome Android muestra un cuadro
+  // "PDF · uuid · Abrir"). Ahí dibujamos las páginas con pdf.js en canvas y ofrecemos Compartir.
+  const movil = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  window._pdfPreviewDoc = doc;
+  window._pdfPreviewTitulo = titulo;
+  const btnAbrir = movil
+    ? `<button class="btn" style="font-size:12px;" onclick="_pdfPreviewCompartir()">📤 Compartir</button>`
+    : `<button class="btn" style="font-size:12px;" onclick="window.open(document.getElementById('pdf-preview-frame').src, '_blank')">⧉ Pestaña</button>`;
+  const visor = movil
+    ? `<div id="pdf-preview-frame" data-src="${url}" style="flex:1;overflow:auto;background:#525659;padding:8px;-webkit-overflow-scrolling:touch;"><div style="color:#fff;text-align:center;padding:30px;font-size:13px;">Armando el recibo…</div></div>`
+    : `<iframe id="pdf-preview-frame" src="${url}" style="flex:1;border:0;background:#525659;"></iframe>`;
   const html = `
     <div id="pdf-preview-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;background:#0d9488;color:#fff;">
         <b style="font-size:14px;">${titulo}</b>
         <div style="display:flex;gap:8px;">
           ${opts.extraBtns || ''}
-          <button class="btn" style="font-size:12px;" onclick="window.open(document.getElementById('pdf-preview-frame').src, '_blank')">⧉ Pestaña</button>
+          ${btnAbrir}
           <button class="btn" style="font-size:12px;" onclick="document.getElementById('pdf-preview-modal').remove()">✕ Cerrar</button>
         </div>
       </div>
       <div id="pdf-preview-aviso"></div>
-      <iframe id="pdf-preview-frame" src="${url}" style="flex:1;border:0;background:#525659;"></iframe>
+      ${visor}
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+  if (movil) _pdfPreviewDibujar(doc);
+}
+
+// Dibuja todas las páginas del jsPDF con pdf.js dentro de #pdf-preview-frame (celu/tablet).
+async function _pdfPreviewDibujar(doc) {
+  const cont = document.getElementById('pdf-preview-frame');
+  if (!cont) return;
+  try {
+    if (!window.pdfjsLib) throw new Error('pdf.js no cargado');
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    const buf = doc.output('arraybuffer');
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    cont.innerHTML = '';
+    const anchoUtil = Math.max(200, cont.clientWidth - 16);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const base = page.getViewport({ scale: 1 });
+      const escala = anchoUtil / base.width;
+      const vp = page.getViewport({ scale: escala * dpr });
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      cv.style.width = Math.round(vp.width / dpr) + 'px';
+      cv.style.height = Math.round(vp.height / dpr) + 'px';
+      cv.style.cssText += 'display:block;margin:0 auto 10px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);';
+      cont.appendChild(cv);
+      await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    }
+  } catch (e) {
+    console.warn('Visor móvil de PDF', e);
+    cont.innerHTML = `<div style="color:#fff;text-align:center;padding:30px;font-size:13px;">No se pudo dibujar el recibo acá.<br><br><button class="btn" onclick="_pdfPreviewCompartir()">📤 Compartir / guardar el PDF</button></div>`;
+  }
+}
+
+// Celu: share sheet con el PDF (WhatsApp, guardar en archivos…). Si no hay share, descarga.
+async function _pdfPreviewCompartir() {
+  const doc = window._pdfPreviewDoc;
+  if (!doc) return;
+  const nombre = ((window._pdfPreviewTitulo || 'Recibo').replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, '').trim() || 'Recibo') + '.pdf';
+  try {
+    const blob = doc.output('blob');
+    const file = new File([blob], nombre, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: nombre }); return; } catch (_) { return; /* canceló */ }
+    }
+  } catch (_) {}
+  doc.save(nombre);
 }
 
 // Aviso compacto de faltas/tardanzas del mes en el visor (31-jul): reemplaza

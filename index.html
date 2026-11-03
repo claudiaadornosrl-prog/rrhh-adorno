@@ -16243,25 +16243,40 @@ function liqWireScrollDoble() {
   ajustarAltura();
   // iOS reporta innerHeight viejo justo al rotar → recalcular con delay
   const reajustar = () => { ajustarAltura(); setTimeout(ajustarAltura, 200); setTimeout(ajustarAltura, 600); };
+  // (3-nov-2026) Un solo juego de listeners de ventana: cada render reemplaza el handler en vez de apilar otro.
+  window._liqAltoHandlers = window._liqAltoHandlers || {};
+  const prev = window._liqAltoHandlers;
+  if (prev.resize) { window.removeEventListener('resize', prev.resize); window.removeEventListener('orientationchange', prev.resize); }
+  if (prev.scroll) window.removeEventListener('scroll', prev.scroll);
+  let rafAlto = null;
+  const onScrollPag = () => {
+    if (rafAlto) return;
+    rafAlto = requestAnimationFrame(() => { rafAlto = null; ajustarAltura(); });
+  };
   window.addEventListener('resize', reajustar);
   window.addEventListener('orientationchange', reajustar);
   // Al bajar el scroll de la página la tabla gana alto (aprovecha la pantalla)
-  let rafAlto = null;
-  window.addEventListener('scroll', () => {
-    if (rafAlto) return;
-    rafAlto = requestAnimationFrame(() => { rafAlto = null; ajustarAltura(); });
-  }, { passive: true });
+  window.addEventListener('scroll', onScrollPag, { passive: true });
+  window._liqAltoHandlers = { resize: reajustar, scroll: onScrollPag };
   // Igualar ancho del inner al scrollWidth de la tabla — así ambas barras
   // tienen el mismo rango de scroll.
   // (3-nov-2026, JP: "la barrita vibra") El ancho del riel de arriba tiene que ser el scrollWidth del CONTENEDOR
   // (incluye los 14px de padding de cada lado), no el de la tabla: si no, los dos rangos difieren y se empujan.
-  const sync = () => { inner.style.width = main.scrollWidth + 'px'; };
+  // (3-nov-2026, JP: "se siguen moviendo raras") El contenedor tiene barra VERTICAL y el riel de arriba no, así que
+  // sus clientWidth difieren en el ancho de esa barra y los recorridos máximos no coinciden: al llegar al borde uno
+  // clampa y "empuja" al otro. Se compensa sumando el ancho de la barra vertical al riel: así
+  // (inner - top.clientWidth) == (main.scrollWidth - main.clientWidth), mismo recorrido exacto.
+  const sync = () => {
+    const barraV = Math.max(0, main.offsetWidth - main.clientWidth);
+    inner.style.width = (main.scrollWidth + barraV) + 'px';
+  };
   sync();
-  // Re-sync cuando la ventana cambia de tamaño (columnas se reflowean)
+  // Re-sync cuando cambia la tabla O el contenedor (al aparecer/desaparecer la barra vertical cambia el ancho útil)
   if (window._liqResizeObs) window._liqResizeObs.disconnect();
   try {
     window._liqResizeObs = new ResizeObserver(() => { sync(); ajustarAltura(); });
     window._liqResizeObs.observe(tabla);
+    window._liqResizeObs.observe(main);
   } catch (e) { /* ResizeObserver no soportado — no rompe nada */ }
   // Sincronizar scroll. El flag con rAF no alcanzaba: el evento "eco" del otro contenedor llegaba después de
   // liberar el flag y volvía a empujar → vibración. Ahora solo se copia si realmente difieren (el eco llega con el
@@ -23205,9 +23220,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else init();
 
 </script>
-<script src="recibos-pdf.js?v=14"></script>
+<script src="recibos-pdf.js?v=15"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=33"></script>
+<script src="manuales.js?v=34"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=18"></script>
