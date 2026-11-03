@@ -2582,6 +2582,8 @@ async function renderEmpleados() {
 }
 
 // (2-nov-2026, JP) Foto del padrón como moneda gruesa (misma foto adelante y atrás) que gira al pasar el mouse
+// (3-nov-2026, JP) En celular/tablet la moneda 3D se veía rota (iOS): ahí va la foto simple, igual que en la ficha.
+function _empEsTactil() { try { return matchMedia('(hover: none)').matches || window.innerWidth <= 768; } catch (_) { return false; } }
 function _empMonedaHtml(inner) {
   const T = 8; let capas = '';
   for (let i = 0; i < T; i++) capas += `<span class="canto${i % 2 ? ' b' : ''}" style="transform:translateZ(${(i - (T - 1) / 2).toFixed(1)}px);"></span>`;
@@ -2629,7 +2631,8 @@ async function renderEmpleadosList() {
 
   cont.innerHTML = '<div class="emp-grid">' + lista.map(e => `
     <div class="emp-card" data-id="${e.id}">
-      <div class="emp-avatar emp-coin">${_empMonedaHtml(e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" alt="">` : `<span class="ini">${escapeHtml(initials(e.apellido, e.nombre))}</span>`)}</div>
+      ${_empEsTactil() ? `<div class="emp-avatar">${e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" alt="">` : escapeHtml(initials(e.apellido, e.nombre))}</div>`
+                        : `<div class="emp-avatar emp-coin">${_empMonedaHtml(e.foto_url ? `<img src="${escapeHtml(e.foto_url)}" alt="">` : `<span class="ini">${escapeHtml(initials(e.apellido, e.nombre))}</span>`)}</div>`}
       <div class="emp-info">
         <div class="name">${escapeHtml(e.nombre_completo)}</div>
         <div class="meta">
