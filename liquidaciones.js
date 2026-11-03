@@ -184,6 +184,16 @@ async function renderLiquidaciones() {
   // si la liquidación se regeneró cuando las cuotas estaban 'aplicada').
   const empIdsLiq = [...new Set((liqs||[]).map(l => l.empleado_id))];
   const adelantosPorEmpLiq = {}, prestamosPorEmpLiq = {}, interesesPorEmpLiq = {};
+  // (3-nov-2026, JP) Adelantos de EFECTIVO del mes (rrhh_adelantos_efectivo): van sumados en Ajustes; acá el detalle
+  // para el tooltip de la celda.
+  const adelEfPorEmpLiq = {};
+  if (empIdsLiq.length > 0) {
+    try {
+      const { data: ae } = await sb.from('rrhh_adelantos_efectivo').select('empleado_id, fecha, importe, concepto, tipo')
+        .eq('periodo', periodo + '-01').in('empleado_id', empIdsLiq).order('fecha');
+      (ae || []).forEach(r => { (adelEfPorEmpLiq[r.empleado_id] = adelEfPorEmpLiq[r.empleado_id] || []).push(r); });
+    } catch (_) {}
+  }
   if (empIdsLiq.length > 0) {
     // BUG FIX: incluir activos + pagados + refinanciados (todo menos cancelados).
     // Si filtramos solo 'activo', los adelantos del mes que se acaba de cerrar
@@ -1001,7 +1011,19 @@ async function renderLiquidaciones() {
             { id:'intereses', label:'Intereses',  sortKey:'intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
               tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):c.fmt(0)}</td>`; } },
             { id:'ajustes',   label:'Ajustes',    sortKey:'ajustes',    thOpts:{title:'Ajuste manual + adelantos de efectivo del mes (se restan del efectivo). Click para editar. Hover para ver comentario.'},
-              tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
+              tdRender:(l,c)=>{
+                const ae = (c.adelEfPorEmpLiq || {})[l.empleado_id] || [];
+                const sumAe = ae.reduce((a, r) => a + Number(r.importe || 0), 0);
+                const lineas = [];
+                if (l.ajuste_comentario) lineas.push(l.ajuste_comentario);
+                if (ae.length) {
+                  lineas.push(`💸 Adelantos de efectivo: ${c.fmt(sumAe)}`);
+                  ae.forEach(r => lineas.push(`  • ${r.fecha.split('-').reverse().slice(0, 2).join('/')} ${r.concepto} · ${c.fmt(r.importe)}`));
+                  if (Number(l.ajuste || 0) - sumAe !== 0) lineas.push(`🔧 Ajuste manual: ${c.fmt(Number(l.ajuste || 0) - sumAe)}`);
+                }
+                if (!lineas.length) lineas.push(c.isAdmin ? 'Click para cargar/editar ajuste' : 'Sin comentario');
+                const tip = c.escapeHtml(lineas.join('\n')).replace(/"/g,'&quot;');
+                return `<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${tip}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>`; } },
             { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8',title:'Efectivo neto = Subtotal − Mercadería − Intereses − Ajustes'},
               tdRender:(l,c)=>{
                 // Modelo claro: parte del Subtotal efectivo (Total − Recibo) y restamos
@@ -1078,7 +1100,7 @@ async function renderLiquidaciones() {
               } },
           ];
 
-          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp, viaticosDesglosePorEmpLiq: viaticosDesglosePorEmp, cierresSueldosPorLocal: cierresSueldos };
+          const ctxL = { fmt, escapeHtml, local, isAdmin, esMesSAC, adelantosPorEmpLiq, adelEfPorEmpLiq, prestamosPorEmpLiq, interesesPorEmpLiq, sacPorEmpLiq: sacPorEmp, sacDetallePorEmpLiq: sacDetallePorEmp, comisionDesglosePorEmpLiq: comisionDesglosePorEmp, viaticosDesglosePorEmpLiq: viaticosDesglosePorEmp, cierresSueldosPorLocal: cierresSueldos };
 
           // Filtrar por condition (local==='todos', esMesSAC)
           // + Sub-tab Banco: mostrar columnas del recibo CCT (más info)

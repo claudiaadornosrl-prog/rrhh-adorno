@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v472-adelantos-manual';
+const CACHE_VERSION = 'rrhh-v473-ajuste-hover';
 const ASSETS = [
   './',
   './index.html',
