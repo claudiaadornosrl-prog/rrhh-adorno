@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v494-cierre-encargadas';
+const CACHE_VERSION = 'rrhh-v495-iconos-anim';
 const ASSETS = [
   './',
   './index.html',

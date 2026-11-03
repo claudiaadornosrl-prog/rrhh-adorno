@@ -175,6 +175,11 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
   .nav-item[data-tab="mis-permisos"]:hover .icon,   .nav-item[data-tab="mis-permisos"].anim .icon   { animation-name: nav-wave; transform-origin: 50% 90%; }
   .nav-item[data-tab="mi-legajo"]:hover .icon,      .nav-item[data-tab="mi-legajo"].anim .icon      { animation-name: nav-nod; animation-duration: .6s; }
 }
+/* (3-nov-2026, JP) Íconos del módulo: el emoji envuelto en .ico-in se anima con el keyframe que le toca (--ico-anim) */
+.ico-in { --nav-s: 1; display: inline-block; transform-origin: 50% 60%; }
+@media (prefers-reduced-motion: no-preference) {
+  .ico-in.anim { animation: var(--ico-anim, nav-bounce .55s) both; }
+}
 .nav-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 16px 14px 6px; font-weight: 600; }
 
 /* ── (30-oct-2026, JP) Barra lateral plegada en escritorio ───────────────
