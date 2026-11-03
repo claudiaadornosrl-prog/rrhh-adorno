@@ -168,8 +168,6 @@ window.ADORNO_MILES = (function () {
 //  sin mouse (hover: none), MANTENER APRETADO un ícono ~450 ms muestra la pastilla con su nombre debajo (o encima si
 //  no hay lugar) y NO dispara la acción; un toque normal sigue funcionando igual. Vibración corta si el equipo lo permite.
 // ═══════════════════════════════════════════════════════════════════════════
-(function () {
-  if (!window.matchMedia || !matchMedia('(hover: none)').matches) return;
   // (3-nov-2026, JP) Animación de TODOS los íconos del módulo (barra, acciones de fila, pestañas…) al pasar el
   // mouse, hacer click, tocar o mantener apretado. El emoji se envuelve en .ico-in la primera vez (así la
   // pastilla ::after del botón no se mueve) y la animación sale del emoji. El menú lateral tiene la suya.
@@ -216,6 +214,8 @@ window.ADORNO_MILES = (function () {
     }, { passive: true });
     window._icoAnimar = dispara;   // la pastilla táctil lo llama al barrer con el dedo
   })();
+(function () {
+  if (!window.matchMedia || !matchMedia('(hover: none)').matches) return;
   const SEL = '[data-tip], .liq-ib[title], .liq-ico[title], .nav-item[data-tab], button[title], a[title], [aria-label]';
   let timer = null, objetivo = null, mostrado = false, pill = null, ocultar = null;
   const nombre = (el) => {
