@@ -612,7 +612,7 @@ input, select, textarea { min-width: 0; max-width: 100%; box-sizing: border-box;
 input[type="date"], input[type="time"], input[type="month"], input[type="datetime-local"] { -webkit-appearance: none; appearance: none; display: block; min-height: 38px; }
 .form-grid > * { min-width: 0; }
 .modal { max-width: min(900px, 100vw - 16px); }
-.modal-body { overflow-x: hidden; overflow-wrap: anywhere; }
+.modal-body { overflow-x: hidden; }
 .modal-header .title { min-width: 0; flex: 1; }
 .modal-header h3, .modal-header .meta { overflow-wrap: anywhere; }
 #hijos-list > div { flex-wrap: wrap; }
@@ -622,7 +622,12 @@ input[type="date"], input[type="time"], input[type="month"], input[type="datetim
   .main { overflow-x: clip; }                     /* clip no crea contenedor de scroll: el sticky sigue andando */
   .modal-body { padding: 16px 14px; }
   .modal-footer { flex-wrap: wrap; padding: 12px 14px; }
-  .card > table, .modal-body > table { display: block; overflow-x: auto; max-width: 100%; }
+  /* Tablas: ancho natural y scroll horizontal PROPIO (no se aplastan ni mueven el apartado) */
+  .modal-body table, .card table, .main table { display: block; overflow-x: auto; max-width: 100%; white-space: nowrap; overflow-wrap: normal; -webkit-overflow-scrolling: touch; }
+  .modal-body table td, .modal-body table th, .card table td, .card table th { overflow-wrap: normal; word-break: normal; }
+  #liq-scroll-main table, #liq-tabla-main { display: table; overflow: visible; white-space: normal; }   /* la grilla ya tiene su contenedor con scroll */
+  .modal-body > div { max-width: 100%; }
+  .modal-body .texto-largo, .modal-body p, .modal-body .meta { overflow-wrap: anywhere; }
   .page-header h2, .liq-titulo { overflow-wrap: anywhere; }
   .emp-tag, .meta { overflow-wrap: anywhere; }
 }
