@@ -548,7 +548,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=53">
+<link rel="stylesheet" href="styles.css?v=54">
 </head>
 <body>
 
@@ -2532,13 +2532,17 @@ async function renderEmpleados() {
   const isAdmin = session.rol === 'admin';
   // Listado base
   const html = `
-    <div class="page-header">
-      <h2>Colaboradores</h2>
-      <div class="subtitle">${isAdmin ? 'Padrón completo de Claudia Adorno SRL' : 'Colaboradores de ' + (LOCALES[session.local_gerencia]?.nombre || 'tu local')}</div>
+    <!-- (3-nov-2026, JP) título y ➕ en el mismo renglón; filtros compactos en un renglón -->
+    <div class="page-header emp-header">
+      <div>
+        <h2>Colaboradores</h2>
+        <div class="subtitle">${isAdmin ? 'Padrón completo de Claudia Adorno SRL' : 'Colaboradores de ' + (LOCALES[session.local_gerencia]?.nombre || 'tu local')}</div>
+      </div>
+      ${isAdmin ? `<button type="button" class="liq-tb tip-r" id="emp-new-btn" data-tip="Nuevo empleado" aria-label="Nuevo empleado">➕</button>` : ''}
     </div>
 
-    <div class="toolbar">
-      <input type="search" id="emp-search" placeholder="Buscar por nombre, DNI, CUIL…" value="${escapeHtml(empleadosState.search)}">
+    <div class="toolbar emp-filtros">
+      <input type="search" id="emp-search" placeholder="🔍 Buscar…" value="${escapeHtml(empleadosState.search)}">
       ${isAdmin ? `
       <select id="emp-filter-local">
         <option value="">Todos</option>
@@ -2553,7 +2557,6 @@ async function renderEmpleados() {
         <option value="baja"     ${empleadosState.estado==='baja'    ?'selected':''}>Bajas</option>
         <option value=""         ${empleadosState.estado===''        ?'selected':''}>Todos</option>
       </select>
-      ${isAdmin ? `<div class="right"><button class="btn accent2" id="emp-new-btn">+ Nuevo empleado</button></div>` : ''}
     </div>
 
     <div id="emp-list-container">
@@ -23187,7 +23190,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=31"></script>
+<script src="manuales.js?v=32"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=17"></script>

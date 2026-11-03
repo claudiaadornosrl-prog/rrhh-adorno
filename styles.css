@@ -639,6 +639,19 @@ input[type="date"], input[type="time"], input[type="month"], input[type="datetim
   .liq-kebab-m { display: inline-block !important; margin-left: auto; }
   .liq-kebab-item:first-child { border-top: none !important; }
 }
+/* (3-nov-2026, JP) Colaboradores: título + ➕ en un renglón; filtros compactos que entran en un renglón del celular */
+.emp-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.emp-header > div { min-width: 0; }
+.emp-filtros { flex-wrap: nowrap; gap: 8px; }
+.emp-filtros #emp-search { flex: 1 1 120px; min-width: 0 !important; }
+.emp-filtros select { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 768px) {
+  .emp-header h2 { font-size: 20px; }
+  .emp-header .subtitle { font-size: 12px; }
+  .emp-filtros { gap: 6px; }
+  .emp-filtros #emp-search { padding: 8px 10px !important; font-size: 13px; }
+  .emp-filtros select { padding: 8px 26px 8px 10px !important; font-size: 13px; background-position: right 8px center; }
+}
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }

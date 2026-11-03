@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v479-movil-banco-kebab';
+const CACHE_VERSION = 'rrhh-v480-emp-header';
 const ASSETS = [
   './',
   './index.html',

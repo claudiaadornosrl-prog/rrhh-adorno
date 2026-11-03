@@ -137,6 +137,7 @@ const MANUAL_ADMIN = [
     tab: 'empleados', icon: '👥', titulo: 'Colaboradores',
     desc: 'Padrón completo: legajos, categoría, local, fechas, foto (la moneda gira al pasar el mouse), documentos y configuración de sueldo de cada una.',
     pasos: [
+      'Arriba a la derecha del título, ➕ da de alta un empleado nuevo. Los filtros (buscar, local, estado) van en un renglón.',
       'Click en una ficha abre el legajo completo: datos, CBU, obra social, categoría CCT, fecha de ingreso, foto, documentos y la pestaña de sueldo (fijo, comisión, premio, viáticos, modo de liquidación cct_negro o doble_blanco).',
       'Contreras y Escasany están en modo doble blanco: cobran todo por recibo; el sistema les arma el ítem 0018 Comisiones para que el neto del recibo sea el total.',
       'Desde la ficha también se da de baja o se reactiva, y se ve el historial de aumentos.',
