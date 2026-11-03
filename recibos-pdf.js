@@ -71,8 +71,8 @@ function _mostrarPdfInline(doc, titulo, opts = {}) {
   const movil = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   window._pdfPreviewDoc = doc;
   window._pdfPreviewTitulo = titulo;
-  // (3-nov-2026, JP) En celu/tablet nada de visor: se descarga el PDF directo (la ventana intermedia "se ve rara").
-  if (movil) {
+  // (3-nov-2026, JP) Nada de visor, en ningún dispositivo: tocar el recibo descarga el PDF directo.
+  if (movil || true) {
     const nombre = doc.__fileName || (((titulo || 'Recibo').replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, '').trim() || 'Recibo') + '.pdf');
     try { doc.save(nombre); toast('⬇️ ' + nombre + ' descargado', 'success'); } catch (e) { toast('No se pudo descargar: ' + (e.message || e), 'error'); }
     return;
