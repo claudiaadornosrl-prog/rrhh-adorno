@@ -213,6 +213,7 @@ window.ADORNO_ASISTENTE = (function () {
     try {
       const ses = (typeof session !== 'undefined' && session) || window.session || null;
       const rol = (ses && (ses.rol || ses.role)) || '';
+      if (rol === 'admin' && typeof MANUAL_ADMIN !== 'undefined') return seccionesATexto(MANUAL_ADMIN);
       if (typeof MANUAL_GERENTE !== 'undefined' && (rol === 'admin' || rol === 'gerente' || rol === 'directora')) return seccionesATexto(MANUAL_GERENTE);
       if (typeof MANUAL_EMPLEADO !== 'undefined') return seccionesATexto(MANUAL_EMPLEADO);
       if (typeof MANUAL_GERENTE !== 'undefined') return seccionesATexto(MANUAL_GERENTE);
@@ -958,6 +959,8 @@ const NAV = {
     { id: 'liquidaciones', label: 'Liquidación',  icon: '🧮', section: 'Personal' },
     { id: 'aumentos',    label: 'Aumentos',      icon: '📈', section: 'Personal' },
     { id: 'retiros',     label: 'Retiros mercadería', icon: '🛍', section: 'Personal' },
+    { id: 'adelantos-ef', label: 'Adelantos de efectivo', icon: '💸', section: 'Personal' },   // (3-nov, JP)
+    { id: 'manual',      label: 'Manual',        icon: '📖', section: 'Admin' },   // (3-nov, JP) manual del admin
     { id: 'prestamos',   label: 'Préstamos',     icon: '💵', section: 'Personal' },
     { id: 'asistencias', label: 'Asistencias',   icon: '🕐', section: 'Personal' },
     { id: 'vacaciones',  label: 'Vacaciones',    icon: '🌴', section: 'Personal' },
@@ -1472,6 +1475,7 @@ async function renderPage(tabId) {
     'liquidaciones':   renderLiquidaciones,
     'pagos-mes':       renderPagosMes,
     'retiros':         renderRetirosMercaderia,
+    'adelantos-ef':    renderAdelantosEfectivo,
     'aumentos':        renderAumentos,
     'prestamos':       renderPrestamos,
     'asistencias':     renderAsistenciasAdmin,
@@ -22908,12 +22912,15 @@ async function liqLimpiarOverride(liqId, campo) {
 async function liqEditarAjuste(liqId, empleadoId) {
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
-  // Liquidación actual
   const { data: liq } = await sb.from('rrhh_liquidacion')
-    .select('id, periodo, ajuste, ajuste_comentario, empleado:rrhh_empleados(nombre_completo)')
+    .select('id, periodo, ajuste, ajuste_manual, ajuste_comentario, empleado:rrhh_empleados(nombre_completo)')
     .eq('id', liqId).single();
   if (!liq) { toast('Liquidación no encontrada', 'error'); return; }
-  // Histórico de ajustes (últimos 12 meses, solo con ajuste!=0 o con comentario)
+  // (3-nov-2026, JP) Ajuste = parte manual + adelantos de efectivo del mes (rrhh_adelantos_efectivo).
+  const { data: adel } = await sb.from('rrhh_adelantos_efectivo').select('id, fecha, importe, concepto, tipo')
+    .eq('empleado_id', empleadoId).eq('periodo', liq.periodo).order('fecha');
+  const sumAdel = (adel || []).reduce((a, r) => a + Number(r.importe || 0), 0);
+  const manual = liq.ajuste_manual != null ? Number(liq.ajuste_manual) : (Number(liq.ajuste || 0) - sumAdel);
   const { data: hist } = await sb.from('rrhh_liquidacion')
     .select('periodo, ajuste, ajuste_comentario')
     .eq('empleado_id', empleadoId)
@@ -22923,44 +22930,155 @@ async function liqEditarAjuste(liqId, empleadoId) {
   const html = `
     <div style="padding:20px;max-width:600px;">
       <h2 style="margin:0 0 8px;">✏️ Ajuste — ${escapeHtml(liq.empleado?.nombre_completo||'')}</h2>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Período: ${liq.periodo}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Período: ${liq.periodo} · El ajuste se RESTA del efectivo.</div>
       <div class="form-row" style="margin-bottom:10px;">
-        <label style="display:block;font-size:12.5px;margin-bottom:4px;">Monto del ajuste (positivo = a favor empleada, negativo = a descontar)</label>
-        <input type="number" id="aj-monto" value="${Number(liq.ajuste||0)}" style="width:100%;padding:6px 10px;font-family:monospace;">
+        <label style="display:block;font-size:12.5px;margin-bottom:4px;">Ajuste manual (positivo = se descuenta del efectivo · negativo = se le suma)</label>
+        <input type="number" id="aj-monto" value="${manual}" style="width:100%;padding:6px 10px;">
       </div>
       <div class="form-row" style="margin-bottom:10px;">
         <label style="display:block;font-size:12.5px;margin-bottom:4px;">Comentario / motivo</label>
         <textarea id="aj-comentario" rows="3" style="width:100%;padding:6px 10px;" placeholder="Ej: descuento por rotura inventario · reembolso viático · etc.">${escapeHtml(liq.ajuste_comentario||'')}</textarea>
+      </div>
+      <div class="card" style="padding:10px 14px;margin:10px 0;background:#f8fafc;">
+        <div style="font-size:12.5px;font-weight:600;display:flex;justify-content:space-between;"><span>💸 Adelantos de efectivo del mes</span><span>${fmt(sumAdel)}</span></div>
+        ${(adel || []).length ? `<ul class="simple-list" style="margin:8px 0 0;">${adel.map(r => `<li><div><strong>${escapeHtml(r.concepto)}</strong><div class="meta">${r.fecha.split('-').reverse().join('/')} · ${r.tipo === 'compra' ? 'compra pagada por la empresa' : 'retiro de efectivo'}</div></div><b>${fmt(r.importe)}</b></li>`).join('')}</ul>`
+          : `<div style="font-size:12px;color:var(--muted);margin-top:4px;">Ninguno. Se cargan desde 💸 Adelantos de efectivo.</div>`}
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;">Ajuste total que se descuenta = manual + adelantos = <strong>${fmt(manual + sumAdel)}</strong></div>
       </div>
       ${histConDatos.length > 0 ? `
         <details style="margin-top:14px;font-size:12.5px;">
           <summary style="cursor:pointer;color:var(--muted);font-weight:600;">📜 Ajustes anteriores (${histConDatos.length})</summary>
           <table style="width:100%;margin-top:8px;font-size:12px;">
             <thead><tr style="background:#f9fafb;text-align:right;"><th style="padding:4px;text-align:left;">Período</th><th style="padding:4px;">Monto</th><th style="padding:4px;text-align:left;">Comentario</th></tr></thead>
-            <tbody>${histConDatos.map(h => `<tr style="border-top:1px solid var(--border);"><td style="text-align:left;padding:4px;">${h.periodo}</td><td style="text-align:right;font-family:monospace;padding:4px;color:${Number(h.ajuste)>=0?'#16a34a':'#dc2626'};">${fmt(h.ajuste)}</td><td style="text-align:left;padding:4px;font-size:11.5px;color:var(--muted);">${escapeHtml(h.ajuste_comentario||'—')}</td></tr>`).join('')}</tbody>
+            <tbody>${histConDatos.map(h => `<tr style="border-top:1px solid var(--border);"><td style="text-align:left;padding:4px;">${h.periodo}</td><td style="text-align:right;padding:4px;">${fmt(h.ajuste)}</td><td style="text-align:left;padding:4px;color:var(--muted);">${escapeHtml(h.ajuste_comentario||'')}</td></tr>`).join('')}</tbody>
           </table>
         </details>
       ` : ''}
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
         <button class="btn" onclick="closeModal()">Cancelar</button>
-        <button class="btn primary" onclick="liqGuardarAjuste(${liqId})">💾 Guardar</button>
+        <button class="btn primary" onclick="liqGuardarAjuste(${liqId}, ${empleadoId}, '${liq.periodo}')">💾 Guardar</button>
       </div>
     </div>
   `;
   openModal(html, '640px');
 }
 
-async function liqGuardarAjuste(liqId) {
-  const monto = Number(document.getElementById('aj-monto').value || 0);
+async function liqGuardarAjuste(liqId, empleadoId, periodo) {
+  const manual = Number(document.getElementById('aj-monto').value || 0);
   const comentario = (document.getElementById('aj-comentario').value || '').trim();
   const { error } = await sb.from('rrhh_liquidacion')
-    .update({ ajuste: monto, ajuste_comentario: comentario || null })
+    .update({ ajuste_manual: manual, ajuste_comentario: comentario || null })
     .eq('id', liqId);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
+  // la RPC suma los adelantos del mes y recalcula el efectivo
+  if (empleadoId && periodo) { try { await sb.rpc('rrhh_liq_aplicar_adelantos', { p_empleado_id: empleadoId, p_periodo: periodo }); } catch (_) {} }
   toast('Ajuste guardado ✓', 'success');
   closeModal();
   switchTab('liquidaciones');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ADELANTOS DE EFECTIVO (3-nov-2026, JP): retiros de plata o compras pagadas con la cuenta de la empresa que se
+//  descuentan del EFECTIVO del mes. No es una baja de sueldo: total, recibo y banco no cambian. Por pedido de JP no hay
+//  columna nueva en la grilla: la suma del mes entra en "Ajustes" (trigger rrhh_adelantos_ef_sync → ajuste =
+//  ajuste_manual + adelantos). Mes por defecto: el último sin cerrar (misma regla que Asistencias).
+// ═══════════════════════════════════════════════════════════════════════════
+window.adelEfState = window.adelEfState || { periodo: null, empleado: '' };
+async function renderAdelantosEfectivo() {
+  if (!session || session.rol !== 'admin') return `<div class="page-header"><h2>Adelantos de efectivo</h2></div><div class="card">Solo admin.</div>`;
+  if (!adelEfState.periodo) adelEfState.periodo = await mesPredeterminadoAbierto(['unicenter', 'alcorta', 'oficina']);
+  const periodo = adelEfState.periodo;
+  const [py, pm] = periodo.split('-').map(Number);
+  const { data: emps } = await sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado', 'activo').order('apellido');
+  let q = sb.from('rrhh_adelantos_efectivo').select('*').eq('periodo', periodo + '-01').order('fecha', { ascending: false }).order('id', { ascending: false });
+  if (adelEfState.empleado) q = q.eq('empleado_id', Number(adelEfState.empleado));
+  const { data: rows, error } = await q;
+  if (error) return `<div class="page-header"><h2>Adelantos de efectivo</h2></div><div class="card" style="color:var(--danger)">${escapeHtml(error.message)}</div>`;
+  const fmt = (n) => '$' + Math.round(Number(n || 0)).toLocaleString('es-AR');
+  const nombre = (id) => (emps || []).find(e => e.id === id)?.nombre_completo || ('#' + id);
+  const total = (rows || []).reduce((a, r) => a + Number(r.importe || 0), 0);
+  const porEmp = {}; (rows || []).forEach(r => { porEmp[r.empleado_id] = (porEmp[r.empleado_id] || 0) + Number(r.importe || 0); });
+  // meses para el select: 6 para atrás y 1 adelante
+  const meses = []; for (let i = -1; i < 7; i++) { const d = new Date(py, pm - 1 - i, 1); meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
+  return `
+    <div class="toolbar asis-tabsrow">
+      <h2 class="liq-titulo">Adelantos de efectivo</h2>
+      <select onchange="adelEfState.periodo=this.value; switchTab('adelantos-ef');">${meses.map(m => `<option value="${m}" ${m === periodo ? 'selected' : ''}>${mesCortoLabel(...m.split('-').map(Number))}</option>`).join('')}</select>
+      <select onchange="adelEfState.empleado=this.value; switchTab('adelantos-ef');"><option value="">Todas</option>${(emps || []).map(e => `<option value="${e.id}" ${String(adelEfState.empleado) === String(e.id) ? 'selected' : ''}>${escapeHtml(e.nombre_completo)}</option>`).join('')}</select>
+      <button type="button" class="liq-tb" data-tip="Cargar adelanto de efectivo" aria-label="Cargar adelanto" onclick="adelEfAbrirNuevo()">➕</button>
+    </div>
+    <div class="card" style="padding:12px 16px;margin-bottom:12px;font-size:13px;color:var(--muted);">
+      Retiros de efectivo o compras pagadas con la cuenta de la empresa. Se descuentan del <strong>efectivo</strong> del mes elegido
+      (en la grilla de Liquidación van dentro de <strong>Ajustes</strong>). No cambian el total, el recibo ni el banco.
+      ${Object.keys(porEmp).length ? `<div style="margin-top:8px;color:var(--text);">${Object.entries(porEmp).map(([id, v]) => `<span class="emp-tag" style="margin:2px 6px 2px 0;">${escapeHtml(nombre(Number(id)))}: <strong>${fmt(v)}</strong></span>`).join('')}</div>` : ''}
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f9fafb;text-align:left;">
+          <th style="padding:10px 14px;">Fecha</th><th style="padding:10px 14px;">Colaboradora</th><th style="padding:10px 14px;">Concepto</th><th style="padding:10px 14px;">Tipo</th><th style="padding:10px 14px;text-align:right;">Importe</th><th style="padding:10px 14px;"></th>
+        </tr></thead>
+        <tbody>
+          ${(rows || []).length ? rows.map(r => `<tr class="liq-row" style="border-top:1px solid var(--border);">
+            <td style="padding:8px 14px;">${r.fecha.split('-').reverse().join('/')}</td>
+            <td style="padding:8px 14px;font-weight:600;">${escapeHtml(nombre(r.empleado_id))}</td>
+            <td style="padding:8px 14px;">${escapeHtml(r.concepto)}${r.comprobante ? ` <span style="color:var(--muted);font-size:12px;">· ${escapeHtml(r.comprobante)}</span>` : ''}</td>
+            <td style="padding:8px 14px;color:var(--muted);">${r.tipo === 'compra' ? '🧾 compra pagada por la empresa' : '💵 retiro de efectivo'}</td>
+            <td style="padding:8px 14px;text-align:right;font-weight:600;">${fmt(r.importe)}</td>
+            <td style="padding:8px 14px;text-align:right;"><button type="button" class="liq-ib" title="Borrar" onclick="adelEfBorrar(${r.id})">🗑️</button></td>
+          </tr>`).join('') : `<tr><td colspan="6" style="padding:18px;color:var(--muted);">Sin adelantos en ${mesCortoLabel(py, pm)}.</td></tr>`}
+        </tbody>
+        ${(rows || []).length ? `<tfoot><tr style="background:#f1f5f9;font-weight:700;"><td colspan="4" style="padding:10px 14px;">Total ${mesCortoLabel(py, pm)}</td><td style="padding:10px 14px;text-align:right;">${fmt(total)}</td><td></td></tr></tfoot>` : ''}
+      </table>
+    </div>`;
+}
+window.adelEfAbrirNuevo = async function () {
+  const { data: emps } = await sb.from('rrhh_empleados').select('id, nombre_completo').eq('estado', 'activo').order('apellido');
+  const yo = session.empleado_id || '';
+  openModal(`
+    <div style="padding:20px;max-width:520px;">
+      <h2 style="margin:0 0 12px;">💸 Cargar adelanto de efectivo</h2>
+      <div class="form-row" style="margin-bottom:10px;"><label>Colaboradora</label>
+        <select id="ae-emp">${(emps || []).map(e => `<option value="${e.id}" ${e.id === yo ? 'selected' : ''}>${escapeHtml(e.nombre_completo)}</option>`).join('')}</select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-row"><label>Fecha</label><input type="date" id="ae-fecha" value="${hoyISO()}"></div>
+        <div class="form-row"><label>Importe</label><input type="number" id="ae-importe" min="1" step="1" placeholder="0"></div>
+      </div>
+      <div class="form-row" style="margin:10px 0;"><label>Tipo</label>
+        <select id="ae-tipo"><option value="retiro">💵 Retiro de efectivo</option><option value="compra">🧾 Compra pagada con la cuenta de la empresa</option></select></div>
+      <div class="form-row" style="margin-bottom:10px;"><label>Concepto</label><input type="text" id="ae-concepto" placeholder="Ej: Nafta YPF (factura A)"></div>
+      <div class="form-row" style="margin-bottom:10px;"><label>Comprobante (opcional)</label><input type="text" id="ae-comp" placeholder="N° de factura, ticket o link"></div>
+      <div class="form-row" style="margin-bottom:10px;"><label>Se descuenta del efectivo de</label><input type="month" id="ae-periodo" value="${adelEfState.periodo}"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="adelEfGuardar()">💾 Guardar</button>
+      </div>
+    </div>`, '560px');
+};
+window.adelEfGuardar = async function () {
+  const empleado_id = Number(document.getElementById('ae-emp').value);
+  const fecha = document.getElementById('ae-fecha').value;
+  const importe = Number(document.getElementById('ae-importe').value);
+  const tipo = document.getElementById('ae-tipo').value;
+  const concepto = (document.getElementById('ae-concepto').value || '').trim();
+  const comprobante = (document.getElementById('ae-comp').value || '').trim() || null;
+  const per = document.getElementById('ae-periodo').value;
+  if (!empleado_id || !fecha || !(importe > 0) || !concepto || !per) { toast('Completá colaboradora, fecha, importe, concepto y mes', 'error'); return; }
+  const { error } = await sb.from('rrhh_adelantos_efectivo').insert({ empleado_id, fecha, importe, tipo, concepto, comprobante, periodo: per + '-01', cargado_por: session.email || 'admin' });
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  try { auditLog('adelanto_efectivo', 'rrhh_adelantos_efectivo', null, null, null, `${empleado_id} ${per} ${importe} ${concepto}`); } catch (_) {}
+  toast('Adelanto cargado ✓ · ya está restando del efectivo de ' + per, 'success');
+  closeModal();
+  adelEfState.periodo = per;
+  switchTab('adelantos-ef');
+};
+window.adelEfBorrar = async function (id) {
+  if (!confirm('¿Borrar este adelanto? El efectivo del mes vuelve a subir.')) return;
+  const { error } = await sb.from('rrhh_adelantos_efectivo').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  toast('Adelanto borrado ✓', 'success');
+  switchTab('adelantos-ef');
+};
+
 
 
 
@@ -22988,10 +23106,10 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=25"></script>
+<script src="manuales.js?v=26"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=14"></script>
+<script src="liquidaciones.js?v=15"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

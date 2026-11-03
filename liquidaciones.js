@@ -1000,7 +1000,7 @@ async function renderLiquidaciones() {
               } },
             { id:'intereses', label:'Intereses',  sortKey:'intereses',  thOpts:{title:'Interés del/los préstamo(s) — se descuenta del Efectivo'},
               tdRender:(l,c)=>{ const intr = c.interesesPorEmpLiq[l.empleado_id] || 0; return `<td style="padding:8px;font-family:monospace;cursor:${intr>0?'pointer':'default'};color:${intr>0?'#d97706':'var(--muted)'};" ${intr>0?`onclick="liqVerPrestamoEmp(${l.empleado_id})"`:''} title="${intr>0?'Interés del préstamo — click para ver detalle del préstamo':'Sin interés este mes'}">${intr>0?'−'+c.fmt(intr):c.fmt(0)}</td>`; } },
-            { id:'ajustes',   label:'Ajustes',    sortKey:'ajustes',    thOpts:{title:'Ajuste manual. Click para editar. Hover para ver comentario.'},
+            { id:'ajustes',   label:'Ajustes',    sortKey:'ajustes',    thOpts:{title:'Ajuste manual + adelantos de efectivo del mes (se restan del efectivo). Click para editar. Hover para ver comentario.'},
               tdRender:(l,c)=>`<td style="padding:8px;font-family:monospace;${c.isAdmin?'cursor:pointer;':''}" ${c.isAdmin?`onclick="liqEditarAjuste(${l.id}, ${l.empleado_id})"`:''} title="${l.ajuste_comentario ? c.escapeHtml(l.ajuste_comentario).replace(/"/g,'&quot;') : (c.isAdmin?'Click para cargar/editar ajuste':'Sin comentario')}">${c.fmt(l.ajuste)}${l.ajuste_comentario?' <span style=\"color:#9333ea;font-size:11px;\" title=\"Tiene comentario\">💬</span>':''}</td>` },
             { id:'efectivo',  label:'Efectivo',   sortKey:'efectivo', thOpts:{bg:'#fde2e8',title:'Efectivo neto = Subtotal − Mercadería − Intereses − Ajustes'},
               tdRender:(l,c)=>{
