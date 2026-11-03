@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v493-recibo-descarga-siempre';
+const CACHE_VERSION = 'rrhh-v494-cierre-encargadas';
 const ASSETS = [
   './',
   './index.html',

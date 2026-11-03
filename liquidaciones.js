@@ -593,7 +593,7 @@ async function renderLiquidaciones() {
         <!-- (2-nov-2026, JP) Acciones solo con ícono; el nombre sale en una pastilla al pasar el mouse (data-tip).
              Refrescar y Columnas salieron del kebab ⋮ y son íconos más. -->
         ${(liqState.subTab === 'sueldo') ? `
-          ${isAdmin ? `<button type="button" class="liq-tb cerrar" data-tip="Cerrar mes de sueldos" aria-label="Cerrar mes" onclick="liqCerrarMes('${local}','${periodo}')">🔒</button>` : ''}
+          ${(isAdmin || isGerente) ? `<button type="button" class="liq-tb cerrar" data-tip="Cerrar mes de sueldos${isGerente ? ' de ' + local : ''}" aria-label="Cerrar mes" onclick="liqCerrarMes('${local}','${periodo}')">🔒</button>` : ''}   <!-- (3-nov-2026, JP) también las encargadas, para su local -->
         ` : `
           <span class="liq-banco-acc">
           ${isAdmin ? `<button type="button" class="liq-tb prof" data-tip="Proforma · liquidación provisoria para el banco" aria-label="Proforma" onclick="liqGenerarProforma('${local}','${periodo}')">📋</button>` : ''}
