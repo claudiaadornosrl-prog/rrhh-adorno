@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v483-padron-foto-simple';
+const CACHE_VERSION = 'rrhh-v484-tactil-barrido';
 const ASSETS = [
   './',
   './index.html',

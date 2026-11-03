@@ -202,7 +202,20 @@ window.ADORNO_MILES = (function () {
     clearTimeout(timer);
     timer = setTimeout(() => { mostrado = true; mostrar(el, txt); }, 450);
   }, { passive: true });
-  ['touchend', 'touchcancel', 'touchmove'].forEach(k => document.addEventListener(k, () => { clearTimeout(timer); }, { passive: true }));
+  ['touchend', 'touchcancel'].forEach(k => document.addEventListener(k, () => { clearTimeout(timer); }, { passive: true }));
+  // (3-nov-2026, JP) Barrido: con la pastilla ya mostrada, arrastrar el dedo a otro ícono cambia el nombre sin soltar.
+  // Mientras se barre no se scrollea la página (preventDefault) y al soltar no se ejecuta nada.
+  document.addEventListener('touchmove', (ev) => {
+    if (!mostrado) { clearTimeout(timer); return; }
+    const t = ev.touches && ev.touches[0]; if (!t) return;
+    ev.preventDefault();
+    const bajo = document.elementFromPoint(t.clientX, t.clientY);
+    const el = bajo && bajo.closest && bajo.closest(SEL);
+    if (el && el !== objetivo) {
+      const txt = nombre(el);
+      if (txt) { objetivo = el; mostrar(el, txt); }
+    }
+  }, { passive: false });
   // Si se mostró la pastilla, el toque NO dispara la acción
   document.addEventListener('click', (ev) => {
     if (mostrado && objetivo && objetivo.contains(ev.target)) { ev.preventDefault(); ev.stopPropagation(); mostrado = false; }
@@ -23193,7 +23206,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=32"></script>
+<script src="manuales.js?v=33"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=18"></script>

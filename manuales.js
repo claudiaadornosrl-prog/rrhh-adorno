@@ -11,7 +11,7 @@ const MANUAL_GERENTE = [
     desc: 'Vista rápida del estado del local: colaboradoras activas, próximas vacaciones, alertas y tareas pendientes.',
     pasos: [
       'Al entrar al sistema arrancás directo acá.',
-      'En tablet o celular no hay mouse: dejá el dedo apoyado sobre cualquier ícono (medio segundo) y aparece una pastilla con su nombre, sin ejecutar nada. Con un toque normal se ejecuta.',
+      'En tablet o celular no hay mouse: dejá el dedo apoyado sobre cualquier ícono (medio segundo) y aparece una pastilla con su nombre, sin ejecutar nada; si sin levantar el dedo lo arrastrás a otro ícono, la pastilla cambia al nombre de ese. Con un toque normal se ejecuta.',
       'Las tarjetas de arriba muestran los puntos críticos (vacaciones por aprobar, asistencias por cerrar, etc.).',
       'Click en cualquier tarjeta te lleva al módulo correspondiente.',
       'Las monedas de arriba giran al pasar el mouse y, al tocarlas, muestran el detalle (cumpleaños, aniversarios, préstamos activos, retiros del mes).',
@@ -125,7 +125,7 @@ const MANUAL_ADMIN = [
     tab: 'dashboard', icon: '📊', titulo: 'Dashboard',
     desc: 'Pantalla de inicio: monedas con los números del mes y las listas "Para hacer" y "Para saber".',
     pasos: [
-      'En tablet o celular no hay mouse: dejá el dedo apoyado sobre cualquier ícono (medio segundo) y aparece una pastilla con su nombre, sin ejecutar nada. Con un toque normal se ejecuta.',
+      'En tablet o celular no hay mouse: dejá el dedo apoyado sobre cualquier ícono (medio segundo) y aparece una pastilla con su nombre, sin ejecutar nada; si sin levantar el dedo lo arrastrás a otro ícono, la pastilla cambia al nombre de ese. Con un toque normal se ejecuta.',
       'Las monedas giran al pasar el mouse y al tocarlas abren el detalle debajo: colaboradores por local, cumpleaños y aniversarios del mes, próximo feriado, quién está de vacaciones hoy, préstamos activos (con capital y lista) y retiros de mercadería del mes (del último mes sin cerrar).',
       '"🚨 Para hacer" junta lo pendiente: vacaciones y permisos por aprobar, pagos de vacaciones, meses sin cerrar, documentos sin firmar, quién puede perder el premio, tardanzas de más de 60 minutos, lactancias por vencer, solicitudes de borrado y de préstamos/adelantos. Click en cada tarjeta te lleva al lugar.',
       '"ℹ️ Para saber" es informativo: cumpleaños y aniversarios de la semana, quién está o pidió vacaciones y quién lleva más de 30 días sin tomar.',
@@ -273,7 +273,7 @@ const MANUAL_EMPLEADO = [
     desc: 'Vista mensual de tus turnos planificados, vacaciones, feriados y fichadas reales.',
     pasos: [
       'Cada día muestra el turno asignado, el horario y los iconitos de fichada (entrada / salida).',
-      'En tablet o celular no hay mouse: dejá el dedo apoyado sobre cualquier ícono (medio segundo) y aparece una pastilla con su nombre, sin ejecutar nada. Con un toque normal se ejecuta.',
+      'En tablet o celular no hay mouse: dejá el dedo apoyado sobre cualquier ícono (medio segundo) y aparece una pastilla con su nombre, sin ejecutar nada; si sin levantar el dedo lo arrastrás a otro ícono, la pastilla cambia al nombre de ese. Con un toque normal se ejecuta.',
       'Si ves un día rojo con "💰 Compensar falta" significa que tenés una falta sin justificar.',
       'Click en "💰 Compensar falta" para pedir que se descuente de tu banco de minutos o de tus vacaciones.',
       'Arriba a la derecha: 🙋 pedir permiso y 🚩 reportar un problema del turno (por ejemplo, te pusieron franco pero trabajaste). La encargada lo resuelve cambiando el turno.',
