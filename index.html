@@ -5363,7 +5363,7 @@ async function renderMiCalendario() {
 
   // Feriados del mes
   const { data: feriados } = await sb.from('rrhh_feriados')
-    .select('fecha, nombre, cierra_oficina, cierra_shoppings')
+    .select('fecha, nombre, cierra_oficina, cierra_shoppings, locales')
     .gte('fecha', fechaDesde.toISOString().split('T')[0])
     .lte('fecha', fechaHasta.toISOString().split('T')[0]);
   const feriadoMap = {};
@@ -5448,10 +5448,10 @@ async function renderMiCalendario() {
           const dow = date.getDay();
           const turno = turnoMap[fecha];
           const esVac = enVacaciones.has(fecha);
-          const esFeriado = feriadoMap[fecha];
+          const local = session.empleadoData?.local;
+          const esFeriado = feriadoAplica(feriadoMap[fecha], local);
           const esHoy = fecha === hoyStr;
           const permiso = permisoMap[fecha];
-          const local = session.empleadoData?.local;
           const cierraLocal = esFeriado && (
             (local === 'oficina' && esFeriado.cierra_oficina) ||
             ((local === 'unicenter' || local === 'alcorta') && esFeriado.cierra_shoppings)
@@ -8488,7 +8488,7 @@ async function renderCalendarioGrid() {
       .select('id, empleado_id, fecha, hora_inicio, hora_fin, es_franco, tipo, doble, franco_trasladado_a, template:rrhh_templates_turno(codigo, nombre, color, icono)')
       .gte('fecha', desdeISO).lte('fecha', hastaISO),
     sb.from('rrhh_feriados')
-      .select('fecha, nombre, cierra_oficina, cierra_shoppings')
+      .select('fecha, nombre, cierra_oficina, cierra_shoppings, locales')
       .gte('fecha', desdeISO).lte('fecha', hastaISO),
     empIds.length ? sb.from('rrhh_vacaciones_movimientos')
       .select('empleado_id, fecha_desde, fecha_hasta, estado')
@@ -8606,7 +8606,7 @@ async function renderCalendarioGrid() {
       const turno = turnoMap[`${e.id}_${fecha}`];
       const date = new Date(y, m-1, d);
       const dow = date.getDay();
-      const esFeriado = feriadoMap[fecha];
+      const esFeriado = feriadoAplica(feriadoMap[fecha], e.local);
       const esHoy = fecha === hoyStr;
       const cierra = esFeriado && (
         (e.local === 'oficina' && esFeriado.cierra_oficina) ||
@@ -9983,7 +9983,7 @@ async function procesarMes(periodo, local = null) {
 
   // 6) Feriados
   const { data: feriados } = await sb.from('rrhh_feriados')
-    .select('fecha, cierra_oficina, cierra_shoppings')
+    .select('fecha, cierra_oficina, cierra_shoppings, locales')
     .gte('fecha', fechaDesde).lte('fecha', fechaHasta);
   const feriadoMap = {};
   (feriados || []).forEach(f => { feriadoMap[f.fecha] = f; });
@@ -10090,7 +10090,7 @@ async function procesarMes(periodo, local = null) {
       const hayFichada = fichs.length > 0;
       const esVac = vacSet.has(k);
       const esLic = licSet.has(k);
-      const feriado = feriadoMap[fecha];
+      const feriado = feriadoAplica(feriadoMap[fecha], emp.local);
       const cierraLocal = feriado && (
         (emp.local === 'oficina' && feriado.cierra_oficina) ||
         ((emp.local === 'unicenter' || emp.local === 'alcorta') && feriado.cierra_shoppings)
@@ -16275,6 +16275,13 @@ async function liqEventualEditarDias(movId, desde, hasta, dias) {
 // La tabla tiene dos scrollbars horizontales sincronizadas: una arriba
 // (para no tener que bajar hasta el fondo si querés desplazarte lateral)
 // y la normal debajo de la tabla. Se sincronizan con eventos scroll.
+// (3-nov-2026, JP) Un feriado puede regir solo en algunos locales (visita del Papa: 10/11 CABA, 11/11 Provincia).
+// rrhh_feriados.locales NULL = todos. Devuelve el feriado si aplica a ese local, si no null.
+function feriadoAplica(f, local) {
+  if (!f) return null;
+  if (!f.locales || !f.locales.length) return f;
+  return (local && f.locales.includes(local)) ? f : null;
+}
 function liqWireScrollDoble() {
   const top = document.getElementById('liq-scroll-top');
   const main = document.getElementById('liq-scroll-main');
@@ -23334,7 +23341,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=39"></script>
+<script src="manuales.js?v=40"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=20"></script>

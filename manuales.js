@@ -262,7 +262,7 @@ const MANUAL_ADMIN = [
       'Usuarios: cada fila con ✏️ editar (colaboradora vinculada, rol admin/gerente/empleado/directora, local), 🔑 setear contraseña, ⏸️/▶️ desactivar o activar, 🗑️ borrar el usuario (no borra el legajo).',
       'Roles: admin (vos) ve todo; gerente (encargada) su local; empleado su propia información; directora (Claudia) ve colaboradores y la liquidación de los meses cerrados; administracion@ solo Banco y Préstamos.',
       'Escala CCT y categorías: básicos por mes y categoría, origen faecys/estimada/manual; lo manual no se pisa.',
-      'Feriados: cargar los del año (cierra oficina / shoppings) para calendarios y feriado trabajado.',
+      'Feriados: cargar los del año (cierra oficina / shoppings) para calendarios y feriado trabajado. Un feriado puede regir solo en algunos locales (columna locales; vacía = todos): los de la visita del Papa quedaron así, 9/11 en todos, 10/11 solo Alcorta (CABA) y 11/11 Unicenter y Oficina (Provincia).',
     ],
     img: null,
   },
@@ -390,6 +390,7 @@ const MANUAL_EMPLEADO = [
   },
 ];
 
+// (3-nov-2026) Feriados por local: rrhh_feriados.locales (NULL = todos). Visita del Papa: 9/11 todos, 10/11 solo Alcorta (CABA), 11/11 Unicenter y Oficina (Provincia).
 // (15-sep) Sección que ve SOLO quien tiene habilitado el archivo de adelantos
 // (hoy Marisa, con sus dos usuarios). No se suma al manual de todas porque el
 // resto de las colaboradoras no tiene ese botón.
