@@ -162,6 +162,55 @@ window.ADORNO_MILES = (function () {
    PREPARAR una de esas acciones (completa el formulario del módulo) y la persona la manda con el botón Enviar, que corre la
    función del propio módulo con su sesión. Nada se envía sin ese clic. Voz: elige la más parecida a Claudia (mujer, es-AR) o la
    que la persona elija en el panel; opción de leer siempre las respuestas. */
+// ═══════════════════════════════════════════════════════════════════════════
+//  (3-nov-2026, JP) PANTALLAS TÁCTILES: no hay "pasar el mouse", así que las pastillas con el nombre de los íconos
+//  (data-tip, title, aria-label, ítems de la barra lateral) no se veían en tablet ni celu. Ahora, en dispositivos
+//  sin mouse (hover: none), MANTENER APRETADO un ícono ~450 ms muestra la pastilla con su nombre debajo (o encima si
+//  no hay lugar) y NO dispara la acción; un toque normal sigue funcionando igual. Vibración corta si el equipo lo permite.
+// ═══════════════════════════════════════════════════════════════════════════
+(function () {
+  if (!window.matchMedia || !matchMedia('(hover: none)').matches) return;
+  const SEL = '[data-tip], .liq-ib[title], .liq-ico[title], .nav-item[data-tab], button[title], a[title], [aria-label]';
+  let timer = null, objetivo = null, mostrado = false, pill = null, ocultar = null;
+  const nombre = (el) => {
+    const lbl = el.querySelector && el.querySelector('.label');
+    return (el.dataset && el.dataset.tip) || (lbl && lbl.textContent.trim()) || el.getAttribute('aria-label') || el.getAttribute('title') || '';
+  };
+  function mostrar(el, txt) {
+    if (!txt) return;
+    if (!pill) { pill = document.createElement('div'); pill.className = 'touch-tip'; document.body.appendChild(pill); }
+    pill.textContent = txt;
+    const r = el.getBoundingClientRect();
+    pill.style.display = 'block';
+    const w = pill.offsetWidth, h = pill.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2; x = Math.max(8, Math.min(window.innerWidth - w - 8, x));
+    let y = r.bottom + 8; if (y + h > window.innerHeight - 8) y = r.top - h - 8;
+    pill.style.left = x + 'px'; pill.style.top = y + 'px';
+    pill.classList.add('on');
+    clearTimeout(ocultar); ocultar = setTimeout(esconder, 2200);
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (_) {}
+  }
+  function esconder() { if (pill) { pill.classList.remove('on'); setTimeout(() => { if (pill && !pill.classList.contains('on')) pill.style.display = 'none'; }, 160); } }
+  document.addEventListener('touchstart', (ev) => {
+    const el = ev.target.closest && ev.target.closest(SEL);
+    if (!el) return;
+    // Solo íconos "mudos": si el elemento tiene texto visible propio no hace falta
+    const txt = nombre(el); if (!txt) return;
+    const visible = (el.textContent || '').replace(/[\s\u2000-\u3300\ud83c-\udbff\udc00-\udfff\ufe0f]/g, '');
+    if (visible.length > 2 && !el.classList.contains('nav-item') && !el.dataset.tip) return;
+    objetivo = el; mostrado = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { mostrado = true; mostrar(el, txt); }, 450);
+  }, { passive: true });
+  ['touchend', 'touchcancel', 'touchmove'].forEach(k => document.addEventListener(k, () => { clearTimeout(timer); }, { passive: true }));
+  // Si se mostró la pastilla, el toque NO dispara la acción
+  document.addEventListener('click', (ev) => {
+    if (mostrado && objetivo && objetivo.contains(ev.target)) { ev.preventDefault(); ev.stopPropagation(); mostrado = false; }
+  }, true);
+  document.addEventListener('contextmenu', (ev) => { if (objetivo && objetivo.contains(ev.target) && mostrado) ev.preventDefault(); }, true);
+  document.addEventListener('touchstart', (ev) => { if (pill && pill.style.display === 'block' && !(objetivo && objetivo.contains(ev.target))) esconder(); }, { passive: true });
+})();
+
 window.ADORNO_ASISTENTE = (function () {
   const URL = 'https://jfwtiagteuwmyvblgwms.supabase.co';
   const KEY = 'sb_publishable_udSPma98Sw9eskeeLCgdCw_S2vIX0Fk';
@@ -499,7 +548,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=50">
+<link rel="stylesheet" href="styles.css?v=51">
 </head>
 <body>
 
@@ -23102,7 +23151,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=14"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=28"></script>
+<script src="manuales.js?v=29"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=16"></script>

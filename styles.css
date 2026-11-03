@@ -599,6 +599,12 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
 /* (2-nov-2026, JP) Números en la tipografía de la app (URW Gothic, la Avant Garde) en vez de monospace, alineados con tabular-nums */
 [style*="font-family:monospace"], [style*="font-family: monospace"], [style*="ui-monospace"], .ms-row .ms-k, .ms-row .ms-val, .liq-cierre-nom {
   font-family: 'URW Gothic', 'Josefin Sans', sans-serif !important; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+/* (3-nov-2026, JP) Pastilla que aparece al mantener apretado un ícono en pantallas táctiles */
+.touch-tip { position: fixed; z-index: 12000; display: none; background: var(--accent); color: #fff; font-size: 13px; font-weight: 500;
+  line-height: 1.2; padding: 8px 14px; border-radius: 999px; white-space: nowrap; max-width: calc(100vw - 16px); overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 6px 18px rgba(0,0,0,.18); opacity: 0; transform: translateY(-4px) scale(.95); transition: opacity .12s, transform .18s cubic-bezier(.34,1.56,.64,1); pointer-events: none; }
+.touch-tip.on { opacity: 1; transform: translateY(0) scale(1); }
+@media (hover: none) { .liq-tb, .liq-ib, .nav-item, .asis-tab { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
