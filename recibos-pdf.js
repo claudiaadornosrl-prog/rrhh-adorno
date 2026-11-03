@@ -71,6 +71,12 @@ function _mostrarPdfInline(doc, titulo, opts = {}) {
   const movil = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   window._pdfPreviewDoc = doc;
   window._pdfPreviewTitulo = titulo;
+  // (3-nov-2026, JP) En celu/tablet nada de visor: se descarga el PDF directo (la ventana intermedia "se ve rara").
+  if (movil) {
+    const nombre = doc.__fileName || (((titulo || 'Recibo').replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, '').trim() || 'Recibo') + '.pdf');
+    try { doc.save(nombre); toast('⬇️ ' + nombre + ' descargado', 'success'); } catch (e) { toast('No se pudo descargar: ' + (e.message || e), 'error'); }
+    return;
+  }
   const btnAbrir = movil
     ? `<button class="btn" style="font-size:12px;" onclick="_pdfPreviewCompartir()">📤 Compartir</button>`
     : `<button class="btn" style="font-size:12px;" onclick="window.open(document.getElementById('pdf-preview-frame').src, '_blank')">⧉ Pestaña</button>`;
@@ -747,6 +753,7 @@ async function generarPDFRecibo(liqId, opts = {}) {
     const apellido = (emp?.apellido || 'empleada').toUpperCase().replace(/\s+/g, '_');
     const periodoSafe = liq.periodo ? liq.periodo.slice(0, 7) : 'periodo';
     const fileName = `Recibo_${apellido}_${periodoSafe}.pdf`;
+    doc.__fileName = fileName;   // (3-nov-2026) lo usa la descarga directa en celu
     if (opts.autoSave !== false) {
       doc.save(fileName);
       await sb.from('rrhh_liquidacion').update({ pdf_generado_at: new Date().toISOString() }).eq('id', liqId);

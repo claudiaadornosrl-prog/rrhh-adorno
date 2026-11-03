@@ -562,7 +562,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=56">
+<link rel="stylesheet" href="styles.css?v=57">
 </head>
 <body>
 
@@ -1459,6 +1459,12 @@ function renderSidebar() {
   sb_el.innerHTML = html;
   sb_el.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { switchTab(btn.dataset.tab); toggleSidebar(false); });
+    // (3-nov-2026, JP) En táctil no hay hover: al tocar, el ícono hace su animación una vez.
+    btn.addEventListener('pointerdown', (ev) => {
+      if (ev.pointerType === 'mouse') return;
+      btn.classList.remove('anim'); void btn.offsetWidth; btn.classList.add('anim');
+      setTimeout(() => btn.classList.remove('anim'), 1200);
+    }, { passive: true });
   });
   // (2-nov-2026, JP) "Mi sueldo" solo se ve cuando hay un resumen publicado sin abrir; al cerrarlo desaparece.
   const _ms = sb_el.querySelector('.nav-item[data-tab="mi-sueldo"]');
@@ -23230,12 +23236,12 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else init();
 
 </script>
-<script src="recibos-pdf.js?v=16"></script>
+<script src="recibos-pdf.js?v=17"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=34"></script>
+<script src="manuales.js?v=35"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=18"></script>
+<script src="liquidaciones.js?v=19"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

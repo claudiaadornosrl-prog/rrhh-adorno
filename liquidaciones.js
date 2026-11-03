@@ -979,19 +979,20 @@ async function renderLiquidaciones() {
                   bg = '#f3f4f6'; badgeTx = '';
                   tipBase = 'Sin recibo generado aún — ir a Banco → Proforma o Definitivo. ';
                 } else if (_firmado) {
-                  bg = '#dcfce7'; badgeTx = _badge('#10b981', '✍', 'Recibo firmado y archivado');
+                  bg = '#dcfce7'; badgeTx = '';   // verde: firmado y guardado
                   tipBase = 'Recibo FIRMADO y archivado en OneDrive. ';
                 } else if (esDefinitivo) {
-                  bg = '#dcfce7'; badgeTx = _badge('#10b981', '✓', 'Recibo definitivo');
+                  bg = '#fed7aa'; badgeTx = '';   // naranja: definitivo, falta firmar
                   tipBase = 'Recibo DEFINITIVO — listo para firmar. ';
                 } else {
-                  bg = '#fef3c7'; badgeTx = _badge('#f59e0b', 'P', 'Proforma — preview, generar Definitivo desde Banco');
+                  bg = '#fef3c7'; badgeTx = '';   // amarillo: proforma
                   tipBase = 'Recibo PROFORMA — preview, todavía no es el definitivo. ';
                 }
+                // (3-nov-2026, JP) Sin 👁 ni pastillas adentro de la celda: desalineaban los números. El estado va solo por color.
                 const tip = sacRec > 0
                   ? `${tipBase}\nRecibo blanco total = mensual + SAC:\n  Mensual: $${c.fmt(l.recibo_neto)}\n  SAC:     $${c.fmt(sacRec)}\n  ─────────\n  Total:   $${c.fmt(total)}\n\n(Click derecho = desglose)`
                   : `${tipBase}\nClick → ver PDF. Click derecho = desglose.`;
-                const contenido = sinRecibo ? '— pendiente' : `${c.fmt(total)} 👁${badgeTx}`;
+                const contenido = sinRecibo ? '— pendiente' : c.fmt(total);
                 return `<td style="padding:8px;font-family:monospace;background:${bg};font-weight:600;cursor:pointer;" onclick="verReciboPDF(${l.id})" title="${c.escapeHtml(tip)}" oncontextmenu="event.preventDefault();liqVerDetalle(${l.id});return false;">${contenido}</td>`;
               } },
             { id:'prestamos', label:'Préstamos',  sortKey:'prestamos',  thOpts:{title:'Capital de cuota de préstamo descontado del banco. Click para ver detalle.'},
