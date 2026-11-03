@@ -657,6 +657,8 @@ input[type="date"], input[type="time"], input[type="month"], input[type="datetim
   .emp-filtros #emp-search { padding: 8px 10px !important; font-size: 13px; }
   .emp-filtros select { padding: 8px 26px 8px 10px !important; font-size: 13px; background-position: right 8px center; }
 }
+/* (3-nov-2026, JP) Sub-sección activa al lado del título: "Asistencias – Calendarios" */
+.liq-titulo .sub-sec { font-weight: 400; color: var(--muted); font-size: 0.8em; white-space: nowrap; }
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }

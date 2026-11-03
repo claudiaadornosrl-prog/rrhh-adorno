@@ -561,7 +561,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=55">
+<link rel="stylesheet" href="styles.css?v=56">
 </head>
 <body>
 
@@ -4290,7 +4290,7 @@ async function renderVacacionesAdmin() {
   const html = `
     <!-- (2-nov-2026, JP) título + pestañas solo ícono + acciones, todo en un renglón -->
     <div class="toolbar asis-tabsrow">
-      <h2 class="liq-titulo">Vacaciones</h2>
+      <h2 class="liq-titulo">Vacaciones <span class="sub-sec">– ${({pendientes:'Pendientes', aprobadas:'Próximas', saldos:'Saldos', historial:'Historial'})[vacState.tab] || ''}</span></h2>
       <button type="button" class="liq-tb asis-tab ${vacState.tab==='pendientes'?'active':''}" data-vactab="pendientes" data-tip="Pendientes de aprobar" aria-label="Pendientes">⏳</button>
       <button type="button" class="liq-tb asis-tab ${vacState.tab==='aprobadas'?'active':''}" data-vactab="aprobadas" data-tip="Próximas (aprobadas)" aria-label="Próximas">✅</button>
       <button type="button" class="liq-tb asis-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" data-tip="Saldos de días" aria-label="Saldos">🧮</button>
@@ -8218,7 +8218,7 @@ async function renderAsistenciasAdmin() {
     <!-- (2-nov-2026, JP) Título, pestañas solo ícono y los filtros de la pestaña activa, todo en un renglón.
          Los filtros los renderiza cada sub-pestaña; renderAsisTab los mueve a #asis-filtros-slot. -->
     <div class="toolbar asis-tabsrow">
-      <h2 class="liq-titulo">Asistencias</h2>
+      <h2 class="liq-titulo">Asistencias <span class="sub-sec">– ${({calendario:'Calendarios', resumen:'Resumen mensual', banco:'Banco de minutos', permisos:'Permisos', extras:'Horas extras', reportes:'Reportes de turno', fichadas:'Fichadas', horarios:'Horarios'})[asisState.tab] || ''}</span></h2>
       <button type="button" class="liq-tb asis-tab ${asisState.tab==='calendario'?'active':''}" data-asistab="calendario" data-tip="Calendarios" aria-label="Calendarios">📅</button>
       <button type="button" class="liq-tb asis-tab ${asisState.tab==='resumen'?'active':''}" data-asistab="resumen" data-tip="Resumen mensual" aria-label="Resumen mensual">📊</button>
       <button type="button" class="liq-tb asis-tab ${asisState.tab==='banco'?'active':''}" data-asistab="banco" data-tip="Banco de minutos" aria-label="Banco de minutos">🏦</button>
