@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v469-resumen-monedas';
+const CACHE_VERSION = 'rrhh-v470-moneda-cara';
 const ASSETS = [
   './',
   './index.html',
