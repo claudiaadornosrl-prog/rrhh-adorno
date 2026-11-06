@@ -261,7 +261,8 @@ const MANUAL_ADMIN = [
     tab: 'config', icon: '⚙️', titulo: 'Configuración',
     desc: 'Usuarios y accesos, parámetros de sueldo por local, feriados, categorías CCT y escala, notificaciones.',
     pasos: [
-      'Usuarios: cada fila con ✏️ editar (colaboradora vinculada, rol admin/gerente/empleado/directora, local), 🔑 setear contraseña, ⏸️/▶️ desactivar o activar, 🗑️ borrar el usuario (no borra el legajo).',
+      'Usuarios: cada fila con ✏️ editar (colaboradora vinculada, rol admin/gerente/empleado/cajero/directora, local), 🔑 setear contraseña, ⏸️/▶️ desactivar o activar, 🗑️ borrar el usuario (no borra el legajo).',
+      'Rol cajero/a (desde el 6-nov-2026): es un colaborador del local con la misma vista self-service que "empleado" (calendario, recibos, permisos, banco, vacaciones, préstamos, legajo), pero el POS lo reconoce como rango que autoriza notas de crédito, comprobantes X rojos, remitos y anulaciones. Para dar de alta a una cajera: Configuración → Usuarios → ✏️ y elegir "Cajero/a"; el local es el de su legajo.',
       'Roles: admin (vos) ve todo; gerente (encargada) su local; empleado su propia información; directora (Claudia) ve colaboradores y la liquidación de los meses cerrados; administracion@ solo Banco y Préstamos.',
       'Escala CCT y categorías: básicos por mes y categoría, origen faecys/estimada/manual; lo manual no se pisa.',
       'Feriados: cargar los del año (cierra oficina / shoppings) para calendarios y feriado trabajado. Un feriado puede regir solo en algunos locales (columna locales; vacía = todos): los de la visita del Papa quedaron así, 9/11 en todos, 10/11 solo Alcorta (CABA) y 11/11 Unicenter y Oficina (Provincia).',

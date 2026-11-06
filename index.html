@@ -608,7 +608,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=58">
+<link rel="stylesheet" href="styles.css?v=59">
 </head>
 <body>
 
@@ -1119,6 +1119,11 @@ const NAV = {
   ]
 };
 
+// (6-nov-2026, JP) Rol "cajero": colaborador del local que además autoriza en el POS. En RRHH es un self-service igual
+// al de 'empleado' (misma pestañas, mismos permisos por empleado_id).
+NAV.cajero = NAV.empleado;
+const esRolColab = (r) => r === 'empleado' || r === 'cajero';
+
 let session = null;  // { user, rol, empleado, empleadoData }
 let liqState = { periodo: null, local: null, busqueda: '', estado: 'todos', categoria: 'todas', soloAlertas: false, sortBy: null, sortDir: 'asc', subTab: 'sueldo' /* 'sueldo' | 'banco' */ };
 
@@ -1434,7 +1439,7 @@ async function onLoggedIn(user) {
   const _hashTab = tabDesdeHash(location.hash);
   if (_hashTab) firstTab = _hashTab;
   // Si es colaboradora y le faltan datos críticos, arrancar en Mi legajo
-  if (session.rol === 'empleado' && legajoIncompleto(session.empleadoData).length > 0) {
+  if (esRolColab(session.rol) && legajoIncompleto(session.empleadoData).length > 0) {
     firstTab = 'mi-legajo';
     setTimeout(() => toast('👋 Bienvenida! Antes de empezar, completá los datos faltantes de tu legajo.', 'info'), 500);
   }
@@ -1569,7 +1574,7 @@ function switchTab(tabId) {
   // (10-ago) Vista simple (Clau): solo sus tabs — lo demás va a Liquidación
   if (typeof esNavSimple === 'function' && esNavSimple() && !NAV_SIMPLE_TABS.includes(tabId)) tabId = 'liquidaciones';
   // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
-  if (session && session.rol === 'empleado' && tabId !== 'mi-legajo') {
+  if (session && esRolColab(session.rol) && tabId !== 'mi-legajo') {
     // Chequeo async: si está incompleto, redirigir
     legajoCompletoOk().then(ok => {
       if (!ok) {
@@ -5892,7 +5897,7 @@ async function legajoEmpFull() {
 }
 
 async function legajoCompletoOk() {
-  if (session.rol !== 'empleado') return true;  // solo bloqueamos a empleadas
+  if (!esRolColab(session.rol)) return true;  // solo bloqueamos a empleadas (y cajeros)
   const emp = await legajoEmpFull();
   return legajoIncompleto(emp).length === 0;
 }
@@ -5905,7 +5910,7 @@ async function renderMiLegajo() {
   const cats = await getCategorias();
   const { data: full } = await sb.from('rrhh_empleados').select('*, categoria:rrhh_categorias_cct(nombre)').eq('id', emp.id).single();
 
-  const faltantes = (session.rol === 'empleado') ? legajoIncompleto(full) : [];
+  const faltantes = esRolColab(session.rol) ? legajoIncompleto(full) : [];
   const [dniFrenteUrl, dniDorsoUrl] = await legajosFirmados([full?.dni_foto_frente_url, full?.dni_foto_dorso_url]);
   const banner = faltantes.length > 0 ? `
     <div class="card" style="background:#fee2e2;border-left:4px solid #dc2626;padding:14px;margin-bottom:14px;">
@@ -8780,7 +8785,7 @@ function cambiarLocal(local) {
 let popoverState = { emp: null, fecha: null, local: null };
 
 async function abrirPopoverTurno(cellEl) {
-  if (session.rol === 'empleado') return; // sin permisos
+  if (esRolColab(session.rol)) return; // sin permisos
   const emp_id = parseInt(cellEl.dataset.emp, 10);
   const fecha  = cellEl.dataset.fecha;
   const local  = cellEl.dataset.local;
@@ -11459,7 +11464,7 @@ async function renderConfigUsuarios(cont) {
           <tr style="border-top:1px solid var(--border);">
             <td style="padding:10px 16px;font-size:13px;">${escapeHtml(u.email)}</td>
             <td style="padding:10px 16px;font-size:13px;">${escapeHtml(u.empleado?.nombre_completo||'—')}</td>
-            <td style="padding:10px 16px;"><span class="emp-tag" style="background:${u.rol==='admin'?'#d1faf1':u.rol==='gerente'?'#fef3c7':'#e0e7ff'};color:${u.rol==='admin'?'#0d9488':u.rol==='gerente'?'#92400e':'#3730a3'};">${u.rol}</span></td>
+            <td style="padding:10px 16px;"><span class="emp-tag" style="background:${u.rol==='admin'?'#d1faf1':u.rol==='gerente'?'#fef3c7':u.rol==='cajero'?'#dcfce7':'#e0e7ff'};color:${u.rol==='admin'?'#0d9488':u.rol==='gerente'?'#92400e':u.rol==='cajero'?'#166534':'#3730a3'};">${u.rol}</span></td>
             <td style="padding:10px 16px;font-size:13px;">${u.local_gerencia ? LOCALES[u.local_gerencia]?.nombre : '—'}</td>
             <td style="padding:10px 16px;font-size:13px;">${u.activo ? '✅' : '⏸️'}</td>
             <td style="padding:10px 16px;font-size:12px;color:var(--muted);">${u.last_login ? fmtFecha(u.last_login.split('T')[0]) : '—'}</td>
@@ -11548,6 +11553,7 @@ async function abrirEditarUsuario(id) {
           <label>Rol *</label>
           <select id="cfg-edit-rol">
             <option value="empleado" ${u.rol==='empleado'?'selected':''}>Colaborador (self-service)</option>
+            <option value="cajero" ${u.rol==='cajero'?'selected':''}>Cajero/a (self-service + autoriza en el POS)</option>
             <option value="gerente" ${u.rol==='gerente'?'selected':''}>Gerente de local</option>
             <option value="admin" ${u.rol==='admin'?'selected':''}>Admin (acceso total)</option>
           </select>
@@ -11632,6 +11638,7 @@ function abrirNuevoUsuario() {
           <label>Rol *</label>
           <select id="cfg-rol">
             <option value="empleado">Colaborador (self-service)</option>
+            <option value="cajero">Cajero/a (self-service + autoriza en el POS)</option>
             <option value="gerente">Gerente de local</option>
             <option value="admin">Admin (acceso total)</option>
           </select>
@@ -23384,7 +23391,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=43"></script>
+<script src="manuales.js?v=44"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=20"></script>
