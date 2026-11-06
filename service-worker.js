@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v505-autorizar';
+const CACHE_VERSION = 'rrhh-v506-autorizar';
 const ASSETS = [
   './',
   './index.html',
@@ -123,6 +123,11 @@ self.addEventListener('notificationclick', (event) => {
           if ('navigate' in client) client.navigate(targetUrl).catch(() => {});
           return;
         }
+      }
+      // (6-nov) Pedido de autorización del POS y la PWA muestra otro módulo (iPhone): avisarle por mensaje a esa ventana
+      if (/autorizar=/.test(targetUrl)) {
+        const otro = clientList.find((c) => c.url.startsWith(self.location.origin) && 'focus' in c);
+        if (otro) { otro.focus(); try { otro.postMessage({ tipo: 'abrir-url', url: targetUrl }); } catch (_) {} return; }
       }
       if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
     })
