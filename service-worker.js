@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v504-autorizar';
+const CACHE_VERSION = 'rrhh-v505-autorizar';
 const ASSETS = [
   './',
   './index.html',
@@ -86,7 +86,8 @@ self.addEventListener('push', (event) => {
     icon:    payload.icon  || './icon-192-v2.png',
     badge:   payload.badge || './icon-192-v2.png',
     tag:     payload.tag   || 'rrhh-default',     // notifs con mismo tag se reemplazan
-    data:    { url: payload.url || './' },
+    data:    Object.assign({ url: payload.url || './' }, payload.data || {}),
+    actions: Array.isArray(payload.actions) ? payload.actions : [],
     requireInteraction: false,
     vibrate: [200, 100, 200],
   };
@@ -96,6 +97,15 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  // (6-nov-2026) Botones Aceptar/Rechazar de un pedido de autorización del POS: se resuelve acá mismo con el token, sin abrir nada
+  const nd = event.notification.data || {};
+  if ((event.action === 'aceptar' || event.action === 'rechazar') && nd.aut && nd.token) {
+    const K = 'sb_publishable_udSPma98Sw9eskeeLCgdCw_S2vIX0Fk', acepta = event.action === 'aceptar';
+    event.waitUntil(fetch('https://jfwtiagteuwmyvblgwms.supabase.co/rest/v1/rpc/pos_autorizacion_token', { method: 'POST', headers: { apikey: K, Authorization: 'Bearer ' + K, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_id: nd.aut, p_token: nd.token, p_acepta: acepta }) }).then((r) => r.json()).catch(() => ({ ok: false, msg: 'Sin conexión: abrí el Hub y resolvelo desde ahí' }))
+      .then((j) => self.registration.showNotification(j && j.ok ? (acepta ? '✔ Autorizado' : '✖ Rechazado') : 'No se pudo', { body: (j && j.msg) || '', tag: 'pos-aut-r-' + nd.aut, icon: './icon-192-v2.png', data: { url: './' } })));
+    return;
+  }
   // (2-nov-2026) URL absoluta dentro del scope de ESTA app (antes './#tab' relativo y se matcheaba cualquier
   // ventana del mismo origen, p.ej. el hub o el CRM, que quedaba enfocada sin ir a ningún lado).
   let targetUrl = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
