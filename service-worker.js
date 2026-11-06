@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v502-rol-cajero';
+const CACHE_VERSION = 'rrhh-v503-autorizar';
 const ASSETS = [
   './',
   './index.html',
@@ -98,8 +98,11 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   // (2-nov-2026) URL absoluta dentro del scope de ESTA app (antes './#tab' relativo y se matcheaba cualquier
   // ventana del mismo origen, p.ej. el hub o el CRM, que quedaba enfocada sin ir a ningún lado).
-  const targetUrl = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
+  let targetUrl = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
   const scope = self.registration.scope;
+  // (6-nov-2026) Pedido de autorización del POS: en el iPhone la notificación solo puede abrir ESTA app, así que si el link
+  // apunta afuera (hub/?autorizar=ID) lo traemos a nuestro scope; la página carga /hub/pos-autorizar.js y muestra Aceptar/Rechazar.
+  try { const u = new URL(targetUrl); if (!targetUrl.startsWith(scope) && u.searchParams.get('autorizar')) targetUrl = scope + '?autorizar=' + u.searchParams.get('autorizar'); } catch (_) {}
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
