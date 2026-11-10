@@ -824,3 +824,8 @@ input:disabled, input[readonly] { background-color: #f9fafb; color: var(--muted)
 input[type="search"]::-webkit-search-cancel-button { margin-right: 2px; }
 textarea { border-radius: 14px !important; border: 1px solid var(--border); padding: 10px 14px; }
 textarea:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(13,148,136,0.15); }
+
+/* (10-nov-2026, JP) Lupa de las cajas de búsqueda: ícono fijo a la izquierda, no en el placeholder (en algunos
+   navegadores el placeholder quedaba dibujado arriba del texto escrito). El input que le sigue deja 28px a la izquierda. */
+.lupa { display: inline-block; width: 0; position: relative; left: 9px; top: 1px; z-index: 1; pointer-events: none; font-size: 12px; opacity: .65; line-height: 1; }
+input.con-lupa { padding-left: 28px !important; }

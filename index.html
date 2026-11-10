@@ -608,7 +608,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=59">
+<link rel="stylesheet" href="styles.css?v=60">
 </head>
 <body>
 
@@ -2623,7 +2623,7 @@ async function renderEmpleados() {
     </div>
 
     <div class="toolbar emp-filtros">
-      <input type="search" id="emp-search" placeholder="🔍 Buscar…" value="${escapeHtml(empleadosState.search)}">
+      <span class="lupa" aria-hidden="true">🔍</span><input type="search" id="emp-search" class="con-lupa" placeholder="Buscar…" value="${escapeHtml(empleadosState.search)}">
       ${isAdmin ? `
       <select id="emp-filter-local">
         <option value="">Todos</option>
@@ -14697,7 +14697,7 @@ async function renderBancoAdmin(cont) {
         <option value="alcorta"   ${localFiltro==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="oficina"   ${localFiltro==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : `<div style="font-weight:600;">${LOCALES[localFiltro]?.nombre || ''}</div>`}
-      <input type="search" value="${escapeHtml(bancoState.busqueda || '')}" placeholder="🔍 Buscar por nombre…"
+      <span class="lupa" aria-hidden="true">🔍</span><input type="search" class="con-lupa" value="${escapeHtml(bancoState.busqueda || '')}" placeholder="Buscar por nombre…"
         oninput="bancoFiltrarPorNombre(this.value)"
         style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;min-width:200px;flex:1;max-width:320px;">
       <div style="display:flex;gap:8px;">
@@ -20947,7 +20947,7 @@ async function renderPrestamos() {
         <option value="">Todos</option>
         ${localesUnicos.map(l => `<option value="${escapeHtml(l)}" ${prestamoState.local===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
       </select>
-      <input type="search" id="prest-buscar" placeholder="🔍 Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value, this)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
+      <span class="lupa" aria-hidden="true">🔍</span><input type="search" id="prest-buscar" placeholder="Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value, this)" style="padding:6px 10px 6px 28px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
       ${(prestamoState.q || prestamoState.local) ? `<button class="btn small" onclick="_prestamoSetQ(''); _prestamoSetLocal(''); switchTab('prestamos');">↺ Limpiar</button>` : ''}
       <span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">
         <button type="button" class="liq-tb" data-tip="Crear préstamo" aria-label="Crear préstamo" onclick="prestamoAbrirNuevo()">➕</button>
@@ -23395,7 +23395,7 @@ else init();
 <script src="manuales.js?v=44"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=20"></script>
+<script src="liquidaciones.js?v=21"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

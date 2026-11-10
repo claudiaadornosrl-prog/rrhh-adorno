@@ -652,10 +652,10 @@ async function renderLiquidaciones() {
         <option value="oficina"   ${local==='oficina'  ?'selected':''}>Oficina</option>
       </select>` : `<span class="emp-tag" style="background:#eef2ff;color:#4338ca;">${LOCALES[local]?.nombre || local}</span>`}
       <span style="width:1px;height:22px;background:var(--border);margin:0 4px;"></span>
-      <input type="text" id="liq-busqueda" placeholder="🔍 Nombre…" title="Buscar por nombre"
+      <span class="lupa" aria-hidden="true">🔍</span><input type="text" id="liq-busqueda" placeholder="Nombre…" title="Buscar por nombre"
              value="${escapeHtml(liqState.busqueda || '')}"
              oninput="liqState.busqueda = this.value; liqFiltrarBusquedaLocal();"
-             style="flex:0 1 150px;min-width:0;width:150px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+             style="flex:0 1 150px;min-width:0;width:150px;padding:6px 10px 6px 28px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
 
       <!-- (29-oct-2026, JP) Un solo renglón: mes, local, búsqueda por nombre y el cierre de cada local en íconos
            (liqCierresIconos). Se sacaron los filtros de Estado y Categoría. -->
