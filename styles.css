@@ -190,7 +190,7 @@ body.layout-directora .content { margin-left: 0 !important; padding-left: 0 !imp
    recoge rápido. Los títulos de sección quedan como una rayita.
    En tablet/teléfono (menú ☰) no cambia nada. */
 @media (min-width: 1101px) and (hover: hover) {
-  .layout { position: relative; padding-left: 64px; }
+  /* (11-nov-2026) sin padding-left: 64px — el menú lateral pasó al banner común */
   .sidebar {
     position: absolute; top: 0; left: 0; bottom: 0; z-index: 50;
     width: 64px; padding: 20px 10px; overflow: visible;
@@ -829,3 +829,12 @@ textarea:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 
    navegadores el placeholder quedaba dibujado arriba del texto escrito). El input que le sigue deja 28px a la izquierda. */
 .lupa { display: inline-block; width: 0; position: relative; left: 9px; top: 1px; z-index: 1; pointer-events: none; font-size: 12px; opacity: .65; line-height: 1; }
 input.con-lupa { padding-left: 28px !important; }
+
+/* (11-nov-2026, infra) Banner común (/hub/banner.css): los apartados (.nav-item) viven adentro de .ab-tabs; acá solo
+   se neutraliza lo que el .nav-item del viejo menú lateral traía (ancho 100%, gap, letra) y se dibujan los íconos
+   de trazo. Colores y medidas los pone banner.css. */
+.ab-banner .nav-item { width: auto; gap: 0; font-size: inherit; text-align: inherit; }
+.ab-banner .ico { width: 19px; height: 19px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ab-banner .nav-item .icon { width: 19px; font-size: inherit; }
+.ab-banner .user-info { display: inline-flex; align-items: center; gap: 8px; }
+.ab-banner .user-info .role { font-size: 10px; padding: 1px 7px; }

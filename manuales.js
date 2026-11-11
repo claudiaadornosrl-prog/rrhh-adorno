@@ -7,6 +7,18 @@
 
 const MANUAL_GERENTE = [
   {
+    tab: 'manual', icon: '🧭', titulo: 'La barra de arriba',
+    desc: 'Es igual en todos los módulos: mismo lugar para cada cosa y el color de la moneda del módulo (el mismo del Hub).',
+    pasos: [
+      'A la izquierda, la moneda y el nombre del módulo. En la computadora, tocando el nombre (Colaboradores ▾) se abre la lista para pasar a otro módulo; al final de esa lista está «Volver al Hub». Al lado, tu nombre y tu perfil.',
+      'Al lado van los apartados (Mi local, Liquidación, Asistencias, Vacaciones, Retiros mercadería, Préstamos, Aumentos, Mi equipo, Mi legajo, Mis recibos): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre. El Manual no está en la barra: preguntale a Clodi.',
+      'A la derecha: ⬇ Instalar (si el navegador lo ofrece) y Salir.',
+      'En el celular: los apartados están adentro del botón ☰; a la vista quedan 🏠 Hub (volver al Hub) y Salir.',
+      '¿Dudas? Preguntale a Clodi (el botón de abajo a la derecha): sabe todo lo que dice este manual.',
+    ],
+    img: null,
+  },
+  {
     tab: 'dashboard', icon: '📊', titulo: 'Mi local',
     desc: 'Vista rápida del estado del local: colaboradoras activas, próximas vacaciones, alertas y tareas pendientes.',
     pasos: [
@@ -123,6 +135,18 @@ const MANUAL_GERENTE = [
 // (3-nov-2026, JP) Manual del ADMIN (JP). Antes el admin usaba el de la encargada y Clodi no sabía responder sobre
 // préstamos/adelantos, Liquidación, Aumentos, Usuarios, etc. Clodi toma este texto cuando el rol es admin.
 const MANUAL_ADMIN = [
+  {
+    tab: 'manual', icon: '🧭', titulo: 'La barra de arriba',
+    desc: 'Es igual en todos los módulos: mismo lugar para cada cosa y el color de la moneda del módulo (el mismo del Hub).',
+    pasos: [
+      'A la izquierda, la moneda y el nombre del módulo. En la computadora, tocando el nombre (Colaboradores ▾) se abre la lista para pasar a otro módulo; al final de esa lista está «Volver al Hub». Al lado, tu nombre y tu perfil.',
+      'Al lado van los apartados (Dashboard, Liquidación, Asistencias, Vacaciones, Retiros mercadería, Préstamos, Adelantos de efectivo, Aumentos, Colaboradores, Buzón anónimo, Configuración): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre. El Manual no está en la barra: preguntale a Clodi.',
+      'A la derecha: ⬇ Instalar (si el navegador lo ofrece) y Salir.',
+      'En el celular: los apartados están adentro del botón ☰; a la vista quedan 🏠 Hub (volver al Hub) y Salir.',
+      '¿Dudas? Preguntale a Clodi (el botón de abajo a la derecha): sabe todo lo que dice este manual.',
+    ],
+    img: null,
+  },
   {
     tab: 'dashboard', icon: '📊', titulo: 'Dashboard',
     desc: 'Pantalla de inicio: monedas con los números del mes y las listas "Para hacer" y "Para saber".',
@@ -272,6 +296,18 @@ const MANUAL_ADMIN = [
 ];
 
 const MANUAL_EMPLEADO = [
+  {
+    tab: 'manual', icon: '🧭', titulo: 'La barra de arriba',
+    desc: 'Es igual en todos los módulos: mismo lugar para cada cosa y el color de la moneda del módulo (el mismo del Hub).',
+    pasos: [
+      'A la izquierda, la moneda y el nombre del módulo. En la computadora, tocando el nombre (Colaboradores ▾) se abre la lista para pasar a otro módulo; al final de esa lista está «Volver al Hub». Al lado, tu nombre y tu perfil.',
+      'Al lado van los apartados (Mi calendario, Mis recibos, Mis permisos, Mi banco, Mis vacaciones, Mis préstamos, Mis certif. médicos, Mi legajo, Buzón anónimo): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre. El Manual no está en la barra: preguntale a Clodi.',
+      'A la derecha: ⬇ Instalar (si el navegador lo ofrece) y Salir.',
+      'En el celular: los apartados están adentro del botón ☰; a la vista quedan 🏠 Hub (volver al Hub) y Salir.',
+      '¿Dudas? Preguntale a Clodi (el botón de abajo a la derecha): sabe todo lo que dice este manual.',
+    ],
+    img: null,
+  },
   {
     tab: 'mi-calendario', icon: '📅', titulo: 'Mi calendario',
     desc: 'Vista mensual de tus turnos planificados, vacaciones, feriados y fichadas reales.',
