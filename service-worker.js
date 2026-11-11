@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v510-banner-comun';
+const CACHE_VERSION = 'rrhh-v511-banner-medir';
 const ASSETS = [
   './',
   './index.html',

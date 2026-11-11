@@ -1536,6 +1536,7 @@ function renderSidebar() {
     html += `<button class="nav-item" data-tab="${item.id}" title="${escapeHtml(item.label)}">${navIcono(item.id)}<span class="lb">${escapeHtml(item.label)}</span></button>`;
   });
   sb_el.innerHTML = html;
+  setTimeout(medirTopbar, 0);   // (11-nov-2026) el banner ya está visible: medir para la barra fija de Liquidación
   sb_el.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { switchTab(btn.dataset.tab); toggleSidebar(false); });
     // (3-nov-2026, JP) En táctil no hay hover: al tocar, el ícono hace su animación una vez.
@@ -1566,7 +1567,8 @@ async function _miSueldoActualizarNav() {
 // acciones de Liquidación para pegarse justo debajo, sin solaparse).
 function medirTopbar() {
   const tb = document.querySelector('.ab-banner');   // (11-nov-2026) antes .topbar
-  if (tb) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
+  // (11-nov-2026) si la app todavía está oculta (login) mide 0: no pisar el valor, se vuelve a medir al armar el menú
+  if (tb && tb.offsetHeight > 0) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
 }
 window.addEventListener('resize', medirTopbar);
 window.addEventListener('orientationchange', () => setTimeout(medirTopbar, 250));
