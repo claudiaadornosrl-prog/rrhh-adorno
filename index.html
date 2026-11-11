@@ -6930,13 +6930,37 @@ let _editandoVacacionId = null;
 // El constraint vac_no_overlap_activo (DB) rechaza solicitudes superpuestas con
 // otra activa del mismo colaborador — los duplicados accidentales por doble click
 // del 2026-06-08 ya no pueden repetirse.
-function _mensajeErrorVacaciones(error) {
+function _mensajeErrorVacaciones(error, quien = null) {
   if (!error) return 'Error desconocido';
   const msg = error.message || '';
   if (error.code === '23P01' || msg.includes('vac_no_overlap_activo')) {
-    return 'Ya tenés solicitada esa fecha en los permisos. Revisalo en "Mis vacaciones" o anulá la anterior antes de pedir el cambio.';
+    // (11-nov-2026, JP) Antes decía "en los permisos" y mostraba el texto técnico cuando asignaba la encargada.
+    return quien
+      ? `${quien} ya tiene vacaciones cargadas que se pisan con estas fechas. Editá o cancelá esas primero.`
+      : 'Ya tenés vacaciones cargadas que se pisan con esas fechas. Revisalo en "Mis vacaciones" o anulá las anteriores antes de pedir el cambio.';
   }
   return msg || 'Error desconocido';
+}
+
+// (11-nov-2026, JP) Vacaciones activas de la MISMA persona que se pisan con [desde, hasta] (lo que rechaza el
+// constraint vac_no_overlap_activo). Devuelve [] si no hay o si no se pudo consultar.
+async function _vacPropiasPisadas(empId, desde, hasta, excluirId = null) {
+  try {
+    let q = sb.from('rrhh_vacaciones_movimientos')
+      .select('id, fecha_desde, fecha_hasta, dias, estado, tipo_solicitud')
+      .eq('empleado_id', empId)
+      .in('estado', ['pendiente', 'aprobada', 'tomada', 'pagada'])
+      .or('tipo_solicitud.is.null,tipo_solicitud.eq.toma')
+      .lte('fecha_desde', hasta).gte('fecha_hasta', desde)
+      .order('fecha_desde');
+    if (excluirId) q = q.neq('id', excluirId);
+    const { data } = await q;
+    return data || [];
+  } catch (_) { return []; }
+}
+function _vacPropiasPisadasTxt(lista) {
+  const _f = (d) => d ? d.split('-').reverse().join('/') : '';
+  return lista.map(v => `• ${_f(v.fecha_desde)} → ${_f(v.fecha_hasta)} (${v.dias} día${v.dias === 1 ? '' : 's'}, ${v.estado})`).join('\n');
 }
 
 async function solicitarVacaciones() {
@@ -13602,6 +13626,13 @@ async function guardarAsignarVacacion() {
   const dias = esOficina ? _diasHabilesUI(desde, hasta) : (Math.round((new Date(hasta+'T12:00:00') - new Date(desde+'T12:00:00')) / 86400000) + 1);
   const hoy = hoyISO();
   const estado = (desde < hoy) ? 'tomada' : 'aprobada';
+  // (11-nov-2026, JP) Primero: ¿esa misma persona ya tiene vacaciones en esas fechas? (la base las rechaza)
+  const _quien = (empSel.options[empSel.selectedIndex]?.text || 'Esta colaboradora').replace(/\s*\(.*$/, '');
+  const _propias = await _vacPropiasPisadas(empId, desde, hasta, null);
+  if (_propias.length) {
+    alert(`⛔ ${_quien} ya tiene vacaciones cargadas que se pisan con estas fechas:\n\n${_vacPropiasPisadasTxt(_propias)}\n\nSi son las mismas, no hay nada que cargar. Si querés otras fechas, editá o cancelá esas primero (Vacaciones → Próximas / Historial).`);
+    return;
+  }
   const _solG = await _vacSolapadas(empId, desde, hasta, null);
   if (_solG.length) {
     if (!confirm(`⚠ SUPERPOSICIÓN DE VACACIONES en el local.\n\nEn esas fechas también está / pidió:\n${_vacSolapadasTxt(_solG).replace(/; /g, '\n')}\n\n¿Asignar IGUAL?`)) return;
@@ -13641,7 +13672,7 @@ async function guardarAsignarVacacion() {
     observaciones: obsBase + (tramos.length > 1 ? ` — Imputado a saldo ${t.año} (FIFO)` : ''),
   }));
   const { data, error } = await sb.from('rrhh_vacaciones_movimientos').insert(inserts).select();
-  if (error) { toast('Error: ' + error.message, 'error'); return; }
+  if (error) { toast(_mensajeErrorVacaciones(error, _quien), 'error'); return; }
 
   await auditLog('asignar_vacacion', 'rrhh_vacaciones_movimientos', data[0]?.id || null, null, null,
     `${desde} → ${hasta} (${dias}d, ${estado}, ${tramos.length} tramo${tramos.length>1?'s':''})`);
@@ -23392,7 +23423,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=44"></script>
+<script src="manuales.js?v=45"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=21"></script>

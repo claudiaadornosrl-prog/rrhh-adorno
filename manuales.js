@@ -66,7 +66,7 @@ const MANUAL_GERENTE = [
       'Click en una colaboradora abre el detalle con los movimientos del año + botón para descargar PDF de cada uno.',
       'En "Pendientes" aprobás o rechazás los pedidos que mandaron las vendedoras.',
       '⚠ Superposición: si en esas fechas ya hay otra persona del local de vacaciones (o pidiéndolas), el pedido aparece marcado en rojo, el push de aviso lo dice, y al aprobar el sistema pide confirmación explícita. Se puede aprobar igual, pero nunca por descuido.',
-      'Botón "+ Asignar vacaciones" carga directo (sin pasar por aprobación).',
+      'Botón "+ Asignar vacaciones" carga directo (sin pasar por aprobación). Si esa persona ya tiene vacaciones cargadas que se pisan con las fechas elegidas, el sistema no la deja cargar y te muestra cuáles son (con fechas y estado): si son las mismas no hay nada que hacer; si querés otras, editá o cancelá esas primero.',
     ],
     img: null,
   },
