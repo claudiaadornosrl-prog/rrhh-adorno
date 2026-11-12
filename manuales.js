@@ -176,7 +176,7 @@ const MANUAL_ADMIN = [
     tab: 'liquidaciones', icon: '🧮', titulo: 'Liquidación',
     desc: 'La grilla de sueldos del mes: Sueldo (parte en efectivo) y Banco (recibo CCT). Proforma, definitivo, doble blanco, cierre del mes y publicación del resumen a las chicas.',
     pasos: [
-      'Banco en las compus de oficina (desde el 12-nov-2026): las compus de Contreras y Rivera entran con usuarios genéricos (administracion@ y claudiaadorno@). En las dos está el botón 🏦 Banco, pero al tocarlo pide el usuario y la clave de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador; no se guarda en esa computadora y dura mientras la app esté abierta (hasta 8 horas). La clave personal de Rivera no sirve para eso. Queda registrado en el historial quién lo autorizó. El permiso se da por base (rrhh_usuarios.ve_recibos_todos); si hay que dárselo a otra persona, pedíselo a JP.',
+      'Cuentas de la oficina (desde el 12-nov-2026): las compus de Contreras y Rivera entran con usuarios genéricos iguales (administracion@ y claudiaadorno@, perfil "oficina"). No ven la liquidación total (Sueldo): de este apartado solo ven 🏦 Banco, y al tocarlo pide el usuario y la clave PERSONAL de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador; la clave personal de Rivera y las cuentas genéricas no sirven. La base anota quién autorizó y hasta cuándo (8 horas, o hasta que toquen Salir) y sin esa autorización la cuenta de la oficina no puede leer ninguna liquidación, ni siquiera por fuera de la pantalla. El permiso "ver los recibos de todos" se da por base (rrhh_usuarios.ve_recibos_todos); si hay que dárselo a otra persona, pedíselo a JP. El resto del sistema lo ven en modo consulta (ver el manual de la oficina).',
       'Pestaña Sueldo: Fijo + Comisión + Premio + Viáticos + Feriado + Extras = Total. Recibo es el neto CCT; la celda se pinta según el estado: amarillo = proforma, naranja = definitivo sin firmar, verde = firmado y guardado, gris = sin recibo (click descarga el PDF, click derecho el desglose). Banco = Recibo − cuotas de préstamo − adelantos. Subtotal = Total − Recibo; de ahí se restan Mercadería, Intereses y Ajustes para llegar al Efectivo que va en mano.',
       'Pestaña Banco: el recibo CCT de cada una (bruto, descuentos, neto), préstamos y adelantos que salen del banco, y las acciones por fila: candado (abierto 🔓 / cerrado negro 🔒; click para reabrir una liquidación), firma (✍️ falta firmar, 🖋️ firmada con link al archivo) y ✏️ editar. Al tocar el recibo se descarga directo el PDF (Recibo_APELLIDO_AAAA-MM.pdf), en compu y en celular.',
       'Íconos de la barra (Banco): 📋 Proforma = liquidación provisoria para el banco; ✅ Definitivo = recibos finales con la escala vigente (sirve para captar cambios de escala/paritaria de último momento; NO depende de que Asistencias esté cerrada); 💎 Doble blanco = recalcula a Contreras y Escasany con el ítem 0018 (correrlo después de cerrar las asistencias de su local para que entren premio y viáticos); 🖨️ imprime todos los recibos; 📤 exporta Galicia, LSD ARCA y planilla blanca; 🔄 refresca; ⚙️ elige columnas.',
@@ -443,17 +443,100 @@ const MANUAL_ADELANTOS = {
     'Es el .xls con el formato del Office Banking (hojas "Ayuda" y "Template Liquidaciones", columnas Cuenta · Nombre · Importe · Concepto) — el mismo que sale para los sueldos. Se sube por GO → Haberes → Acreditaciones → Envío Archivo de Acreditaciones.',
     'Trae TODOS los adelantos otorgados en el mes en curso. La cuenta es la de 14 dígitos del Galicia (no el CBU) y el concepto va "01".',
     'Si a alguna colaboradora le falta la cuenta Galicia en su legajo, el sistema te lo dice ANTES de generar y te deja elegir si seguís con el resto: a esa hay que pagarle aparte.',
-    'Desde administracion@ el mismo botón está adentro de 💵 Préstamos, arriba a la derecha.',
+    'Sale solo desde la cuenta personal de Marisa: la cuenta genérica de la oficina (administracion@) ya no lo tiene (12-nov-2026).',
   ],
   img: null,
 };
 
+// (12-nov-2026, JP vía Infraestructura) Manual de las cuentas genéricas de la oficina (perfil "oficina", rol directora).
+const MANUAL_OFICINA = [
+  {
+    tab: 'manual', icon: '🧭', titulo: 'La barra de arriba',
+    desc: 'Es igual en todos los módulos: mismo lugar para cada cosa y el color de la moneda del módulo (el mismo del Hub).',
+    pasos: [
+      'A la izquierda, la moneda y el nombre del módulo. En la computadora, tocando el nombre (Colaboradores ▾) se abre la lista para pasar a otro módulo; al final de esa lista está «Volver al Hub». Al lado, el usuario y el perfil.',
+      'Al lado van los apartados (Dashboard, Banco, Asistencias, Vacaciones, Retiros mercadería, Préstamos, Colaboradores, Buzón anónimo): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre. El Manual no está en la barra: preguntale a Clodi.',
+      'A la derecha: ⬇ Instalar (si el navegador lo ofrece) y Salir. En el celular los apartados están adentro del botón ☰.',
+      '¿Dudas? Preguntale a Clodi (el botón de abajo a la derecha): sabe todo lo que dice este manual.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'dashboard', icon: '🏢', titulo: 'La cuenta de la oficina',
+    desc: 'Las dos computadoras de la oficina (Contreras y Rivera) entran con usuarios genéricos iguales: administracion@ y claudiaadorno@. Ven todo el sistema en modo consulta.',
+    pasos: [
+      'Qué se ve: Dashboard, Asistencias, Vacaciones, Retiros de mercadería, Préstamos, Colaboradores y el Buzón anónimo, de todos los locales. De Liquidación solo 🏦 Banco (ver más abajo). No hay Adelantos de efectivo, Aumentos ni Configuración.',
+      'Qué NO se puede: modificar ni cargar nada desde la cuenta de la oficina. Si tocás un botón que cambia algo, aparece el aviso "Vista de consulta" y no pasa nada. La base tampoco lo deja por fuera de la pantalla.',
+      'Lo propio sí: un permiso, unas vacaciones o un préstamo PROPIOS se piden con el botón 🙋 "Pedir … con mi usuario" (en Asistencias, Vacaciones y Préstamos). Pide tu usuario y clave PERSONAL (no la de la oficina), hacés el pedido a tu nombre y volvés a la cuenta de la oficina. Esa clave no queda guardada en la computadora.',
+      'Para cualquier otra carga o cambio, pedíselo a JP o a la encargada del local.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'liquidaciones', icon: '🏦', titulo: 'Banco (recibos de todo el personal)',
+    desc: 'Muestra la parte en blanco de los sueldos del mes para pagar por el banco e imprimir los recibos. Lo abre solo un usuario superior.',
+    pasos: [
+      'Al entrar aparece un candado. Tocá 🔑 "Pedir permiso": pide el usuario y la clave PERSONAL de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador. La clave de la cuenta de la oficina y la clave personal de Rivera no sirven. Si esa cuenta tiene el código del celular, también lo pide.',
+      'Con el permiso dado, Banco se ve igual que para administración: filtro por mes y local, 🖨️ imprimir recibos y 📤 exportar (archivo del Galicia, LSD, planilla en blanco). La liquidación total (pestaña Sueldo) no está para la cuenta de la oficina.',
+      'El permiso dura hasta 8 horas, o hasta que toques Salir. Queda registrado quién lo dio y cuándo. Si se recarga la página dentro de ese tiempo, no vuelve a pedirlo.',
+      'Si alguien más tiene que poder autorizar, se le da el permiso en la base: pedíselo a JP.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'asistencias', icon: '🕐', titulo: 'Asistencias (consulta)',
+    desc: 'Calendarios, resumen mensual, banco de minutos, permisos, horas extras, reportes de turno, fichadas y horarios de todos los locales, solo para mirar.',
+    pasos: [
+      'Elegí el local y el mes arriba. Todo se ve como lo ve el admin, pero no se marca, no se carga ni se aprueba nada.',
+      'Tu propio permiso (llegar tarde, salir antes, un día): botón 🙋 "Pedir permiso con mi usuario", arriba a la derecha. Entrás con tu usuario personal, cargás el pedido y volvés a la cuenta de la oficina.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'vacaciones', icon: '🌴', titulo: 'Vacaciones (consulta)',
+    desc: 'Pendientes, próximas, saldos e historial de todo el personal, solo para mirar.',
+    pasos: [
+      'No se asignan, no se aprueban, no se pagan ni se cargan en masa desde la cuenta de la oficina.',
+      'Tus propias vacaciones: botón 🙋 "Pedir vacaciones con mi usuario". Entrás con tu usuario personal, pedís las fechas y volvés a la cuenta de la oficina. Lo aprueba JP como siempre.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'retiros', icon: '🛍', titulo: 'Retiros de mercadería (consulta)',
+    desc: 'Lo que cada colaboradora retiró en el mes, por local. Solo para mirar: cargar un retiro lo hace la encargada o JP.',
+    pasos: ['Elegí el mes y el local. No se carga ni se modifica nada desde la cuenta de la oficina.'],
+    img: null,
+  },
+  {
+    tab: 'prestamos', icon: '💵', titulo: 'Préstamos (consulta)',
+    desc: 'La misma pantalla que ve JP: préstamos activos, cuotas y solicitudes de todos. Solo para mirar.',
+    pasos: [
+      'No se crean, no se aprueban ni se refinancian préstamos desde la cuenta de la oficina. El archivo de adelantos para el Galicia sale desde la cuenta personal de Marisa.',
+      'Un préstamo propio: botón 🙋 "Pedir préstamo con mi usuario". Entrás con tu usuario personal, cargás capital y cuotas y volvés a la cuenta de la oficina.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'empleados', icon: '👥', titulo: 'Colaboradores (consulta)',
+    desc: 'Las fichas de todo el personal: datos, legajo, documentos. Se ven, no se editan.',
+    pasos: ['Buscá por nombre o filtrá por local y estado. Cambiar un dato de un legajo lo hace JP (o cada colaboradora en su propia ficha).'],
+    img: null,
+  },
+  {
+    tab: 'buzon-admin', icon: '✉️', titulo: 'Buzón anónimo',
+    desc: 'Los mensajes anónimos que mandan las colaboradoras (quejas, recomendaciones, consultas).',
+    pasos: ['Se leen desde la cuenta de la oficina. Marcarlos como leídos o borrarlos lo hace JP.'],
+    img: null,
+  },
+];
+
 async function renderManual() {
   const isAdmin = session.rol === 'admin';
-  const isGerente = session.rol === 'gerente' || session.rol === 'directora';
-  let items = isAdmin ? MANUAL_ADMIN : (isGerente ? MANUAL_GERENTE : MANUAL_EMPLEADO);
+  const isOficina = session.rol === 'directora';   // (12-nov-2026) cuentas genéricas de la oficina
+  const isGerente = session.rol === 'gerente';
+  let items = isAdmin ? MANUAL_ADMIN : (isOficina ? MANUAL_OFICINA : (isGerente ? MANUAL_GERENTE : MANUAL_EMPLEADO));
   if (session.puedeAdelantos && !isAdmin) items = items.concat([MANUAL_ADELANTOS]);
-  const tituloRol = isAdmin ? 'Manual del administrador' : (isGerente ? 'Manual de la encargada' : 'Manual de la empleada');
+  const tituloRol = isAdmin ? 'Manual del administrador' : (isOficina ? 'Manual de la oficina' : (isGerente ? 'Manual de la encargada' : 'Manual de la empleada'));
   const subtitulo = isGerente
     ? 'Guía rápida de cada herramienta del sistema. Click en una sección para ir directo.'
     : 'Guía rápida para usar el sistema. Click en una sección para ir directo a la herramienta.';

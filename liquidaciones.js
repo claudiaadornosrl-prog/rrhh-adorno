@@ -50,7 +50,7 @@ async function renderLiquidaciones() {
   const isAdmin     = session.rol === 'admin';
   const isGerente   = session.rol === 'gerente';
   const isDirectora = session.rol === 'directora';
-  const soloBanco   = !!session.soloBanco;
+  const soloBanco   = !!session.oficina;   // (12-nov-2026) perfil oficina: solo Banco, con permiso de un superior
   if (soloBanco) liqState.subTab = 'banco';
   // (12-nov-2026, JP) Cuentas genéricas de oficina (directora): Banco solo con permiso de un usuario superior.
   if (liqState.subTab === 'banco' && typeof liqBancoNecesitaPermiso === 'function' && liqBancoNecesitaPermiso()) {
@@ -66,13 +66,13 @@ async function renderLiquidaciones() {
       <div class="card" style="padding:50px 24px;text-align:center;">
         <div style="font-size:52px;margin-bottom:12px;">🔒</div>
         <h3 style="margin:0 0 8px;font-size:18px;">Banco pide permiso de un usuario superior</h3>
-        <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto 18px;">Acá se ven los recibos de todo el personal. Para abrirlo hace falta el usuario y la clave de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador. No queda guardado en esta computadora.</p>
+        <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto 18px;">Acá se ven los recibos de todo el personal. Para abrirlo hace falta el usuario y la clave PERSONAL de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador; la cuenta de la oficina no sirve. Dura hasta 8 horas o hasta que salgas de la app.</p>
         <button class="btn primary" onclick="liqPedirPermisoBanco().then(ok => { if (ok) { liqState.subTab = 'banco'; switchTab('liquidaciones'); } })" style="border-radius:999px;padding:10px 22px;">🔑 Pedir permiso</button>
       </div>`;
     return;   // undefined → renderPage no pisa lo pintado
   }
   // Con el permiso dado, la cuenta genérica ve Banco como la de administración (imprimir recibos, exportar)
-  const bancoOk = soloBanco || (isDirectora && !!session.bancoAutorizadoPor);
+  const bancoOk = isDirectora && !!session.bancoAutorizadoPor;
   // Directora ve TODOS los locales por default (no puede cambiar)
   if (!liqState.local) liqState.local = (isAdmin || isDirectora) ? 'todos' : (session.empleadoData?.local || 'alcorta');
   // (5-ago) La directora/soloBanco ahora SÍ puede filtrar por local
@@ -164,32 +164,8 @@ async function renderLiquidaciones() {
     const d = new Date(_hoyP.getFullYear(), _hoyP.getMonth() - i, 1);
     periodos.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
   }
-  // Para directora: filtrar solo meses cerrados — early return si no hay ninguno
-  // (los usuarios solo-Banco de administración SÍ ven el mes en curso)
-  if (isDirectora && !soloBanco) {
-    const { data: cerrados } = await sb.from('rrhh_meses_cerrados_sueldos')
-      .select('periodo').order('periodo', { ascending: false });
-    const setCerrados = new Set((cerrados || []).map(r => r.periodo.substring(0,7)));
-    periodos = periodos.filter(p => setCerrados.has(p));
-    if (periodos.length === 0) {
-      const main = document.getElementById('main');
-      if (main) main.innerHTML = `
-        <div class="page-header"><h2>Liquidación del mes</h2></div>
-        <div class="card" style="padding:60px;text-align:center;">
-          <div style="font-size:56px;margin-bottom:14px;">📊</div>
-          <h3 style="margin:0 0 8px;font-size:18px;">Todavía no hay meses cerrados</h3>
-          <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto;">
-            Cuando se cierre formalmente el primer mes vas a recibir una notificación
-            y vas a poder ver el liquidador completo desde acá.
-          </p>
-        </div>
-      `;
-      return;  // undefined → renderPage NO pisa lo que ya pintamos
-    }
-    if (!setCerrados.has(liqState.periodo)) {
-      liqState.periodo = periodos[0];
-    }
-  }
+  // (12-nov-2026) La cuenta de oficina ve Banco con el mes abierto incluido (como antes administracion@);
+  // el viejo filtro "solo meses cerrados" de la directora quedó sin uso.
   // (29-oct-2026, JP) El filtro de mes va corto: "Sep 26". Solo lo usa ese select.
   const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const labelMes = (p) => {
@@ -593,7 +569,7 @@ async function renderLiquidaciones() {
       <h2 class="liq-titulo">Liquidación del mes</h2>
       <!-- Sub-tabs -->
       <div class="liq-subtabs" style="display:flex;gap:2px;">
-        ${session.soloBanco ? '' : `<button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>`}
+        ${session.oficina ? '' : `<button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='sueldo'?'700':'500'};color:${liqState.subTab==='sueldo'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='sueldo'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">💰 Sueldo</button>`}
         <button onclick="liqSwitchSubTab('banco')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:${liqState.subTab==='banco'?'700':'500'};color:${liqState.subTab==='banco'?'var(--accent2)':'var(--muted)'};border-bottom:3px solid ${liqState.subTab==='banco'?'var(--accent2)':'transparent'};cursor:pointer;transition:all 0.15s;">🏦 Banco</button>
       </div>
       <span id="liq-auto-refresh-indicator" style="align-self:center;margin-left:8px;"></span>
@@ -666,7 +642,7 @@ async function renderLiquidaciones() {
       <select onchange="liqState.periodo=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
         ${periodos.map(p => `<option value="${p}" ${p===periodo?'selected':''}>${labelMes(p)}</option>`).join('')}
       </select>
-      ${(isAdmin || session.soloBanco) ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
+      ${(isAdmin || session.oficina) ? `<select onchange="liqState.local=this.value; switchTab('liquidaciones');" style="padding:5px 8px;font-weight:600;">
         <option value="todos"     ${local==='todos'    ?'selected':''}>Todos</option>
         <option value="alcorta"   ${local==='alcorta'  ?'selected':''}>Alcorta</option>
         <option value="unicenter" ${local==='unicenter'?'selected':''}>Unicenter</option>

@@ -323,6 +323,7 @@ window.ADORNO_ASISTENTE = (function () {
       const ses = (typeof session !== 'undefined' && session) || window.session || null;
       const rol = (ses && (ses.rol || ses.role)) || '';
       if (rol === 'admin' && typeof MANUAL_ADMIN !== 'undefined') return seccionesATexto(MANUAL_ADMIN);
+      if (rol === 'directora' && typeof MANUAL_OFICINA !== 'undefined') return seccionesATexto(MANUAL_OFICINA);
       if (typeof MANUAL_GERENTE !== 'undefined' && (rol === 'admin' || rol === 'gerente' || rol === 'directora')) return seccionesATexto(MANUAL_GERENTE);
       if (typeof MANUAL_EMPLEADO !== 'undefined') return seccionesATexto(MANUAL_EMPLEADO);
       if (typeof MANUAL_GERENTE !== 'undefined') return seccionesATexto(MANUAL_GERENTE);
@@ -905,6 +906,7 @@ const pushManager = (() => {
     const raw = sub.toJSON();
     const payload = {
       empleado_id: session.empleado_id,
+      local_generico: session.oficina ? 'oficina' : null,   // (12-nov-2026) cuenta genérica de la oficina, sin legajo
       endpoint:    raw.endpoint,
       p256dh:      raw.keys.p256dh,
       auth:        raw.keys.auth,
@@ -995,7 +997,7 @@ async function enviarPush(empleadoId, title, body, opts = {}) {
 }
 
 ADORNO_SSO.migrar('rrhh-adorno-auth', 'rrhh');
-const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+let sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {   // (12-nov-2026) `let`: ver pedirPropio()
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -1096,9 +1098,16 @@ const NAV = {
     { id: 'mi-sueldo',     label: 'Mi sueldo',          icon: '🧾', section: 'Mi cuenta' },   // oculto salvo resumen sin abrir
     { id: 'manual',        label: 'Manual',             icon: '📖', section: 'Mi cuenta' },
   ],
-  directora: [
-    { id: 'liquidaciones', label: 'Liquidación',   icon: '🧮', section: null },
-    { id: 'empleados',     label: 'Colaboradores', icon: '👥', section: null },
+  directora: [   // (12-nov-2026, JP) perfil "oficina": las dos cuentas genéricas de la oficina. Ven todo, no modifican.
+    { id: 'dashboard',     label: 'Dashboard',          icon: '📊', section: null },
+    { id: 'liquidaciones', label: 'Banco',              icon: '🏦', section: null },   // solo Banco, con permiso de un superior
+    { id: 'asistencias',   label: 'Asistencias',        icon: '🕐', section: null },
+    { id: 'vacaciones',    label: 'Vacaciones',         icon: '🌴', section: null },
+    { id: 'retiros',       label: 'Retiros mercadería', icon: '🛍', section: null },
+    { id: 'prestamos',     label: 'Préstamos',          icon: '💵', section: null },
+    { id: 'empleados',     label: 'Colaboradores',      icon: '👥', section: null },
+    { id: 'buzon-admin',   label: 'Buzón anónimo',      icon: '✉️', section: null },
+    { id: 'manual',        label: 'Manual',             icon: '📖', section: null },
   ],
   empleado: [   // (3-nov-2026, JP) mismo criterio: inicio, sueldo, asistencias, vacaciones, préstamos, legajo, buzón, manual
     { id: 'mi-calendario', label: 'Mi calendario',       icon: '📅', section: null },
@@ -1155,7 +1164,7 @@ let liqState = { periodo: null, local: null, busqueda: '', estado: 'todos', cate
 
 // Cambiar sub-tab (💰 Sueldo | 🏦 Banco) sin recargar toda la data
 function liqSwitchSubTab(tab) {
-  if (session?.soloBanco && tab !== 'banco') return;
+  if (session?.oficina && tab !== 'banco') return;   // (12-nov-2026) la oficina no ve la liquidación total (Sueldo)
   if (tab !== 'sueldo' && tab !== 'banco') return;
   // (12-nov-2026, JP) Cuentas genéricas de oficina: Banco pide permiso de un usuario superior
   if (tab === 'banco' && liqBancoNecesitaPermiso()) {
@@ -1166,21 +1175,38 @@ function liqSwitchSubTab(tab) {
   switchTab('liquidaciones');
 }
 
-// ── (12-nov-2026, JP vía Infraestructura) Banco con permiso de usuario superior ─────────────────────────
+// ── (12-nov-2026, JP vía Infraestructura) Perfil "oficina" ─────────────────────────────────────────────
 // Las compus de la oficina quedan trabadas a usuarios genéricos (administracion@ → Contreras, claudiaadorno@ →
-// Rivera; las dos rol 'directora'). La única diferencia entre las dos en Colaboradores es que Contreras puede ver
-// los recibos de todos (Banco): el botón está en las dos, pero al tocarlo pide usuario y clave de alguien con el
-// permiso propio "ver los recibos de todos" (rrhh_usuarios.ve_recibos_todos: Marisa) o de un admin. El rol no
-// alcanza para distinguir a Marisa de Rivera (las dos personales son 'empleado'), por eso el permiso aparte.
-// La clave se valida en un cliente Supabase APARTE, sin guardar sesión (persistSession:false y otro storageKey):
-// en un equipo trabado, /hub/equipo.js cierra cualquier sesión guardada que no sea la del equipo. Si la cuenta
-// tiene código del celular, se pide con ADORNO_MFA.pedirCodigo. El permiso dura mientras la app esté abierta
-// (hasta 8 h) y queda en rrhh_log quién lo dio. Cuando Infraestructura active /hub/autorizar.js (cara → celu →
-// clave), este pedido puede pasar a usarlo.
+// Rivera; las dos rol 'directora', sin legajo ni local). Son IGUALES: ven Dashboard, Asistencias, Vacaciones,
+// Retiros, Préstamos, Colaboradores y Buzón en modo consulta, y de Liquidación solo Banco, con permiso de un
+// usuario superior. Reemplaza al viejo modo soloBanco (solo administracion@) y al bloqueo de claudiaadorno@.
+// · Escrituras: la base no les da ninguna política de escritura; además acá se cortan antes con un aviso claro
+//   (ver _oficinaGuard) en vez de reventar con el error técnico de RLS.
+// · Banco: pide usuario y clave PERSONAL de alguien con permiso (hub_puede_ver('recibos'): Marisa, por
+//   rrhh_usuarios.ve_recibos_todos, o un admin; la clave personal de Rivera no sirve). Se valida en un cliente
+//   Supabase APARTE, sin guardar sesión (persistSession:false y otro storageKey: /hub/equipo.js cierra cualquier
+//   sesión guardada que no sea la del equipo), se pide el código del celular si la cuenta lo tiene, y con ESE
+//   cliente se llama a rrhh_otorgar_autorizacion, que anota en rrhh_autorizaciones quién autorizó y hasta cuándo
+//   (8 h). Las políticas de rrhh_liquidacion* para la directora exigen esa autorización vigente: sin ella, por
+//   API tampoco se lee nada. Se suelta al tocar Salir. Las cuentas genéricas nunca autorizan (lo chequea la RPC).
+// · Pedidos propios (permiso, vacaciones, préstamo): se entra con el usuario personal en el cliente aparte y el
+//   pedido sale con el empleado_id de esa persona (ver pedirPropio).
+// Cuando Infraestructura active /hub/autorizar.js (cara → celu → clave), estos pedidos pueden pasar a usarlo.
 let liqBancoPermiso = null;   // { nombre, email, hasta }
 function liqBancoNecesitaPermiso() {
-  if (!session || session.rol !== 'directora') return false;   // admin, encargada: no cambia nada
+  if (!session || !session.oficina) return false;   // admin, encargada: no cambia nada
   return !(liqBancoPermiso && Date.now() < liqBancoPermiso.hasta);
+}
+// Si en la base ya hay una autorización vigente (p. ej. se recargó la página), se reutiliza sin volver a pedir.
+async function liqBancoCargarAutorizacion() {
+  try {
+    const { data } = await sb.from('rrhh_autorizaciones').select('otorgado_por_nombre, otorgado_por_email, hasta')
+      .eq('que', 'recibos').gt('hasta', new Date().toISOString()).order('hasta', { ascending: false }).limit(1).maybeSingle();
+    if (data) {
+      liqBancoPermiso = { nombre: data.otorgado_por_nombre, email: data.otorgado_por_email, hasta: new Date(data.hasta).getTime() };
+      session.bancoAutorizadoPor = data.otorgado_por_nombre;
+    }
+  } catch (_) {}
 }
 let _sbAutorizar = null;
 function _clienteAutorizar() {
@@ -1189,54 +1215,183 @@ function _clienteAutorizar() {
   });
   return _sbAutorizar;
 }
-async function liqPedirPermisoBanco() {
+// Ventana "usuario y clave personal". Devuelve { aux, uid, email, rol, empleado_id, empleadoData, permiso } o null.
+// · que: si viene ('recibos'), además exige hub_puede_ver(que).ok con ESA sesión (la respuesta queda en permiso).
+// · Si no viene, exige que sea el usuario personal de alguien con legajo (para los pedidos propios).
+// El que llama cierra la sesión del cliente aparte cuando termina: aux.auth.signOut({ scope: 'local' }).
+async function _pedirUsuarioPersonal({ titulo, texto, boton, que }) {
   const caja = (window.ADORNO_MFA && ADORNO_MFA.modal) ? ADORNO_MFA.modal('') : null;
   const o = caja || document.body.appendChild(Object.assign(document.createElement('div'), { className: 'amfa-fondo', style: 'position:fixed;inset:0;z-index:99999;background:rgba(20,18,16,.55);display:flex;align-items:center;justify-content:center;padding:16px;' }));
   const inner = caja ? o.querySelector('.amfa-caja') : o.appendChild(Object.assign(document.createElement('div'), { className: 'amfa-caja', style: 'background:#fff;border-radius:26px;max-width:380px;width:100%;padding:22px 20px;' }));
   const est = 'width:100%;box-sizing:border-box;padding:10px 14px;margin:0 0 10px;border:1px solid var(--border,#e7e5e4);border-radius:999px;font-size:15px;';
   inner.innerHTML = `
-    <h3 style="margin:0 0 8px;font-size:17px;font-weight:600;">🔒 Ver los recibos de todos</h3>
-    <p style="font-size:13px;line-height:1.45;color:var(--muted);margin:0 0 12px;">Banco muestra los recibos de todo el personal. Hace falta el usuario y la clave de alguien con ese permiso (Marisa o un administrador). No queda guardado en esta computadora.</p>
-    <input class="lbp-mail" type="email" autocomplete="username" placeholder="Usuario (mail)" style="${est}">
+    <h3 style="margin:0 0 8px;font-size:17px;font-weight:600;">${titulo}</h3>
+    <p style="font-size:13px;line-height:1.45;color:var(--muted);margin:0 0 12px;">${texto}</p>
+    <input class="lbp-mail" type="email" autocomplete="username" placeholder="Usuario personal (mail)" style="${est}">
     <input class="lbp-clave" type="password" autocomplete="current-password" placeholder="Clave" style="${est}">
     <div class="amfa-error" style="min-height:18px;font-size:12px;color:#b91c1c;margin-bottom:8px;"></div>
-    <div class="amfa-botones" style="display:flex;gap:8px;justify-content:flex-end;"><button type="button" class="amfa-sec">Cancelar</button><button type="button" class="amfa-pri">Autorizar</button></div>`;
+    <div class="amfa-botones" style="display:flex;gap:8px;justify-content:flex-end;"><button type="button" class="amfa-sec">Cancelar</button><button type="button" class="amfa-pri">${boton || 'Entrar'}</button></div>`;
   const mail = inner.querySelector('.lbp-mail'), clave = inner.querySelector('.lbp-clave'), err = inner.querySelector('.amfa-error'), btn = inner.querySelector('.amfa-pri');
   setTimeout(() => mail.focus(), 50);
   return new Promise(listo => {
     let enCurso = false;
     const cerrar = (v) => { o.remove(); listo(v); };
-    inner.querySelector('.amfa-sec').onclick = () => cerrar(false);
+    inner.querySelector('.amfa-sec').onclick = () => cerrar(null);
     async function probar() {
       if (enCurso) return;
       const email = mail.value.trim().toLowerCase(), pass = clave.value;
       if (!email || !pass) { err.textContent = 'Completá usuario y clave.'; return; }
       enCurso = true; btn.disabled = true; err.textContent = '';
       const aux = _clienteAutorizar();
+      let ok = false;
       try {
         const { data, error } = await aux.auth.signInWithPassword({ email, password: pass });
         if (error || !data?.user) { err.textContent = 'Usuario o clave incorrectos.'; return; }
         if (window.ADORNO_MFA && !(await ADORNO_MFA.pedirCodigo(aux))) { err.textContent = 'Hace falta el código del celular de esa cuenta.'; return; }
-        const { data: p, error: e2 } = await aux.rpc('rrhh_puede_autorizar_banco');
-        if (e2) { err.textContent = 'No pude verificar el permiso: ' + e2.message; return; }
-        if (!p?.ok) { err.textContent = p?.motivo || 'Ese usuario no puede autorizar Banco.'; return; }
-        liqBancoPermiso = { nombre: p.nombre, email: p.email, hasta: Date.now() + 8 * 3600 * 1000 };
-        session.bancoAutorizadoPor = p.nombre;
-        auditLog('banco_autorizado', 'rrhh_usuarios', null, 'autoriza', null, `${p.nombre} <${p.email}> autorizó Banco en la sesión de ${session.email}`);
-        toast(`✅ Banco habilitado por ${p.nombre}`, 'success');
-        cerrar(true);
+        const uid = data.user.id;
+        let permiso = null;
+        if (que) {
+          const { data: p, error: e2 } = await aux.rpc('hub_puede_ver', { p_que: que });
+          if (e2) { err.textContent = 'No pude verificar el permiso: ' + e2.message; return; }
+          if (!p?.ok) { err.textContent = p?.motivo || 'Ese usuario no tiene permiso.'; return; }
+          permiso = p;
+        }
+        const { data: u } = await aux.from('rrhh_usuarios').select('empleado_id, email, rol, activo').eq('auth_user_id', uid).maybeSingle();
+        if (!u || !u.activo) { err.textContent = 'Ese usuario no está en Colaboradores.'; return; }
+        if (!que && !u.empleado_id) { err.textContent = 'Tiene que ser el usuario personal de alguien, no una cuenta del local o de la oficina.'; return; }
+        let empleadoData = null;
+        if (u.empleado_id) {
+          const { data: emp } = await aux.from('rrhh_empleados').select('id, nombre, apellido, nombre_completo, local, fecha_ingreso, dni, foto_url').eq('id', u.empleado_id).maybeSingle();
+          empleadoData = emp;
+        }
+        ok = true;
+        cerrar({ aux, uid, email: u.email || email, rol: u.rol, empleado_id: u.empleado_id, empleadoData, permiso });
       } catch (x) {
         err.textContent = 'No se pudo verificar: ' + (x.message || x);
       } finally {
-        try { await aux.auth.signOut({ scope: 'local' }); } catch (_) {}
+        if (!ok) { try { await aux.auth.signOut({ scope: 'local' }); } catch (_) {} }
         enCurso = false; btn.disabled = false;
       }
     }
     btn.onclick = probar;
     [mail, clave].forEach(i => i.addEventListener('keydown', ev => { if (ev.key === 'Enter') probar(); }));
-    o.addEventListener('keydown', ev => { if (ev.key === 'Escape') cerrar(false); });
+    o.addEventListener('keydown', ev => { if (ev.key === 'Escape') cerrar(null); });
   });
 }
+// Banco: permiso de un usuario superior. Devuelve true si quedó habilitado.
+async function liqPedirPermisoBanco() {
+  const p = await _pedirUsuarioPersonal({
+    titulo: '🔒 Ver los recibos de todos',
+    texto: 'Banco muestra los recibos de todo el personal. Hace falta el usuario y la clave PERSONAL de alguien con ese permiso (Marisa o un administrador). El permiso dura hasta 8 horas o hasta que salgas de la app; no queda guardado en esta computadora.',
+    boton: 'Autorizar', que: 'recibos',
+  });
+  if (!p) return false;
+  try {
+    const { data: r, error } = await p.aux.rpc('rrhh_otorgar_autorizacion', { p_que: 'recibos', p_para: session.user.id });
+    if (error) { toast('No se pudo registrar el permiso: ' + error.message, 'error'); return false; }
+    if (!r?.ok) { toast(r?.motivo || 'No se pudo autorizar.', 'error'); return false; }
+    liqBancoPermiso = { nombre: r.nombre, email: r.email, hasta: r.hasta ? new Date(r.hasta).getTime() : Date.now() + 8 * 3600 * 1000 };
+    session.bancoAutorizadoPor = r.nombre;
+    auditLog('banco_autorizado', 'rrhh_autorizaciones', null, 'autoriza', null, `${r.nombre} <${r.email}> autorizó Banco en la sesión de ${session.email}`);
+    toast(`✅ Banco habilitado por ${r.nombre}`, 'success');
+    return true;
+  } finally {
+    try { await p.aux.auth.signOut({ scope: 'local' }); } catch (_) {}
+  }
+}
+
+// ── Pedidos propios desde la cuenta de oficina (permiso, vacaciones, préstamo) ─────────────────────────
+const PERSONAL_TABS = ['mis-vacaciones', 'mis-permisos', 'mis-prestamos'];
+const PERSONAL_DEF = {
+  vacaciones: { tab: 'mis-vacaciones', volver: 'vacaciones',  titulo: '🌴 Pedir vacaciones', boton: 'Pedir vacaciones con mi usuario' },
+  permiso:    { tab: 'mis-permisos',   volver: 'asistencias', titulo: '🙋 Pedir un permiso',  boton: 'Pedir permiso con mi usuario' },
+  prestamo:   { tab: 'mis-prestamos',  volver: 'prestamos',   titulo: '💵 Pedir un préstamo', boton: 'Pedir préstamo con mi usuario' },
+};
+let personalCtx = null;   // { aux, sbOficina, sesionOficina, volver, nombre }
+function botonPedirPropio(tipo) {
+  const d = PERSONAL_DEF[tipo]; if (!d) return '';
+  return `<button type="button" class="btn small" onclick="pedirPropio('${tipo}')" style="border-radius:999px;white-space:nowrap;">🙋 ${d.boton}</button>`;
+}
+// Mientras dura el pedido, `sb` pasa a ser el cliente aparte (sesión personal) y `session` la de esa persona:
+// los formularios de "Mis vacaciones / Mis permisos / Mis préstamos" funcionan sin cambios y el pedido sale con su
+// empleado_id (y la RLS de la base lo valida con esa sesión). Al terminar, o al tocar cualquier otro apartado, se
+// vuelve a la cuenta genérica y se cierra la sesión personal.
+async function pedirPropio(tipo) {
+  const d = PERSONAL_DEF[tipo]; if (!d || !session?.oficina) return;
+  const p = await _pedirUsuarioPersonal({
+    titulo: d.titulo,
+    texto: 'Entrá con tu usuario y clave PERSONAL (no la cuenta de la oficina): el pedido sale a tu nombre. No queda guardado en esta computadora.',
+    boton: 'Entrar',
+  });
+  if (!p) return;
+  personalCtx = { aux: p.aux, sbOficina: sb, sesionOficina: session, volver: d.volver, nombre: p.empleadoData?.nombre_completo || p.email };
+  sb = p.aux;
+  session = { ...session, oficina: false, personal: true, email: p.email, empleado_id: p.empleado_id, empleadoData: p.empleadoData, bancoAutorizadoPor: null };
+  currentTab = d.tab;
+  await renderPage(d.tab);
+  const main = document.getElementById('main');
+  if (main && personalCtx) main.insertAdjacentHTML('afterbegin', `
+    <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 16px;margin-bottom:10px;border-radius:999px;background:#fdf4ff;">
+      <span>👤 Estás como <strong>${escapeHtml(personalCtx.nombre)}</strong> para hacer un pedido propio. Al terminar volvés a la cuenta de la oficina.</span>
+      <button type="button" class="btn small" style="margin-left:auto;border-radius:999px;" onclick="_personalFin()">Volver a la oficina</button>
+    </div>`);
+}
+function _personalRestaurar() {
+  if (!personalCtx) return null;
+  const c = personalCtx; personalCtx = null;
+  sb = c.sbOficina; session = c.sesionOficina;
+  try { c.aux.auth.signOut({ scope: 'local' }); } catch (_) {}
+  return c;
+}
+// Lo llaman los formularios al terminar: true si había un pedido propio en curso (y ya se volvió a la oficina).
+function _personalFin() {
+  const c = _personalRestaurar();
+  if (!c) return false;
+  switchTab(c.volver);
+  return true;
+}
+
+// ── Escrituras desde la cuenta de oficina: aviso claro en vez del error técnico de RLS ─────────────────
+// Tablas y RPC que SÍ puede tocar: historial, avisos, buzón (mandar), su last_login y las consultas de solo lectura.
+const OFICINA_TABLAS_OK = new Set(['rrhh_log', 'rrhh_push_subscriptions', 'rrhh_inbox_anonimo', 'rrhh_usuarios']);
+const OFICINA_RPC_OK = new Set(['rrhh_current_user', 'rrhh_admins_ids', 'rrhh_encargada_id_local', 'rrhh_sum_retiros_mes',
+  'rrhh_vacaciones_solapadas', 'rrhh_extras_tope_local', 'rrhh_extras_pagables', 'rrhh_vacaciones_pago_mes', 'rrhh_extras_pago_mes',
+  'rrhh_eventuales_liquidacion', 'rrhh_calcular_pago_vacaciones', 'rrhh_calcular_tope_ganancias', 'rrhh_mi_sueldo',
+  'hub_puede_ver', 'rrhh_soltar_autorizacion', 'rrhh_adelantos_galicia']);
+function _oficinaBloqueado(que, op) {
+  const msg = `Vista de consulta: desde la cuenta de la oficina no se puede ${op}. Para un pedido propio usá "Pedir con mi usuario".`;
+  try { toast(msg, 'warning'); } catch (_) {}
+  console.warn('[oficina] bloqueado:', op, que);
+  const res = { data: null, error: { message: msg, code: 'OFICINA_LECTURA' }, count: null, status: 403, statusText: 'oficina' };
+  // Thenable encadenable: cualquier .select().single()… devuelve lo mismo, y al hacer await da { data: null, error }.
+  const px = new Proxy(function () {}, {
+    get(_, k) {
+      if (k === 'then') return (ok, ko) => Promise.resolve(res).then(ok, ko);
+      if (k === 'catch') return () => Promise.resolve(res);
+      if (k === 'finally') return (f) => Promise.resolve(res).finally(f);
+      return () => px;
+    },
+    apply() { return px; },
+  });
+  return px;
+}
+(function _oficinaGuard() {
+  const fromOrig = sb.from.bind(sb), rpcOrig = sb.rpc.bind(sb);
+  sb.from = function (tabla) {
+    const b = fromOrig(tabla);
+    if (session && session.oficina && !OFICINA_TABLAS_OK.has(tabla)) {
+      b.insert = () => _oficinaBloqueado(tabla, 'cargar');
+      b.upsert = () => _oficinaBloqueado(tabla, 'guardar');
+      b.update = () => _oficinaBloqueado(tabla, 'modificar');
+      b.delete = () => _oficinaBloqueado(tabla, 'borrar');
+    }
+    return b;
+  };
+  sb.rpc = function (fn, ...args) {
+    if (session && session.oficina && !OFICINA_RPC_OK.has(fn)) return _oficinaBloqueado(fn, 'hacer eso');
+    return rpcOrig(fn, ...args);
+  };
+})();
 
 // Dropdown "📤 Exportar ▾" en la barra de Banco
 function liqToggleExportMenu(btn, ev) {
@@ -1484,20 +1639,11 @@ async function onLoggedIn(user) {
     empleadoData = emp;
   }
 
-  // (31-jul) Usuarios "solo Banco": administración/estudio ven únicamente la
-  // sub-tab Banco de Liquidación (parte en blanco). Mismo par de emails que
-  // rrhh_es_solo_banco() en la DB — mantener sincronizado.
-  // (4-ago) claudiaadorno@ perdió el acceso al Banco del liquidador — solo administracion@.
-  const RRHH_SOLO_BANCO_EMAILS = ['administracion@claudiaadorno.com'];
-  // claudiaadorno@ no entra más a RRHH (usa Documentos, sin recibos):
-  const RRHH_BLOQUEADOS = ['claudiaadorno@claudiaadorno.com'];
-  // (15-sep) Quién puede bajar el archivo de adelantos para Galicia Office.
-  // Marisa trabaja con DOS usuarios y lo necesita desde los dos. Va por EMAIL
-  // y no por rol: `empleado` es el rol de las 19 colaboradoras y el archivo
-  // trae el CBU y el CUIL de todo el personal.
+  // (15-sep) Quién puede bajar el archivo de adelantos para Galicia Office. Va por EMAIL y no por rol:
+  // `empleado` es el rol de las 19 colaboradoras y el archivo trae el CBU y el CUIL de todo el personal.
+  // (12-nov-2026, JP) Solo Marisa con su usuario personal: la cuenta genérica administracion@ ya no.
   // 🚨 Espejo de rrhh_puede_adelantos_galicia() en la DB — mantener sincronizado.
-  const RRHH_ADELANTOS_EMAILS = ['administracion@claudiaadorno.com',
-                                 'marisaisabel07@yahoo.com.ar'];
+  const RRHH_ADELANTOS_EMAILS = ['marisaisabel07@yahoo.com.ar'];
   session = {
     user,
     rol: usuarioRow.rol,
@@ -1505,16 +1651,12 @@ async function onLoggedIn(user) {
     empleado_id: usuarioRow.empleado_id,
     empleadoData,
     email: usuarioRow.email,
-    soloBanco: RRHH_SOLO_BANCO_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
+    // (12-nov-2026, JP vía Infraestructura) Perfil "oficina": las dos cuentas genéricas de la oficina
+    // (administracion@ → Contreras, claudiaadorno@ → Rivera), rol 'directora', sin legajo. Ven todo, no modifican.
+    oficina: usuarioRow.rol === 'directora',
     puedeAdelantos: RRHH_ADELANTOS_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
   };
-  // (4-ago) Bloqueo de acceso a RRHH para usuarios que solo usan Documentos:
-  if (RRHH_BLOQUEADOS.includes((session.email || '').toLowerCase())) {
-    alert('Este usuario no tiene acceso al módulo Colaboradores.\nPara ver documentos usá el módulo Documentos.');
-    // Sin signOut: la sesión es compartida con los demás módulos abiertos (SSO).
-    location.href = 'https://claudiaadornosrl-prog.github.io/hub/';
-    return;
-  }
+  if (session.oficina) await liqBancoCargarAutorizacion();   // ¿ya hay un permiso de Banco vigente?
   console.log('[LOGIN] session set:', session);
 
   // Update last_login (best effort, sin bloquear)
@@ -1535,8 +1677,8 @@ async function onLoggedIn(user) {
   renderSidebar();
   // Tab inicial según rol — directora arranca en Liquidación (su vista principal)
   let firstTab;
-  if (session.soloBanco) liqState.subTab = 'banco';
-  if (session.rol === 'directora' || esNavSimple()) firstTab = 'liquidaciones';
+  if (session.oficina) liqState.subTab = 'banco';   // (12-nov-2026) la oficina solo ve Banco
+  if (esNavSimple()) firstTab = 'liquidaciones';
   else firstTab = NAV[session.rol]?.[0]?.id || 'dashboard';
   // (2-nov-2026) Si la app se abrió desde una notificación (./#mi-sueldo, ./#asistencias…), arrancar en esa pestaña.
   const _hashTab = tabDesdeHash(location.hash);
@@ -1597,14 +1739,11 @@ function esNavSimple() {
 function renderSidebar() {
   const sb_el = document.getElementById('sidebar');
   let items = NAV[session.rol] || [];
-  // (26-ago) administracion@: ve los prestamos activos de todos (solo lectura)
-  if (session.soloBanco && !items.some(i => i.id === 'prestamos'))
-    items = items.concat([{ id: 'prestamos', label: 'Préstamos', icon: '💵', section: null }]);
   // (15-sep) Marisa baja el archivo de adelantos desde sus dos usuarios. Con
   // administracion@ el botón ya está dentro de Préstamos; con su cuenta personal
   // (rol empleado, self-service) no existía en ningún lado, así que se le suma
   // acá. NO abre la pantalla de préstamos: el ítem dispara la descarga y nada más.
-  if (session.puedeAdelantos && session.rol !== 'admin' && !session.soloBanco)
+  if (session.puedeAdelantos && session.rol !== 'admin' && !session.oficina)
     items = items.concat([{ id: 'adelantos-galicia', label: 'Adelantos Galicia', icon: '📊', section: null }]);
   if (esNavSimple()) items = items.filter(i => NAV_SIMPLE_TABS.includes(i.id)).map(i => ({ ...i, section: null }));
   // (11-nov-2026, infra) Los apartados van en el banner común: ícono SVG + nombre (.lb), sin títulos de sección.
@@ -1669,9 +1808,10 @@ function switchTab(tabId) {
   // Va acá arriba de todo para que funcione igual desde el menú lateral que desde
   // el manual, que también entra por switchTab.
   if (tabId === 'adelantos-galicia') { exportarAdelantosGalicia(); return; }
-  // Usuarios solo-Banco: no salen de Liquidación
-  // (26-ago) administracion@ tambien puede ver Prestamos, en modo lectura
-  if (session?.soloBanco && !['liquidaciones','prestamos'].includes(tabId)) tabId = 'liquidaciones';
+  // (12-nov-2026) Pedido propio en curso desde la cuenta de oficina: al ir a otro apartado se vuelve a la genérica
+  if (personalCtx && !PERSONAL_TABS.includes(tabId)) _personalRestaurar();
+  // (12-nov-2026) Perfil oficina: solo sus apartados
+  if (session?.oficina && !NAV.directora.some(i => i.id === tabId)) tabId = 'dashboard';
   // (10-ago) Vista simple (Clau): solo sus tabs — lo demás va a Liquidación
   if (typeof esNavSimple === 'function' && esNavSimple() && !NAV_SIMPLE_TABS.includes(tabId)) tabId = 'liquidaciones';
   // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
@@ -1896,7 +2036,7 @@ function dashDetalle(k, btn) {
 
 async function renderDashboard() {
   // Solo para admin/gerente — colaborador tiene su propio "mi-legajo"
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const local = session.local_gerencia;
 
   let q = sb.from('rrhh_empleados').select('id, local, estado', { count: 'exact' }).eq('estado', 'activo');
@@ -2514,6 +2654,9 @@ if (document.readyState === 'loading') {
 window.addEventListener('pageshow', _aplicarRecordatorioAlLogin);
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  _personalRestaurar();
+  // (12-nov-2026) La cuenta de oficina suelta el permiso de Banco al salir
+  if (session?.oficina && liqBancoPermiso) { try { await sb.rpc('rrhh_soltar_autorizacion', { p_que: 'recibos' }); } catch (_) {} liqBancoPermiso = null; }
   try { await sb.auth.signOut(); } catch(e) { console.warn('signOut:', e); }
   session = null;
   // Forzar el logout sin depender del evento onAuthStateChange
@@ -2710,7 +2853,7 @@ let empleadosState = {
 };
 
 async function renderEmpleados() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   // Listado base
   const html = `
     <!-- (3-nov-2026, JP) título y ➕ en el mismo renglón; filtros compactos en un renglón -->
@@ -2719,7 +2862,7 @@ async function renderEmpleados() {
         <h2>Colaboradores</h2>
         <div class="subtitle">${isAdmin ? 'Padrón completo de Claudia Adorno SRL' : 'Colaboradores de ' + (LOCALES[session.local_gerencia]?.nombre || 'tu local')}</div>
       </div>
-      ${isAdmin ? `<button type="button" class="liq-tb tip-r" id="emp-new-btn" data-tip="Nuevo empleado" aria-label="Nuevo empleado">➕</button>` : ''}
+      ${(isAdmin && !session.oficina) ? `<button type="button" class="liq-tb tip-r" id="emp-new-btn" data-tip="Nuevo empleado" aria-label="Nuevo empleado">➕</button>` : ''}
     </div>
 
     <div class="toolbar emp-filtros">
@@ -2918,7 +3061,7 @@ async function openEmpleadoModal(empleadoId) {
 }
 
 function renderModalTabs() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   // tabs visibles según rol
   const tabs = empModalState.isNew ? [{ id: 'datos', label: 'Datos personales', icon: '👤' }] : EMP_MODAL_TABS;
   const html = tabs.map(t => `
@@ -2941,7 +3084,7 @@ async function renderModalBody() {
   const body = document.getElementById('emp-modal-body');
   const saveBtn = document.getElementById('emp-modal-save');
   const footerLeft = document.getElementById('emp-modal-footer-left');
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
 
   body.innerHTML = '<div class="spinner"></div>';
 
@@ -3046,7 +3189,7 @@ async function renderTabDatos() {
   const body = document.getElementById('emp-modal-body');
   const saveBtn = document.getElementById('emp-modal-save');
   const footerLeft = document.getElementById('emp-modal-footer-left');
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const d = empModalState.formData;
   const editing = empModalState.editing && isAdmin;
   const categorias = await getCategorias();
@@ -3475,7 +3618,7 @@ async function renderTabVacaciones() {
 async function renderTabDocumentos() {
   const body = document.getElementById('emp-modal-body');
   document.getElementById('emp-modal-save').style.display = 'none';
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
 
   // Mostrar botón "Subir documento" si admin
   document.getElementById('emp-modal-footer-left').innerHTML = isAdmin
@@ -3917,7 +4060,7 @@ async function renderTabAsistencias() {
 }
 async function renderTabLicencias() {
   const body = document.getElementById('emp-modal-body');
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   document.getElementById('emp-modal-save').style.display = 'none';
   document.getElementById('emp-modal-footer-left').innerHTML = isAdmin
     ? '<button class="btn accent2" onclick="abrirNuevaLicencia()">+ Cargar permiso / licencia</button>'
@@ -4163,7 +4306,7 @@ async function renderTabPremios() {
 }
 async function renderTabNotas() {
   const body = document.getElementById('emp-modal-body');
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   document.getElementById('emp-modal-save').style.display = 'none';
   document.getElementById('emp-modal-footer-left').innerHTML = '';
   const notas = empModalState.empleadoData.notas_internas || '';
@@ -4309,7 +4452,7 @@ document.addEventListener('keydown', (e) => {
 let docState = { tipo: '', local: '', search: '' };
 
 async function renderDocumentosAdmin() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const TIPOS = [
     { id: '', label: 'Todos los tipos' },
     { id: 'contrato', label: 'Contratos' },
@@ -4457,7 +4600,7 @@ function vacHistOrdenar(k) {
 }
 
 async function renderVacacionesAdmin() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? null : session.local_gerencia;
 
   // Para la encargada, arrancar en Saldos (no Pendientes) si no eligió tab manualmente
@@ -4472,9 +4615,9 @@ async function renderVacacionesAdmin() {
       <button type="button" class="liq-tb asis-tab ${vacState.tab==='saldos'?'active':''}" data-vactab="saldos" data-tip="Saldos de días" aria-label="Saldos">🧮</button>
       <button type="button" class="liq-tb asis-tab ${vacState.tab==='historial'?'active':''}" data-vactab="historial" data-tip="Historial" aria-label="Historial">📋</button>
       <span style="margin-left:14px;display:inline-flex;gap:2px;align-items:center;">
-        <button type="button" class="liq-tb" data-tip="Asignar vacaciones" aria-label="Asignar vacaciones" onclick="abrirAsignarVacacion()">➕</button>
+        ${session.oficina ? botonPedirPropio('vacaciones') : `<button type="button" class="liq-tb" data-tip="Asignar vacaciones" aria-label="Asignar vacaciones" onclick="abrirAsignarVacacion()">➕</button>
         <button type="button" class="liq-tb" data-tip="Pagar vacaciones" aria-label="Pagar vacaciones" onclick="abrirPagarVacaciones()">💵</button>
-        <button type="button" class="liq-tb" data-tip="Carga masiva de vacaciones" aria-label="Carga masiva" onclick="abrirCargaMasivaVac()">📥</button>
+        <button type="button" class="liq-tb" data-tip="Carga masiva de vacaciones" aria-label="Carga masiva" onclick="abrirCargaMasivaVac()">📥</button>`}
       </span>
     </div>
 
@@ -4499,7 +4642,7 @@ async function renderVacContent() {
   const cont = document.getElementById('vac-content');
   if (!cont) return;
   cont.innerHTML = '<div class="spinner"></div>';
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? null : session.local_gerencia;
 
   if (vacState.tab === 'pendientes') {
@@ -7127,6 +7270,7 @@ async function solicitarVacaciones() {
     await auditLog('modificar_vacaciones', 'rrhh_vacaciones_movimientos', _editandoVacacionId, null, null, `${desde} → ${hasta} (${dias}d${esOfi ? ' hábiles' : ''})`);
     toast('Solicitud modificada ✓', 'success');
     _editandoVacacionId = null;
+    if (_personalFin()) return;   // (12-nov-2026) pedido propio desde la cuenta de oficina
     switchTab('mis-vacaciones');
     return;
   }
@@ -7155,6 +7299,7 @@ async function solicitarVacaciones() {
   );
 
   toast(_sol.length ? `Solicitud enviada. Ojo: en esas fechas también está/pidió ${_vacSolapadasTxt(_sol)} — lo decide la encargada.` : 'Solicitud enviada ✓ Te avisamos cuando la aprueben', 'success');
+  if (_personalFin()) return;   // (12-nov-2026) pedido propio desde la cuenta de oficina
   switchTab('mis-vacaciones');
 }
 
@@ -8000,6 +8145,7 @@ async function enviarSolicitudPrestamo() {
       }
     } catch(_) {}
     closeModal();
+    if (_personalFin()) return;   // (12-nov-2026) pedido propio desde la cuenta de oficina
     switchTab('mis-prestamos');
   } catch (e) {
     toast('Error: ' + (e.message || e), 'error');
@@ -8420,7 +8566,7 @@ async function mesPredeterminadoAbierto(locales) {
 async function asisMesPredeterminado() {
   const hoy = mesActualString();
   try {
-    const isAdmin = session.rol === 'admin';
+    const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
     const locales = isAdmin ? (asisState.local ? [asisState.local] : ['unicenter', 'alcorta', 'oficina'])
                             : [session.local_gerencia].filter(Boolean);
     if (!locales.length) return hoy;
@@ -8439,7 +8585,7 @@ async function asisMesPredeterminado() {
 
 async function renderAsistenciasAdmin() {
   if (!asisState.mes) asisState.mes = await asisMesPredeterminado();
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
 
   const html = `
@@ -8455,6 +8601,7 @@ async function renderAsistenciasAdmin() {
       <button type="button" class="liq-tb asis-tab ${asisState.tab==='reportes'?'active':''}" data-asistab="reportes" data-tip="Reportes de turno" aria-label="Reportes de turno">🚩</button>
       <button type="button" class="liq-tb asis-tab ${asisState.tab==='fichadas'?'active':''}" data-asistab="fichadas" data-tip="Fichadas" aria-label="Fichadas">🕐</button>
       <button type="button" class="liq-tb asis-tab ${asisState.tab==='horarios'?'active':''}" data-asistab="horarios" data-tip="Horarios" aria-label="Horarios">🕰️</button>
+      ${session.oficina ? '<span style="margin-left:10px;">' + botonPedirPropio('permiso') + '</span>' : ''}
       <span id="asis-filtros-slot" class="asis-filtros-slot"></span>
     </div>
 
@@ -8474,7 +8621,7 @@ async function renderAsistenciasAdmin() {
 
 // ─── Reportes de turno: vista de la encargada (resolver) ───
 async function renderReportesTurno(cont) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localF = isAdmin ? (asisState.local || null) : session.local_gerencia;
   const { data: reps } = await sb.from('rrhh_reportes_turno')
     .select('*, empleado:rrhh_empleados(nombre_completo, local)')
@@ -8600,7 +8747,7 @@ async function actualizarBadgePermisos() {
 // CALENDARIO DE TURNOS — grid colaboradores × días
 // ─────────────────────────────────────────────────────────────
 async function renderCalendario(cont) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const local = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = new Date(y, m-1, 1);
@@ -8638,7 +8785,7 @@ async function renderCalendario(cont) {
 async function renderCalendarioGrid() {
   const cont = document.getElementById('cal-grid-container');
   if (!cont) return;
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = new Date(y, m-1, 1);
@@ -9098,7 +9245,7 @@ async function quitarTurno(emp_id, fecha) {
 async function generarMesDesdeDefault() {
   if (!confirm('Esto va a generar los turnos del mes según el horario default de cada empleado.\n\n¿Sobrescribe los turnos ya cargados? NO — solo agrega días vacíos. Lo ya cargado queda intacto.\n\n¿Continuar?')) return;
 
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const local = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = new Date(y, m-1, 1);
@@ -9186,7 +9333,7 @@ async function limpiarMes() {
 // FICHADAS — listado de fichadas raw de Anviz
 // ─────────────────────────────────────────────────────────────
 async function renderFichadas(cont) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = new Date(y, m-1, 1).toISOString().split('T')[0];
@@ -9300,7 +9447,7 @@ function pintarFichadas() {
 // RESUMEN MENSUAL — el dashboard original con totales
 // ─────────────────────────────────────────────────────────────
 async function renderResumenMensual(cont) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
@@ -9337,7 +9484,7 @@ async function renderResumenMensual(cont) {
 }
 
 async function actualizarBotonesCierreMes() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const btnCerrar = document.getElementById('btn-cerrar-mes');
   const btnReabrir = document.getElementById('btn-reabrir-mes');
@@ -9812,7 +9959,7 @@ async function renderResumenContent() {
   if (!cont) return;
   cont.innerHTML = '<div class="spinner"></div>';
 
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
@@ -10031,7 +10178,7 @@ async function renderResumenContent() {
 // FASE H — Cruce fichadas vs turnos
 // ════════════════════════════════════════════════════════════
 async function procesarMesUI() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? asisState.local : session.local_gerencia;
   const [y, m] = asisState.mes.split('-').map(Number);
   const fechaDesde = `${y}-${String(m).padStart(2,'0')}-01`;
@@ -11977,7 +12124,7 @@ async function listarPermisos() {
     return;
   }
 
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const puedeAprobar = ['admin','gerente'].includes(session.rol);
 
   cont.innerHTML = `
@@ -12464,7 +12611,7 @@ async function sugCambioTurno(id) {
 
 async function abrirNuevoPermisoAdmin() {
   window._sugPermisoId = null;  // se setea DESPUÉS desde sugCrearPermiso si corresponde
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
   const { data: colaboradores } = await qEmp.order('nombre_completo');
@@ -13465,6 +13612,7 @@ async function enviarPermisoEmpleado() {
 
   toast('Solicitud enviada ✓', 'success');
   document.getElementById('permiso-emp-modal').remove();
+  if (_personalFin()) return;   // (12-nov-2026) pedido propio desde la cuenta de oficina
   if (currentTab === 'mis-permisos') switchTab('mis-permisos');
 }
 
@@ -13487,7 +13635,7 @@ async function anularMiPermiso(id) {
 // ════════════════════════════════════════════════════════════
 
 async function abrirAsignarVacacion() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
   const { data: colaboradores } = await qEmp.order('nombre_completo');
@@ -13789,7 +13937,7 @@ async function guardarAsignarVacacion() {
 // ════════════════════════════════════════════════════════════
 
 async function abrirPagarVacaciones() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
   const { data: colaboradores } = await qEmp.order('nombre_completo');
@@ -14014,7 +14162,7 @@ async function guardarPagoVacaciones() {
 
 // PDF de notificación de vacaciones → vacaciones-pdf.js
 async function abrirCargaMasivaVac() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
   const { data: colaboradores } = await qEmp.order('nombre_completo');
@@ -14414,7 +14562,7 @@ async function listarExtras(fechaDesde, fechaHasta) {
 //  Encargada: solo su local.
 // ════════════════════════════════════════════════════════════
 async function renderHorariosAdmin(cont) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localGerente = session.local_gerencia;
 
   let q = sb.from('rrhh_templates_turno').select('*').order('local').order('orden');
@@ -14484,7 +14632,7 @@ async function renderHorariosAdmin(cont) {
 }
 
 async function abrirNuevoHorario(idEditar) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localGerente = session.local_gerencia;
 
   // Si es edición, cargar datos
@@ -14648,7 +14796,7 @@ function inferirTipoExtra(motivo) {
 }
 
 async function abrirNuevoExtraAdmin() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
   const { data: colaboradores } = await qEmp.order('nombre_completo');
@@ -14816,7 +14964,7 @@ function bancoFiltrarPorNombre(texto) {
 }
 
 async function renderBancoAdmin(cont) {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? bancoState.local : session.local_gerencia;
 
   cont.innerHTML = `
@@ -15101,7 +15249,7 @@ async function guardarCompensarVacaciones() {
 }
 
 async function abrirAjusteBancoAdmin() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo').eq('ficha', true);
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
   const { data: colaboradores } = await qEmp.order('nombre_completo');
@@ -18256,7 +18404,7 @@ function retIrAPanel(sel) {
 }
 
 async function renderRetirosMercaderia() {
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const localFiltro = isAdmin ? null : session.empleadoData?.local;
   // (2-nov-2026, JP) misma regla que Asistencias: mientras el mes anterior no esté cerrado, se muestra ese mes
   if (!window.retmercState._tocado && !window.retmercState._auto) {
@@ -18742,7 +18890,7 @@ let aumState = { local: null };
 
 async function renderAumentos() {
   const cont = document.getElementById('main');
-  const isAdmin = session.rol === 'admin';
+  const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   const isGerente = session.rol === 'gerente';
   if (!isAdmin && !isGerente) {
     cont.innerHTML = '<div class="card"><div class="card-body">No tenés acceso a esta sección.</div></div>';
@@ -20828,7 +20976,7 @@ async function renderPrestamos() {
   // (26-ago) administracion@ ve exactamente la misma pantalla que el admin.
   // No puede modificar: las funciones de escritura tienen guard y la RLS
   // tampoco se lo permitiria.
-  if (session.rol !== 'admin' && !session.soloBanco) {
+  if (session.rol !== 'admin' && !session.oficina) {
     cont.innerHTML = '<div class="card"><div class="card-body">Solo el admin puede gestionar préstamos.</div></div>';
     return;
   }
@@ -21081,10 +21229,10 @@ async function renderPrestamos() {
       <span class="lupa" aria-hidden="true">🔍</span><input type="search" id="prest-buscar" placeholder="Buscar colaboradora…" value="${escapeHtml(prestamoState.q||'')}" oninput="_prestamoSetQ(this.value, this)" style="padding:6px 10px 6px 28px;border-radius:6px;border:1px solid var(--border);flex:1;min-width:180px;max-width:280px;">
       ${(prestamoState.q || prestamoState.local) ? `<button class="btn small" onclick="_prestamoSetQ(''); _prestamoSetLocal(''); switchTab('prestamos');">↺ Limpiar</button>` : ''}
       <span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">
-        <button type="button" class="liq-tb" data-tip="Crear préstamo" aria-label="Crear préstamo" onclick="prestamoAbrirNuevo()">➕</button>
+        ${session.oficina ? botonPedirPropio('prestamo') : `<button type="button" class="liq-tb" data-tip="Crear préstamo" aria-label="Crear préstamo" onclick="prestamoAbrirNuevo()">➕</button>
         <button type="button" class="liq-tb" data-tip="Nuevo adelanto · 1 cuota sin interés" aria-label="Nuevo adelanto" onclick="adelantoAbrirNuevo()">💵</button>
         <button type="button" class="liq-tb" data-tip="Exportar adelantos para Galicia (.xls)" aria-label="Exportar Galicia adelantos" onclick="exportarAdelantosGalicia()">📊</button>
-        <button type="button" class="liq-tb tip-r" data-tip="Activar propuestas pendientes" aria-label="Activar propuestas" onclick="activarPropuestasBulk()">🔓</button>
+        <button type="button" class="liq-tb tip-r" data-tip="Activar propuestas pendientes" aria-label="Activar propuestas" onclick="activarPropuestasBulk()">🔓</button>`}
       </span>
     </div>
 
@@ -21205,8 +21353,8 @@ async function renderPrestamos() {
 // consulta: cualquier accion que modifique corta aca con un aviso claro, en vez
 // de reventar contra la RLS con un error tecnico.
 function prestamoSoloLectura() {
-  if (session.soloBanco) {
-    toast('Vista de consulta: los préstamos los gestiona JP', 'warning');
+  if (session.oficina) {
+    toast('Vista de consulta: los préstamos los gestiona JP. Para uno propio usá "Pedir préstamo con mi usuario".', 'warning');
     return true;
   }
   return false;
@@ -23099,7 +23247,7 @@ const salaryEngine = (() => {
 
 // ─── Descargar TODOS los recibos del mes/local combinados en 1 PDF ──────
 async function descargarTodosRecibosCombinados(local, periodo) {
-  if (!(session.rol === 'admin' || session.rol === 'gerente' || session.soloBanco)) {
+  if (!(session.rol === 'admin' || session.rol === 'gerente' || (session.oficina && session.bancoAutorizadoPor))) {
     toast('Solo admin/encargada/administración', 'error'); return;
   }
   let q = sb.from('rrhh_liquidacion')
@@ -23523,10 +23671,10 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=47"></script>
+<script src="manuales.js?v=48"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=22"></script>
+<script src="liquidaciones.js?v=23"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {
