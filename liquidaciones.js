@@ -52,6 +52,27 @@ async function renderLiquidaciones() {
   const isDirectora = session.rol === 'directora';
   const soloBanco   = !!session.soloBanco;
   if (soloBanco) liqState.subTab = 'banco';
+  // (12-nov-2026, JP) Cuentas genéricas de oficina (directora): Banco solo con permiso de un usuario superior.
+  if (liqState.subTab === 'banco' && typeof liqBancoNecesitaPermiso === 'function' && liqBancoNecesitaPermiso()) {
+    const main = document.getElementById('main');
+    if (main) main.innerHTML = `
+      <div class="cal-toolbar liq-toolbar-sticky" style="align-items:center;">
+        <h2 class="liq-titulo">Liquidación del mes</h2>
+        <div class="liq-subtabs" style="display:flex;gap:2px;">
+          ${soloBanco ? '' : `<button onclick="liqSwitchSubTab('sueldo')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:500;color:var(--muted);border-bottom:3px solid transparent;cursor:pointer;">💰 Sueldo</button>`}
+          <button onclick="liqSwitchSubTab('banco')" style="padding:8px 18px;border:none;background:transparent;font-size:14px;font-weight:700;color:var(--accent2);border-bottom:3px solid var(--accent2);cursor:pointer;">🏦 Banco</button>
+        </div>
+      </div>
+      <div class="card" style="padding:50px 24px;text-align:center;">
+        <div style="font-size:52px;margin-bottom:12px;">🔒</div>
+        <h3 style="margin:0 0 8px;font-size:18px;">Banco pide permiso de un usuario superior</h3>
+        <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto 18px;">Acá se ven los recibos de todo el personal. Para abrirlo hace falta el usuario y la clave de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador. No queda guardado en esta computadora.</p>
+        <button class="btn primary" onclick="liqPedirPermisoBanco().then(ok => { if (ok) { liqState.subTab = 'banco'; switchTab('liquidaciones'); } })" style="border-radius:999px;padding:10px 22px;">🔑 Pedir permiso</button>
+      </div>`;
+    return;   // undefined → renderPage no pisa lo pintado
+  }
+  // Con el permiso dado, la cuenta genérica ve Banco como la de administración (imprimir recibos, exportar)
+  const bancoOk = soloBanco || (isDirectora && !!session.bancoAutorizadoPor);
   // Directora ve TODOS los locales por default (no puede cambiar)
   if (!liqState.local) liqState.local = (isAdmin || isDirectora) ? 'todos' : (session.empleadoData?.local || 'alcorta');
   // (5-ago) La directora/soloBanco ahora SÍ puede filtrar por local
@@ -599,8 +620,8 @@ async function renderLiquidaciones() {
           ${isAdmin ? `<button type="button" class="liq-tb prof" data-tip="Proforma · liquidación provisoria para el banco" aria-label="Proforma" onclick="liqGenerarProforma('${local}','${periodo}')">📋</button>` : ''}
           ${isAdmin ? `<button type="button" class="liq-tb def" data-tip="Definitivo · recibos finales con la escala vigente" aria-label="Definitivo" onclick="liqGenerarDefinitivo('${local}','${periodo}')">✅</button>` : ''}
           ${isAdmin ? `<button type="button" class="liq-tb dob" data-tip="Doble blanco · Contreras y Escasany (ítem 0018)" aria-label="Doble blanco" onclick="liqGenerarDobleBlanco('${local}','${periodo}')">💎</button>` : ''}
-          ${(isAdmin || isGerente || soloBanco) ? `<button type="button" class="liq-tb" data-tip="Imprimir recibos · PDF con todos los recibos del mes" aria-label="Imprimir recibos" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')">🖨️</button>` : ''}
-          ${(isAdmin || soloBanco) ? `
+          ${(isAdmin || isGerente || bancoOk) ? `<button type="button" class="liq-tb" data-tip="Imprimir recibos · PDF con todos los recibos del mes" aria-label="Imprimir recibos" onclick="descargarTodosRecibosCombinados('${local}','${periodo}')">🖨️</button>` : ''}
+          ${(isAdmin || bancoOk) ? `
             <div class="liq-export-dd" style="position:relative;display:inline-block;">
               <button type="button" class="liq-tb" data-tip="Exportar · Galicia, LSD ARCA, planilla blanca" aria-label="Exportar" onclick="liqToggleExportMenu(this, event)">📤</button>
               <div id="liq-export-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);min-width:220px;z-index:20;overflow:hidden;">
@@ -627,10 +648,10 @@ async function renderLiquidaciones() {
                 isAdmin ? ['📋', 'Proforma', `liqGenerarProforma('${local}','${periodo}')`] : null,
                 isAdmin ? ['✅', 'Definitivo', `liqGenerarDefinitivo('${local}','${periodo}')`] : null,
                 isAdmin ? ['💎', 'Doble blanco', `liqGenerarDobleBlanco('${local}','${periodo}')`] : null,
-                (isAdmin || isGerente || soloBanco) ? ['🖨️', 'Imprimir recibos', `descargarTodosRecibosCombinados('${local}','${periodo}')`] : null,
-                (isAdmin || soloBanco) ? ['📤', 'Exportar Galicia (.xlsx)', `exportarGaliciaXLSX('${local}','${periodo}')`] : null,
-                (isAdmin || soloBanco) ? ['📄', 'Exportar LSD ARCA (.txt)', `generarLSDTxtAuto('${periodo}','${local}')`] : null,
-                (isAdmin || soloBanco) ? ['📋', 'Planilla blanca (.xlsx)', `exportarPlanillaBlancaLiq('${local}','${periodo}')`] : null,
+                (isAdmin || isGerente || bancoOk) ? ['🖨️', 'Imprimir recibos', `descargarTodosRecibosCombinados('${local}','${periodo}')`] : null,
+                (isAdmin || bancoOk) ? ['📤', 'Exportar Galicia (.xlsx)', `exportarGaliciaXLSX('${local}','${periodo}')`] : null,
+                (isAdmin || bancoOk) ? ['📄', 'Exportar LSD ARCA (.txt)', `generarLSDTxtAuto('${periodo}','${local}')`] : null,
+                (isAdmin || bancoOk) ? ['📋', 'Planilla blanca (.xlsx)', `exportarPlanillaBlancaLiq('${local}','${periodo}')`] : null,
                 isAdmin ? ['🔄', 'Refrescar', `switchTab('liquidaciones')`] : null,
                 isAdmin ? ['⚙️', 'Columnas', `liqAbrirConfigCols()`] : null,
               ].filter(Boolean).map(([ico, txt, fn]) => `<button type="button" class="liq-kebab-item" onclick="liqCloseKebabMenu();${fn}" style="width:100%;text-align:left;padding:11px 14px;border:none;background:transparent;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);"><span style="font-size:17px;">${ico}</span>${txt}</button>`).join('')}
