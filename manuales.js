@@ -79,6 +79,7 @@ const MANUAL_GERENTE = [
       'En "Pendientes" aprobás o rechazás los pedidos que mandaron las vendedoras.',
       '⚠ Superposición: si en esas fechas ya hay otra persona del local de vacaciones (o pidiéndolas), el pedido aparece marcado en rojo, el push de aviso lo dice, y al aprobar el sistema pide confirmación explícita. Se puede aprobar igual, pero nunca por descuido.',
       'Botón "+ Asignar vacaciones" carga directo (sin pasar por aprobación). Si esa persona ya tiene vacaciones cargadas que se pisan con las fechas elegidas, el sistema no la deja cargar y te muestra cuáles son (con fechas y estado): si son las mismas no hay nada que hacer; si querés otras, editá o cancelá esas primero.',
+    'Permiso de día completo que descuenta vacaciones: al aprobarlo se genera solo el registro de vacaciones (para el PDF firmable) y el día se descuenta del año más viejo que todavía tenga saldo (FIFO), nunca de uno agotado (arreglado el 13-nov-2026).',
     ],
     img: null,
   },
@@ -327,7 +328,7 @@ const MANUAL_EMPLEADO = [
     pasos: [
       'Cargá tu CBU para que te transfiramos el sueldo directo al banco.',
       'Mantené tus datos de contacto al día por si necesitamos comunicarnos.',
-      'Activá el botón "🔔 Notificaciones" para recibir avisos (turnos, recibos, permisos). En iPhone solo funcionan si instalaste la app en la pantalla de inicio (Compartir → Agregar a pantalla de inicio). Si iOS las apaga solo, la app las reactiva automáticamente al abrirla.',
+      'Las notificaciones (turnos, recibos, permisos) se activan desde el Hub, no desde acá (desde el 13-nov-2026). En iPhone solo funcionan si instalaste la app en la pantalla de inicio (Compartir → Agregar a pantalla de inicio). Si iOS las apaga solo, la app las reactiva automáticamente al abrirla.',
       'Si querés cambiar nombre o datos legales, avisá a la encargada.',
       'Foto del DNI (frente y dorso): la subís desde acá. Queda en un repositorio privado: solo la ven vos, Oficina, la directora y la encargada de tu local, con un enlace que vence en una hora. Nadie la puede abrir sin entrar a la app.',
     ],
