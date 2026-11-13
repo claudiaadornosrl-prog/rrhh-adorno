@@ -1197,17 +1197,25 @@ function liqBancoNecesitaPermiso() {
   if (!session || !session.oficina) return false;   // admin, encargada: no cambia nada
   return !(liqBancoPermiso && Date.now() < liqBancoPermiso.hasta);
 }
-// Si en la base ya hay una autorización vigente (p. ej. se recargó la página), se reutiliza sin volver a pedir.
-async function liqBancoCargarAutorizacion() {
-  try {
-    const { data } = await sb.from('rrhh_autorizaciones').select('otorgado_por_nombre, otorgado_por_email, hasta')
-      .eq('que', 'recibos').gt('hasta', new Date().toISOString()).order('hasta', { ascending: false }).limit(1).maybeSingle();
-    if (data) {
-      liqBancoPermiso = { nombre: data.otorgado_por_nombre, email: data.otorgado_por_email, hasta: new Date(data.hasta).getTime() };
-      session.bancoAutorizadoPor = data.otorgado_por_nombre;
-    }
-  } catch (_) {}
+// (13-nov-2026, JP) El permiso vive SOLO mientras la ventana esté abierta: al abrir la app se suelta cualquier
+// autorización que haya quedado en la base (se vuelve a pedir), al cerrar la pestaña se suelta con un fetch keepalive
+// y al tocar Salir también. Las 8 h de la base quedan como tope de respaldo.
+function liqBancoSoltar() {
+  liqBancoPermiso = null;
+  if (session) session.bancoAutorizadoPor = null;
+  try { sb.rpc('rrhh_soltar_autorizacion', { p_que: 'recibos' }).then(() => {}, () => {}); } catch (_) {}
 }
+let _tokenActual = null;   // para soltar el permiso al cerrar la ventana (fetch keepalive, sin esperar a supabase-js)
+try { sb.auth.onAuthStateChange((_ev, s) => { _tokenActual = s?.access_token || null; }); } catch (_) {}
+window.addEventListener('pagehide', () => {
+  if (!liqBancoPermiso || !_tokenActual) return;
+  try {
+    fetch(SUPA_URL + '/rest/v1/rpc/rrhh_soltar_autorizacion', { method: 'POST', keepalive: true,
+      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + _tokenActual, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_que: 'recibos' }) });
+  } catch (_) {}
+  liqBancoPermiso = null;
+});
 let _sbAutorizar = null;
 function _clienteAutorizar() {
   if (!_sbAutorizar) _sbAutorizar = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
@@ -1282,7 +1290,7 @@ async function _pedirUsuarioPersonal({ titulo, texto, boton, que }) {
 async function liqPedirPermisoBanco() {
   const p = await _pedirUsuarioPersonal({
     titulo: '🔒 Ver los recibos de todos',
-    texto: 'Banco muestra los recibos de todo el personal. Hace falta el usuario y la clave PERSONAL de alguien con ese permiso (Marisa o un administrador). El permiso dura hasta 8 horas o hasta que salgas de la app; no queda guardado en esta computadora.',
+    texto: 'Banco muestra los recibos de todo el personal. Hace falta el usuario y la clave PERSONAL de alguien con ese permiso (Marisa o un administrador). El permiso vale solo mientras esta ventana esté abierta: al cerrarla o al salir, se vuelve a pedir. No queda guardado en esta computadora.',
     boton: 'Autorizar', que: 'recibos',
   });
   if (!p) return false;
@@ -1656,7 +1664,7 @@ async function onLoggedIn(user) {
     oficina: usuarioRow.rol === 'directora',
     puedeAdelantos: RRHH_ADELANTOS_EMAILS.includes(((usuarioRow.email || user.email) || '').toLowerCase()),
   };
-  if (session.oficina) await liqBancoCargarAutorizacion();   // ¿ya hay un permiso de Banco vigente?
+  if (session.oficina) liqBancoSoltar();   // (13-nov-2026) al abrir la app, el permiso de Banco se pide de nuevo
   console.log('[LOGIN] session set:', session);
 
   // Update last_login (best effort, sin bloquear)
@@ -2655,7 +2663,7 @@ window.addEventListener('pageshow', _aplicarRecordatorioAlLogin);
 document.getElementById('logout-btn').addEventListener('click', async () => {
   _personalRestaurar();
   // (12-nov-2026) La cuenta de oficina suelta el permiso de Banco al salir
-  if (session?.oficina && liqBancoPermiso) { try { await sb.rpc('rrhh_soltar_autorizacion', { p_que: 'recibos' }); } catch (_) {} liqBancoPermiso = null; }
+  if (session?.oficina) { try { await sb.rpc('rrhh_soltar_autorizacion', { p_que: 'recibos' }); } catch (_) {} liqBancoPermiso = null; }
   try { await sb.auth.signOut(); } catch(e) { console.warn('signOut:', e); }
   session = null;
   // Forzar el logout sin depender del evento onAuthStateChange
@@ -23665,10 +23673,10 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=49"></script>
+<script src="manuales.js?v=50"></script>
 <script src="exportaciones.js?v=6"></script>
 <script src="salary-workflow.js?v=3"></script>
-<script src="liquidaciones.js?v=23"></script>
+<script src="liquidaciones.js?v=24"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)
 (function () {

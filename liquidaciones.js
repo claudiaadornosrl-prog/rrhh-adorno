@@ -66,7 +66,7 @@ async function renderLiquidaciones() {
       <div class="card" style="padding:50px 24px;text-align:center;">
         <div style="font-size:52px;margin-bottom:12px;">🔒</div>
         <h3 style="margin:0 0 8px;font-size:18px;">Banco pide permiso de un usuario superior</h3>
-        <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto 18px;">Acá se ven los recibos de todo el personal. Para abrirlo hace falta el usuario y la clave PERSONAL de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador; la cuenta de la oficina no sirve. Dura hasta 8 horas o hasta que salgas de la app.</p>
+        <p style="color:var(--muted);font-size:14px;max-width:520px;margin:0 auto 18px;">Acá se ven los recibos de todo el personal. Para abrirlo hace falta el usuario y la clave PERSONAL de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador; la cuenta de la oficina no sirve. Vale solo mientras esta ventana esté abierta: al cerrarla se vuelve a pedir.</p>
         <button class="btn primary" onclick="liqPedirPermisoBanco().then(ok => { if (ok) { liqState.subTab = 'banco'; switchTab('liquidaciones'); } })" style="border-radius:999px;padding:10px 22px;">🔑 Pedir permiso</button>
       </div>`;
     return;   // undefined → renderPage no pisa lo pintado
