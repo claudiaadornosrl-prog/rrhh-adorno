@@ -1312,7 +1312,7 @@ async function liqPedirPermisoBanco() {
 // JP los define en el Hub → ícono de persona → Permisos: por perfil, cada función Habilitada ('h') / Pide permiso
 // ('a') / Oculta ('o'); y por persona, sus locales. Al entrar se consulta hub_puedo(id) para cada función de la lista
 // (admin siempre 'h'; si el perfil no ve el módulo, 'o'). 'o' esconde el apartado o corta el botón; 'a' deja ver,
-// pero al usarla pide usuario y clave de alguien que con SU sesión tenga hub_puedo(id) = 'h' (y, si la función es
+// pero al usarla pide usuario y clave de alguien que con SU sesión pase hub_autoriza(id, local): persona con legajo, nunca una cuenta genérica, con hub_puedo(id) = 'h' (y, si la función es
 // "en su local", que tenga ese local en hub_mis_locales()), en el cliente aparte sin sesión guardada; la autorización
 // dura 10 minutos en esta ventana. Lo que graba la base lo sigue validando la base (RLS por rol); el chequeo con
 // hub_puedo del lado de la base queda pendiente de Infraestructura. Si hace falta una función que no está, se pide a
@@ -1394,14 +1394,13 @@ async function exigirAutorizacion(id) {
   });
   if (!p) return false;
   try {
-    const { data: e, error } = await p.aux.rpc('hub_puedo', { p_funcion: id });
-    if (error) { toast('No pude verificar el permiso: ' + error.message, 'error'); return false; }
-    if (e !== 'h') { toast(`${p.empleadoData?.nombre_completo || p.email} no tiene habilitado ${f.que}.`, 'error'); return false; }
+    // (13-nov-2026, Infra) hub_autoriza con la sesión de quien autoriza: admin → true; si no, PERSONA con legajo (las
+    // cuentas genéricas de local u oficina nunca autorizan) + hub_puedo(id) = 'h' + (si la función es "en su local")
+    // ese local en hub_mis_locales(). Antes se miraba solo hub_puedo = 'h' y una genérica con 'h' podía autorizar.
     const loc = _localTrabajo();
-    if (f.local && loc) {
-      const { data: ls } = await p.aux.rpc('hub_mis_locales');
-      if (!(Array.isArray(ls) && ls.includes(loc))) { toast(`${p.empleadoData?.nombre_completo || p.email} no está asignada a ${loc}: no puede autorizar acá.`, 'error'); return false; }
-    }
+    const { data: ok, error } = await p.aux.rpc('hub_autoriza', { p_funcion: id, p_local: f.local && loc ? loc : null });
+    if (error) { toast('No pude verificar el permiso: ' + error.message, 'error'); return false; }
+    if (ok !== true) { toast(`${p.empleadoData?.nombre_completo || p.email} no puede autorizar ${f.que}${f.local && loc ? ' en ' + loc : ''}: tiene que ser una persona (no la cuenta del local ni de la oficina) con esa función habilitada.`, 'error'); return false; }
     _autorizadas[id] = Date.now() + 10 * 60000;
     const quien = p.empleadoData?.nombre_completo || p.email;
     auditLog('autorizacion_funcion', 'hub_funciones', null, id, null, `${quien} <${p.email}> autorizó "${id}" en la sesión de ${session.email}`);
@@ -23830,7 +23829,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=51"></script>
+<script src="manuales.js?v=52"></script>
 <script src="exportaciones.js?v=7"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=24"></script>
