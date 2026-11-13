@@ -89,6 +89,7 @@ function _galiciaWorkbook(filas) {
 }
 
 async function exportarGaliciaXLSX(local, periodo) {
+  if (_gate('rrhh.exportar_banco', () => exportarGaliciaXLSX.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
   try {
     if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
 
@@ -217,6 +218,7 @@ async function exportarAdelantosGalicia() {
 // (Recibo − Préstamos − Adelantos = A acreditar)
 // ─────────────────────────────────────────────────────────────────────
 async function exportarPlanillaBlancaLiq(local, periodo) {
+  if (_gate('rrhh.exportar_banco', () => exportarPlanillaBlancaLiq.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   try {
     if (!window.XLSX) { toast('Falta SheetJS — recargá la página', 'error'); return; }
@@ -342,6 +344,7 @@ async function generarLSDTxtAuto(periodo, localFilter) {
 const LSD_GENERATOR_VERSION = 'v49';
 
 async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
+  if (_gate('rrhh.exportar_banco', () => generarLSDTxt.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   try {
     const periodoFull = periodo + '-01';
