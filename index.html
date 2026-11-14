@@ -1382,7 +1382,7 @@ function _localTrabajo() { return session?.oficina ? 'oficina' : (session?.emple
 // usuario personal, directo y sin ventana; con la cuenta compartida, por la cara o tocando el nombre en la lista) y si
 // la persona cierra esa ventana tampoco sigue. Todo en la misma llamada (async), así los callers que esperan el
 // resultado (`const ok = await cambiarTurnoDia(...)`) lo reciben de verdad.
-async function _gate(id, accion, args) {
+async function _gate(id, accion, args, opts) {
   if (!session) return false;
   const e = puedo(id);
   const que = (RRHH_FUNCIONES[id] || {}).que || id;
@@ -1390,6 +1390,7 @@ async function _gate(id, accion, args) {
     if (e === 'o') { toast(`No tenés habilitado ${que}. Se habilita desde el Hub → Permisos.`, 'warning'); return true; }
     if (!(await exigirAutorizacion(id))) return true;
   }
+  if (opts && opts.sinRegistro) return false;   // (14-nov-2026, Infra) abre una ventana: el 📷 registro va en su botón Guardar
   return !(await _registrarQuien(id, accion, args));
 }
 // Versión sincrónica para entrar a un apartado (switchTab): solo permisos, sin registro (mirar no se registra).
@@ -9716,7 +9717,7 @@ async function actualizarBotonesCierreMes() {
 }
 
 async function cerrarMesUI() {
-  if (await _gate('rrhh.asistencias_corregir', 'cerrarMesUI', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
+  if (await _gate('rrhh.asistencias_corregir', 'cerrarMesUI', arguments, { sinRegistro: true })) return;   // (13-nov-2026) permiso del Hub · (14-nov) el 📷 registro va al Guardar
   const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
   if (!localFiltro) { toast('Seleccioná un local para cerrar', 'error'); return; }
   const [y, m] = asisState.mes.split('-').map(Number);
@@ -9724,6 +9725,7 @@ async function cerrarMesUI() {
 
   const confirm1 = confirm(`¿Cerrar el mes ${periodoStr} para ${LOCALES[localFiltro]?.nombre || localFiltro}?\n\nEsto transfiere todos los movimientos calculados de minutos al banco oficial. Después de cerrar, no se puede re-procesar el mes hasta que lo reabras.`);
   if (!confirm1) return;
+  if (!(await _registrarQuien('rrhh.asistencias_corregir', 'cerrarMesUI', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
 
   const btn = document.getElementById('btn-cerrar-mes');
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; btn.dataset.tip = 'Cerrando…'; }
@@ -9755,6 +9757,7 @@ window.cerrarTodosLocalesUI = async function() {
 
   const nombres = pendientes.map(l => '• ' + (LOCALES[l]?.nombre || l)).join('\n');
   if (!confirm(`¿Cerrar el mes ${periodoStr} para los siguientes locales?\n\n${nombres}\n\nSe van a transferir todos los movimientos al banco. Se procesa uno por uno.`)) return;
+  if (!(await _registrarQuien('rrhh.asistencias_corregir', 'cerrarMesUI', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
 
   const btn = document.getElementById('btn-cerrar-todos');
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; btn.dataset.tip = 'Cerrando…'; }
@@ -10069,13 +10072,14 @@ async function cerrarMes(periodo, local, opts = {}) {
 }
 
 async function reabrirMesUI() {
-  if (await _gate('rrhh.asistencias_corregir', 'reabrirMesUI', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
+  if (await _gate('rrhh.asistencias_corregir', 'reabrirMesUI', arguments, { sinRegistro: true })) return;   // (13-nov-2026) permiso del Hub · (14-nov) el 📷 registro va al Guardar
   const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
   if (!localFiltro) return;
   const [y, m] = asisState.mes.split('-').map(Number);
   const periodoStr = `${y}-${String(m).padStart(2,'0')}`;
 
   if (!confirm(`¿Reabrir el mes ${periodoStr} para ${LOCALES[localFiltro]?.nombre || localFiltro}?\n\nSe van a BORRAR todos los movimientos del banco generados al cerrar. Vas a tener que re-procesar y cerrar de nuevo.`)) return;
+  if (!(await _registrarQuien('rrhh.asistencias_corregir', 'reabrirMesUI', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
 
   const { data: cierre } = await sb.from('rrhh_meses_cerrados')
     .select('id').eq('local', localFiltro).eq('año', y).eq('mes', m).maybeSingle();
@@ -13828,7 +13832,7 @@ async function anularMiPermiso(id) {
 // ════════════════════════════════════════════════════════════
 
 async function abrirAsignarVacacion() {
-  if (await _gate('rrhh.vacaciones_asignar', 'abrirAsignarVacacion', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
+  if (await _gate('rrhh.vacaciones_asignar', 'abrirAsignarVacacion', arguments, { sinRegistro: true })) return;   // (13-nov-2026) permiso del Hub · (14-nov) el 📷 registro va al Guardar
   const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -14045,6 +14049,7 @@ async function _consumirSaldoFIFO(empId, diasTotal) {
 }
 
 async function guardarAsignarVacacion() {
+  if (!(await _registrarQuien('rrhh.vacaciones_asignar', 'guardarAsignarVacacion', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
   const empSel = document.getElementById('asg-emp');
   const empId = parseInt(empSel.value, 10);
   let desde = document.getElementById('asg-desde').value;
@@ -14131,7 +14136,7 @@ async function guardarAsignarVacacion() {
 // ════════════════════════════════════════════════════════════
 
 async function abrirPagarVacaciones() {
-  if (await _gate('rrhh.vacaciones_asignar', 'abrirPagarVacaciones', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
+  if (await _gate('rrhh.vacaciones_asignar', 'abrirPagarVacaciones', arguments, { sinRegistro: true })) return;   // (13-nov-2026) permiso del Hub · (14-nov) el 📷 registro va al Guardar
   const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -14275,6 +14280,7 @@ async function actualizarSaldoPagVac() {
 }
 
 async function guardarPagoVacaciones() {
+  if (!(await _registrarQuien('rrhh.vacaciones_asignar', 'guardarPagoVacaciones', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
   const empId = parseInt(document.getElementById('pag-emp').value, 10);
   const dias = parseInt(document.getElementById('pag-dias').value, 10);
   const fecha = document.getElementById('pag-fecha').value;
@@ -14357,7 +14363,7 @@ async function guardarPagoVacaciones() {
 
 // PDF de notificación de vacaciones → vacaciones-pdf.js
 async function abrirCargaMasivaVac() {
-  if (await _gate('rrhh.vacaciones_asignar', 'abrirCargaMasivaVac', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
+  if (await _gate('rrhh.vacaciones_asignar', 'abrirCargaMasivaVac', arguments, { sinRegistro: true })) return;   // (13-nov-2026) permiso del Hub · (14-nov) el 📷 registro va al Guardar
   const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -14437,6 +14443,7 @@ function _diasHabilesUI(desdeStr, hastaStr) {
 }
 
 async function guardarCargaMasivaVac() {
+  if (!(await _registrarQuien('rrhh.vacaciones_asignar', 'guardarCargaMasivaVac', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
   const filas = document.querySelectorAll('.cargavac-row');
   const items = [];   // {empId, desde, hasta, dias, año, obs, esOficina}
   const errores = [];
@@ -18042,7 +18049,7 @@ async function liqVerDetalle(liqId) {
 }
 
 async function liqEditar(liqId) {
-  if (await _gate('rrhh.liq_generar', 'liqEditar', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
+  if (await _gate('rrhh.liq_generar', 'liqEditar', arguments, { sinRegistro: true })) return;   // (13-nov-2026) permiso del Hub · (14-nov) el 📷 registro va al Guardar
   const { data: liq } = await sb.from('rrhh_liquidacion')
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, fecha_ingreso, obra_social_codigo, local, categoria:rrhh_categorias_cct(*))')
     .eq('id', liqId).single();
@@ -18477,6 +18484,7 @@ async function liqCerrarMes(local, periodo) {
 }
 
 async function liqEditarGuardar(liqId) {
+  if (!(await _registrarQuien('rrhh.liq_generar', 'liqEditarGuardar', arguments))) return;   // (14-nov-2026) 📷 registra quién, justo antes de grabar
   const { data: liq } = await sb.from('rrhh_liquidacion')
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, fecha_ingreso, obra_social_codigo, local, categoria:rrhh_categorias_cct(*))')
     .eq('id', liqId).single();
