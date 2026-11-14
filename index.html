@@ -723,6 +723,7 @@ window.ADORNO_SSO = (function () {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
 <script src="/hub/pos-autorizar.js?v=2"></script>
+<script src="/hub/caras.js?v=4" defer></script>   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
@@ -1375,8 +1376,24 @@ async function cargarPermisosHub() {
 function navVisibles(items) { return (items || []).filter(i => { const f = tabFuncion(i.id); return !f || puedo(f) !== 'o'; }); }
 const _autorizadas = {};   // id → hasta (ms): autorizaciones de usuario superior vigentes en esta ventana (10 min)
 function _localTrabajo() { return session?.oficina ? 'oficina' : (session?.empleadoData?.local || session?.local_gerencia || null); }
-// true = la función quedó interceptada (oculta → aviso; pide permiso → ventana y, si autorizan, vuelve a llamar).
-function _gate(id, reintentar) {
+// Al principio de cada operación: `if (await _gate('rrhh.x', 'nombreFuncion', arguments)) return;`
+// true = la función quedó frenada: oculta → aviso; "pide permiso" → ventana de usuario superior y, si no autorizan, no
+// sigue; y (14-nov-2026) si JP la marcó con "📷 Registra quién" en el Hub, se anota quién la hace ANTES de grabar (con
+// usuario personal, directo y sin ventana; con la cuenta compartida, por la cara o tocando el nombre en la lista) y si
+// la persona cierra esa ventana tampoco sigue. Todo en la misma llamada (async), así los callers que esperan el
+// resultado (`const ok = await cambiarTurnoDia(...)`) lo reciben de verdad.
+async function _gate(id, accion, args) {
+  if (!session) return false;
+  const e = puedo(id);
+  const que = (RRHH_FUNCIONES[id] || {}).que || id;
+  if (e !== 'h' && !(_autorizadas[id] > Date.now())) {
+    if (e === 'o') { toast(`No tenés habilitado ${que}. Se habilita desde el Hub → Permisos.`, 'warning'); return true; }
+    if (!(await exigirAutorizacion(id))) return true;
+  }
+  return !(await _registrarQuien(id, accion, args));
+}
+// Versión sincrónica para entrar a un apartado (switchTab): solo permisos, sin registro (mirar no se registra).
+function _gateVista(id, reintentar) {
   if (!session) return false;
   const e = puedo(id);
   if (e === 'h' || (_autorizadas[id] && _autorizadas[id] > Date.now())) return false;
@@ -1384,6 +1401,40 @@ function _gate(id, reintentar) {
   if (e === 'o') { toast(`No tenés habilitado ${que}. Se habilita desde el Hub → Permisos.`, 'warning'); return true; }
   exigirAutorizacion(id).then(ok => { if (ok && typeof reintentar === 'function') reintentar(); });
   return true;
+}
+// (14-nov-2026, JP: "poner a cada función si necesita o no grabar quién la hizo; si pongo que sí, el sistema tiene que
+// abrir la camarita, fijarse quién lo hizo y grabarlo") → ADORNO_CARAS.registrar (/hub/caras.js v4) anota en hub_registros
+// quién, cómo se supo (usuario / cara / lista), con qué cuenta, cuándo y el detalle (función + argumentos resumidos).
+// No guarda fotos. JP lo ve en Hub → Permisos → Registro. Si la función no está marcada, no se muestra nada; se cachea
+// 5 min por función para no preguntarle a la base en cada clic. Devuelve false cuando la operación NO debe seguir.
+const _registra = {};   // id → { v: true/false, hasta }
+async function _registrarQuien(id, accion, args) {
+  const C = window.ADORNO_CARAS;
+  if (!C || !C.registrar) return true;   // caras.js no cargó: no se frena el trabajo
+  const c = _registra[id];
+  if (c && c.v === false && c.hasta > Date.now()) return true;
+  const que = (RRHH_FUNCIONES[id] || {}).que || id;
+  try {
+    const r = await C.registrar({ cli: sb, funcion: id, local: _localTrabajo(), detalle: _detalleRegistro(accion, args),
+      titulo: `${que.charAt(0).toUpperCase() + que.slice(1)}: ¿quién lo hace?` });
+    if (r.omitido) { _registra[id] = { v: false, hasta: Date.now() + 5 * 60000 }; return true; }
+    if (!r.ok) { if (r.motivo === 'error') toast('No pude anotar quién lo hace: ' + (r.error || ''), 'error'); return false; }
+    _registra[id] = { v: true, hasta: Date.now() + 5 * 60000 };
+    if (r.modo && r.modo !== 'usuario') toast(`📷 Queda anotado: ${r.nombre || ''}`, 'success');
+    return true;
+  } catch (x) { toast('No pude anotar quién lo hace: ' + (x.message || x), 'error'); return false; }
+}
+function _detalleRegistro(accion, args) {
+  const uno = a => {
+    if (a == null) return null;
+    if (typeof a === 'string') return a.slice(0, 120);
+    if (typeof a === 'number' || typeof a === 'boolean') return a;
+    if (a instanceof Event || (typeof HTMLElement !== 'undefined' && a instanceof HTMLElement)) return undefined;
+    if (typeof a === 'object') { const o = {}; ['id', 'empleado_id', 'nombre', 'periodo', 'fecha', 'local', 'importe', 'monto'].forEach(k => { if (a[k] != null) o[k] = a[k]; }); return Object.keys(o).length ? o : '[objeto]'; }
+    return undefined;
+  };
+  const lista = Array.from(args || []).map(uno).filter(v => v !== undefined);
+  return { modulo: 'colaboradores', accion: accion || null, args: lista.slice(0, 8), apartado: typeof currentTab !== 'undefined' ? currentTab : null };
 }
 async function exigirAutorizacion(id) {
   const f = RRHH_FUNCIONES[id] || { que: id };
@@ -1467,7 +1518,8 @@ const OFICINA_TABLAS_OK = new Set(['rrhh_log', 'rrhh_push_subscriptions', 'rrhh_
 const OFICINA_RPC_OK = new Set(['rrhh_current_user', 'rrhh_admins_ids', 'rrhh_encargada_id_local', 'rrhh_sum_retiros_mes',
   'rrhh_vacaciones_solapadas', 'rrhh_extras_tope_local', 'rrhh_extras_pagables', 'rrhh_vacaciones_pago_mes', 'rrhh_extras_pago_mes',
   'rrhh_eventuales_liquidacion', 'rrhh_calcular_pago_vacaciones', 'rrhh_calcular_tope_ganancias', 'rrhh_mi_sueldo',
-  'hub_puede_ver', 'rrhh_soltar_autorizacion', 'rrhh_adelantos_galicia', 'hub_puedo', 'hub_mis_locales']);
+  'hub_puede_ver', 'rrhh_soltar_autorizacion', 'rrhh_adelantos_galicia', 'hub_puedo', 'hub_mis_locales',
+  'hub_registra_quien', 'hub_registrar', 'hub_registro_cara']);   // (14-nov-2026) 📷 Registra quién
 function _oficinaBloqueado(que, op) {
   const msg = `Vista de consulta: desde la cuenta de la oficina no se puede ${op}. Para un pedido propio usá "Pedir con mi usuario".`;
   try { toast(msg, 'warning'); } catch (_) {}
@@ -1933,7 +1985,7 @@ function switchTab(tabId) {
   if (session?.oficina && !NAV.directora.some(i => i.id === tabId)) tabId = 'dashboard';
   // (13-nov-2026) Permisos del Hub: apartado oculto → no entra; "pide permiso" → usuario superior antes de entrar.
   // Banco de la oficina ya tiene su propio pedido (liqPedirPermisoBanco), así que ahí no se pregunta dos veces.
-  { const _f = tabFuncion(tabId); if (_f && !(tabId === 'liquidaciones' && session?.oficina) && _gate(_f, () => switchTab(tabId))) return; }
+  { const _f = tabFuncion(tabId); if (_f && !(tabId === 'liquidaciones' && session?.oficina) && _gateVista(_f, () => switchTab(tabId))) return; }
   // (10-ago) Vista simple (Clau): solo sus tabs — lo demás va a Liquidación
   if (typeof esNavSimple === 'function' && esNavSimple() && !NAV_SIMPLE_TABS.includes(tabId)) tabId = 'liquidaciones';
   // Si es colaboradora y tiene legajo incompleto, forzar 'mi-legajo'
@@ -3274,7 +3326,7 @@ async function renderTabTurnos() {
 }
 
 async function guardarTurnosDefault() {
-  if (_gate('rrhh.asistencias_corregir', () => guardarTurnosDefault.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'guardarTurnosDefault', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (!['admin','gerente'].includes(session.rol)) { toast('Sin permiso', 'error'); return; }
   const emp = empModalState.empleadoData;
   const fb = document.getElementById('turnos-feedback');
@@ -4454,7 +4506,7 @@ async function renderTabNotas() {
 
 // ─── Guardar colaborador (crear o actualizar) ───
 async function saveEmpleado() {
-  if (_gate('rrhh.legajo_editar', () => saveEmpleado.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.legajo_editar', 'saveEmpleado', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const d = empModalState.formData;
   // Validaciones mínimas
   if (!d.apellido?.trim()) { toast('Falta el apellido', 'error'); return; }
@@ -5205,7 +5257,7 @@ async function abrirModalPagoVacaciones(mov, totalDisp, calc) {
 }
 
 async function decidirVacacion(movId, accion) {
-  if (_gate('rrhh.vacaciones_asignar', () => decidirVacacion.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.vacaciones_asignar', 'decidirVacacion', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   // Cargar el movimiento para saber si es solicitud de toma o de pago
   const { data: mov } = await sb.from('rrhh_vacaciones_movimientos').select('*').eq('id', movId).maybeSingle();
   if (!mov) { toast('No se pudo cargar la solicitud', 'error'); return; }
@@ -7324,7 +7376,7 @@ function _vacPropiasPisadasTxt(lista) {
 }
 
 async function solicitarVacaciones() {
-  if (!personalCtx && _gate('rrhh.pedidos_propios', () => solicitarVacaciones.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (!personalCtx && await _gate('rrhh.pedidos_propios', 'solicitarVacaciones', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   let desde = document.getElementById('vac-desde').value;
   let hasta = document.getElementById('vac-hasta').value;
   const obs   = document.getElementById('vac-obs').value;
@@ -7458,7 +7510,7 @@ async function anularMiVacacion(id) {
 
 // Anular una vacación aprobada/tomada — solo admin o encargada.
 async function anularVacacionAprobada(id) {
-  if (_gate('rrhh.vacaciones_asignar', () => anularVacacionAprobada.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.vacaciones_asignar', 'anularVacacionAprobada', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   // Traer datos para mostrar en confirmación
   const { data: mov } = await sb.from('rrhh_vacaciones_movimientos')
     .select('id, fecha_desde, fecha_hasta, dias, estado, empleado:rrhh_empleados(nombre_completo)')
@@ -8211,7 +8263,7 @@ function renderOpcionesCuotasPrestamo() {
 }
 
 async function enviarSolicitudPrestamo() {
-  if (!personalCtx && _gate('rrhh.pedidos_propios', () => enviarSolicitudPrestamo.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (!personalCtx && await _gate('rrhh.pedidos_propios', 'enviarSolicitudPrestamo', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const capital = parseMoneyInput(document.getElementById('presnuevo-capital'));
   const motivo = (document.getElementById('presnuevo-motivo').value || '').trim() || null;
   const capMax = parseInt(document.getElementById('presnuevo-capmax')?.value || '0', 10) || 0;
@@ -8797,7 +8849,7 @@ async function renderReportesTurno(cont) {
 }
 
 async function aceptarReporteTurno(id, empId, fecha) {
-  if (_gate('rrhh.asistencias_corregir', () => aceptarReporteTurno.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'aceptarReporteTurno', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const sel = document.getElementById('repfix-' + id);
   const val = sel ? sel.value : null;
   let updateData;
@@ -8817,7 +8869,7 @@ async function aceptarReporteTurno(id, empId, fecha) {
 }
 
 async function rechazarReporteTurno(id) {
-  if (_gate('rrhh.asistencias_corregir', () => rechazarReporteTurno.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'rechazarReporteTurno', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const motivo = prompt('Motivo del rechazo (lo verá la vendedora):');
   if (motivo === null) return;
   await sb.from('rrhh_reportes_turno').update({ estado: 'rechazado', respuesta: motivo.trim() || 'Sin cambios', resuelto_at: new Date().toISOString(), resuelto_por: session.email }).eq('id', id);
@@ -9310,7 +9362,7 @@ window._mesAsistCerradoBloquea = async function(empleadoId, fecha) {
 };
 
 async function asignarTurno(emp_id, fecha, template_id) {
-  if (_gate('rrhh.asistencias_corregir', () => asignarTurno.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'asignarTurno', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (await _mesAsistCerradoBloquea(emp_id, fecha)) return;
   const { data: tpl } = await sb.from('rrhh_templates_turno').select('*').eq('id', template_id).single();
   if (!tpl) { toast('Template no encontrado', 'error'); return; }
@@ -9336,7 +9388,7 @@ async function asignarTurno(emp_id, fecha, template_id) {
 }
 
 async function asignarTurnoCustom(emp_id, fecha) {
-  if (_gate('rrhh.asistencias_corregir', () => asignarTurnoCustom.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'asignarTurnoCustom', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (await _mesAsistCerradoBloquea(emp_id, fecha)) return;
   const hi = prompt('Hora de inicio (HH:MM)', '10:00');
   if (!hi) return;
@@ -9360,7 +9412,7 @@ async function asignarTurnoCustom(emp_id, fecha) {
 }
 
 async function quitarTurno(emp_id, fecha) {
-  if (_gate('rrhh.asistencias_corregir', () => quitarTurno.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'quitarTurno', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (await _mesAsistCerradoBloquea(emp_id, fecha)) return;
   const { error } = await sb.from('rrhh_turnos').delete().eq('empleado_id', emp_id).eq('fecha', fecha);
   if (error) { toast('Error: ' + error.message, 'error'); return; }
@@ -9664,7 +9716,7 @@ async function actualizarBotonesCierreMes() {
 }
 
 async function cerrarMesUI() {
-  if (_gate('rrhh.asistencias_corregir', () => cerrarMesUI.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'cerrarMesUI', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
   if (!localFiltro) { toast('Seleccioná un local para cerrar', 'error'); return; }
   const [y, m] = asisState.mes.split('-').map(Number);
@@ -10017,7 +10069,7 @@ async function cerrarMes(periodo, local, opts = {}) {
 }
 
 async function reabrirMesUI() {
-  if (_gate('rrhh.asistencias_corregir', () => reabrirMesUI.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'reabrirMesUI', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const localFiltro = (session.rol === 'admin') ? asisState.local : session.local_gerencia;
   if (!localFiltro) return;
   const [y, m] = asisState.mes.split('-').map(Number);
@@ -11016,7 +11068,7 @@ async function toggleDetalleResumen(empId) {
 }
 
 async function salvarError(detalleId, empId) {
-  if (_gate('rrhh.asistencias_corregir', () => salvarError.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'salvarError', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (!['admin','gerente'].includes(session.rol)) {
     toast('Solo encargada/admin pueden salvar errores', 'error');
     return;
@@ -11061,7 +11113,7 @@ async function salvarError(detalleId, empId) {
 // Usado cuando la encargada cargó mal el turno (ej: mañana en vez de tarde) y las
 // fichadas reales matchean a otro template del catálogo.
 async function cambiarTurnoDia(detalleId, empId, fecha, templateId, horaInicioCustom, horaFinCustom) {
-  if (_gate('rrhh.asistencias_corregir', () => cambiarTurnoDia.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'cambiarTurnoDia', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   // (27-oct-2026) Devuelve true si cambió el turno y false si no (lo usa sugCambioTurno).
   if (!['admin','gerente'].includes(session.rol)) {
     toast('Solo encargada/admin pueden cambiar el turno', 'error');
@@ -11274,7 +11326,7 @@ function elegirDiaFrancoDestino(empId, fechaFranco) {
 }
 
 async function marcarFrancoTrasladado(empId, fecha) {
-  if (_gate('rrhh.asistencias_corregir', () => marcarFrancoTrasladado.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'marcarFrancoTrasladado', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (!['admin','gerente'].includes(session.rol)) { toast('Solo encargada/admin', 'error'); return; }
   const { data: t } = await sb.from('rrhh_turnos').select('id, es_franco, doble, franco_trasladado_a')
     .eq('empleado_id', empId).eq('fecha', fecha).maybeSingle();
@@ -11328,7 +11380,7 @@ async function marcarFrancoTrasladado(empId, fecha) {
 }
 
 async function cambiarTurnoPersonalizado(detalleId, empId, fecha) {
-  if (_gate('rrhh.asistencias_corregir', () => cambiarTurnoPersonalizado.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'cambiarTurnoPersonalizado', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const ini = prompt('Hora de inicio (HH:MM, ej. 09:45):');
   if (!ini || !/^\d{1,2}:\d{2}$/.test(ini.trim())) { toast('Hora inválida', 'error'); return; }
   const fin = prompt('Hora de fin (HH:MM, ej. 16:00):');
@@ -11337,7 +11389,7 @@ async function cambiarTurnoPersonalizado(detalleId, empId, fecha) {
 }
 
 async function quitarSalvado(detalleId, empId) {
-  if (_gate('rrhh.asistencias_corregir', () => quitarSalvado.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'quitarSalvado', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (!confirm('¿Quitar el salvado? El día va a volver a contar como error.')) return;
   const { error } = await sb.from('rrhh_asistencias_detalle').update({
     error_salvado: false,
@@ -12588,7 +12640,7 @@ function _sugActualizarContador() {
 // ✔ Extra confirmada → misma carga que hace la encargada:
 // rrhh_horas_extras (compensación banco) + movimiento en rrhh_banco_minutos
 async function sugAplicarExtra(id) {
-  if (_gate('rrhh.asistencias_corregir', () => sugAplicarExtra.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'sugAplicarExtra', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const su = (window._sugsFichadas || {})[id];
   if (!su) return;
   // Minutos editables: sugerimos lo detectado pero se puede ajustar (ej: redondear)
@@ -12680,7 +12732,7 @@ async function sugDevolverMinutos(id) {
 
 // 🗑 Extra cargada que la fichada no respalda: anularla (borra registro + banco)
 async function sugAnularExtra(id) {
-  if (_gate('rrhh.asistencias_corregir', () => sugAnularExtra.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'sugAnularExtra', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const su = (window._sugsFichadas || {})[id];
   if (!su || !su.extra_id) { toast('No encontré la extra vinculada', 'error'); return; }
   if (!confirm(`¿Anular la extra cargada? Se borra del banco de minutos.\n\n${su.detalle || ''}`)) return;
@@ -12715,7 +12767,7 @@ async function sugIgnorar(id) {
 // recalcula el mes (mismo camino que "⋮ Otro turno": cambiarTurnoDia). Si el horario
 // coincide con un turno del catálogo del local, usa ese.
 async function sugCambioTurno(id) {
-  if (_gate('rrhh.asistencias_corregir', () => sugCambioTurno.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'sugCambioTurno', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const su = (window._sugsFichadas || {})[id];
   if (!su) { toast('Recargá el resumen', 'error'); return; }
   if (await _mesAsistCerradoBloquea(su.empleado_id, su.fecha)) return;
@@ -12930,7 +12982,7 @@ ${lista}
 }
 
 async function guardarPermisoAdmin() {
-  if (_gate('rrhh.permisos_aprobar', () => guardarPermisoAdmin.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.permisos_aprobar', 'guardarPermisoAdmin', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const empleado_id = parseInt(document.getElementById('perm-emp').value, 10);
   const fecha = document.getElementById('perm-fecha').value;
   const tipo = document.getElementById('perm-tipo').value;
@@ -12990,7 +13042,7 @@ async function guardarPermisoAdmin() {
 }
 
 async function aprobarPermiso(id) {
-  if (_gate('rrhh.permisos_aprobar', () => aprobarPermiso.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.permisos_aprobar', 'aprobarPermiso', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   // Pedir confirmación de minutos a descontar
   const { data: perm } = await sb.from('rrhh_permisos_puntuales').select('*').eq('id', id).single();
   if (!perm) return;
@@ -13128,7 +13180,7 @@ async function aprobarPermiso(id) {
 }
 
 async function rechazarPermiso(id) {
-  if (_gate('rrhh.permisos_aprobar', () => rechazarPermiso.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.permisos_aprobar', 'rechazarPermiso', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const motivo = prompt('Motivo del rechazo (opcional):');
   if (motivo === null) return;
   // Cargar el permiso para tener empleado_id y fecha
@@ -13608,7 +13660,7 @@ async function renderMisPermisos() {
 }
 
 async function enviarPermisoEmpleado() {
-  if (!personalCtx && _gate('rrhh.pedidos_propios', () => enviarPermisoEmpleado.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (!personalCtx && await _gate('rrhh.pedidos_propios', 'enviarPermisoEmpleado', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const fecha = document.getElementById('perme-fecha').value;
   const tipo = document.getElementById('perme-tipo').value;
   const hora_desde = document.getElementById('perme-desde').value || null;
@@ -13776,7 +13828,7 @@ async function anularMiPermiso(id) {
 // ════════════════════════════════════════════════════════════
 
 async function abrirAsignarVacacion() {
-  if (_gate('rrhh.vacaciones_asignar', () => abrirAsignarVacacion.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.vacaciones_asignar', 'abrirAsignarVacacion', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -14079,7 +14131,7 @@ async function guardarAsignarVacacion() {
 // ════════════════════════════════════════════════════════════
 
 async function abrirPagarVacaciones() {
-  if (_gate('rrhh.vacaciones_asignar', () => abrirPagarVacaciones.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.vacaciones_asignar', 'abrirPagarVacaciones', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -14305,7 +14357,7 @@ async function guardarPagoVacaciones() {
 
 // PDF de notificación de vacaciones → vacaciones-pdf.js
 async function abrirCargaMasivaVac() {
-  if (_gate('rrhh.vacaciones_asignar', () => abrirCargaMasivaVac.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.vacaciones_asignar', 'abrirCargaMasivaVac', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const isAdmin = session.rol === 'admin' || !!session.oficina;   // (12-nov-2026) oficina: ve como el admin, no modifica
   let qEmp = sb.from('rrhh_empleados').select('id, nombre_completo, local').eq('estado','activo');
   if (!isAdmin && session.local_gerencia) qEmp = qEmp.eq('local', session.local_gerencia);
@@ -14597,7 +14649,7 @@ async function renderSolicitudesPagoExtras() {
     </div>`;
 }
 async function resolverPagoExtras(id, estado, minutos) {
-  if (_gate('rrhh.asistencias_corregir', () => resolverPagoExtras.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'resolverPagoExtras', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   let importe = null, periodo = null, motivo = null;
   if (estado === 'aprobada') {
     const imp = prompt(`Importe en EFECTIVO a pagar por ${minutos} min de extras (va a la columna Extras de la liquidación):`);
@@ -15004,7 +15056,7 @@ async function abrirNuevoExtraAdmin() {
 }
 
 async function guardarExtra() {
-  if (_gate('rrhh.asistencias_corregir', () => guardarExtra.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'guardarExtra', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const empleado_id = parseInt(document.getElementById('ext-emp').value, 10);
   const fecha = document.getElementById('ext-fecha').value;
   const tipo = document.getElementById('ext-tipo').value;
@@ -15067,7 +15119,7 @@ async function guardarExtra() {
 }
 
 async function eliminarExtra(id) {
-  if (_gate('rrhh.asistencias_corregir', () => eliminarExtra.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'eliminarExtra', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (!confirm('¿Eliminar esta hora extra? Si estaba en banco también se va a borrar el movimiento.')) return;
   // Borrar movimiento de banco asociado
   await sb.from('rrhh_banco_minutos').delete().eq('referencia_tipo','horas_extras').eq('referencia_id', id);
@@ -15476,7 +15528,7 @@ function _ajusSignoUI() {
 }
 
 async function guardarAjusteBanco() {
-  if (_gate('rrhh.asistencias_corregir', () => guardarAjusteBanco.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.asistencias_corregir', 'guardarAjusteBanco', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const empleado_id = parseInt(document.getElementById('ajus-emp').value, 10);
   const fecha = document.getElementById('ajus-fecha').value;
   const rSigno = document.querySelector('input[name="ajus-signo"]:checked');
@@ -17023,7 +17075,7 @@ function liqOrdenarPor(col) {
 
 
 async function liqGuardarVentas(local, periodo) {
-  if (_gate('rrhh.liq_generar', () => liqGuardarVentas.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqGuardarVentas', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const monto = Number(document.getElementById('liq-ventas').value || 0);
   const { data: existing } = await sb.from('rrhh_ventas_local_mes')
     .select('id').eq('local', local).eq('periodo', periodo + '-01').limit(1);
@@ -17082,7 +17134,7 @@ async function liqSyncVentasFromSheets(local, periodo) {
 
 // Paso 1: Generar PROFORMA — base para transferir el último día del mes
 async function liqGenerarProforma(local, periodo) {
-  if (_gate('rrhh.liq_generar', () => liqGenerarProforma.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqGenerarProforma', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
   // 1) Cargar colaboradoras del local
@@ -17290,7 +17342,7 @@ async function liqGenerarProformaConfirmar(local, periodo) {
 
 // Paso 2: Generar DEFINITIVO — recalcula con paritaria actual, compara con proforma
 async function liqGenerarDefinitivo(local, periodo) {
-  if (_gate('rrhh.liq_generar', () => liqGenerarDefinitivo.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqGenerarDefinitivo', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
 
   const periodoFull = periodo + '-01';
@@ -17837,7 +17889,7 @@ async function liqGenerarImportes(local, periodo) {
 }
 
 async function liqGenerarDobleBlanco(local, periodo) {
-  if (_gate('rrhh.liq_generar', () => liqGenerarDobleBlanco.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqGenerarDobleBlanco', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const locales = (local === 'todos') ? ['alcorta','unicenter','oficina'] : [local];
   if (!confirm(`💎 Procesar SOLO colaboradoras doble_blanco (Contreras, Escasany) en ${locales.join(', ')} para ${periodo}?\n\nRecalcula importes + recibo + solver inverso del ítem 0018 Comisiones.`)) return;
   toast('💎 Procesando doble blanco…', '');
@@ -17990,7 +18042,7 @@ async function liqVerDetalle(liqId) {
 }
 
 async function liqEditar(liqId) {
-  if (_gate('rrhh.liq_generar', () => liqEditar.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqEditar', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   const { data: liq } = await sb.from('rrhh_liquidacion')
     .select('*, empleado:rrhh_empleados(apellido, nombre, nombre_completo, fecha_ingreso, obra_social_codigo, local, categoria:rrhh_categorias_cct(*))')
     .eq('id', liqId).single();
@@ -18108,7 +18160,7 @@ async function liqValidarCierreMes(local, periodo) {
 // Reabrir una liquidación individual (cambia estado revisada/firmada → borrador)
 // para hacer correcciones puntuales sin reabrir todo el mes del local.
 async function liqReabrirEmpleado(liqId) {
-  if (_gate('rrhh.liq_generar', () => liqReabrirEmpleado.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqReabrirEmpleado', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   if (!confirm('¿Reabrir esta liquidación para correcciones?\n\nQueda en borrador y vas a poder editarla / recalcularla. El mes del local sigue cerrado.')) return;
   try {
@@ -18126,7 +18178,7 @@ async function liqReabrirEmpleado(liqId) {
 }
 
 async function liqCerrarMes(local, periodo) {
-  if (_gate('rrhh.liq_cerrar_mes', () => liqCerrarMes.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_cerrar_mes', 'liqCerrarMes', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   // (3-nov-2026, JP) Las encargadas también cierran, pero solo el mes de SU local. Reabrir sigue siendo de admin.
   const _esGerenteLocal = session.rol === 'gerente' && local !== 'todos'
     && local === (session.empleadoData?.local || session.local_gerencia);
@@ -23402,7 +23454,7 @@ const salaryEngine = (() => {
 
 // ─── Descargar TODOS los recibos del mes/local combinados en 1 PDF ──────
 async function descargarTodosRecibosCombinados(local, periodo) {
-  if (_gate('rrhh.recibos_todos', () => descargarTodosRecibosCombinados.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.recibos_todos', 'descargarTodosRecibosCombinados', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (!(session.rol === 'admin' || session.rol === 'gerente' || (session.oficina && session.bancoAutorizadoPor))) {
     toast('Solo admin/encargada/administración', 'error'); return;
   }
@@ -23533,7 +23585,7 @@ async function liqVerPrestamoEmp(empleadoId) {
 // EDITAR celda manual: abre modal, guarda override en overrides_manuales
 // ════════════════════════════════════════════════════════════
 async function liqEditarCelda(liqId, campo, label, valorActual) {
-  if (_gate('rrhh.liq_generar', () => liqEditarCelda.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqEditarCelda', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   // Cargar overrides actuales para saber si ya existe
   const { data: liq } = await sb.from('rrhh_liquidacion')
@@ -23630,7 +23682,7 @@ async function liqLimpiarOverride(liqId, campo) {
 }
 
 async function liqEditarAjuste(liqId, empleadoId) {
-  if (_gate('rrhh.liq_generar', () => liqEditarAjuste.apply(null, arguments))) return;   // (13-nov-2026) permiso del Hub
+  if (await _gate('rrhh.liq_generar', 'liqEditarAjuste', arguments)) return;   // (13-nov-2026) permiso del Hub · (14-nov) 📷 registra quién
   if (session.rol !== 'admin') { toast('Solo admin', 'error'); return; }
   const fmt = (n) => '$' + Math.round(Number(n||0)).toLocaleString('es-AR');
   const { data: liq } = await sb.from('rrhh_liquidacion')
@@ -23829,8 +23881,8 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=18"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=52"></script>
-<script src="exportaciones.js?v=7"></script>
+<script src="manuales.js?v=53"></script>
+<script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=24"></script>
 <script>
