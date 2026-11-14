@@ -723,7 +723,8 @@ window.ADORNO_SSO = (function () {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
 <script src="/hub/pos-autorizar.js?v=2"></script>
-<script src="/hub/caras.js?v=4" defer></script>   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
+<script src="/hub/caras.js?v=4" defer></script>
+<script src="/hub/imprimir.js?v=1" defer></script>   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
@@ -1828,6 +1829,7 @@ async function onLoggedIn(user) {
   };
   if (session.oficina) liqBancoSoltar();   // (13-nov-2026) al abrir la app, el permiso de Banco se pide de nuevo
   await cargarPermisosHub();   // (13-nov-2026) h/a/o por función, desde el Hub
+  _impCargarDestinos();   // (14-nov-2026) ¿tiene impresora en el local? (sin esperar; decide si existe 🖨 Imprimir en el local)
   console.log('[LOGIN] session set:', session);
 
   // Update last_login (best effort, sin bloquear)
@@ -23500,7 +23502,7 @@ async function descargarTodosRecibosCombinados(local, periodo) {
   if (!masterSueldo) { toast('No se pudo generar ningún recibo de sueldo', 'error'); return; }
   const localTxt = (local && local !== 'todos') ? local : 'Adorno';
   const nombreSueldo = hayQueGenerarSAC ? `Sueldos ${localTxt} ${periodo}.pdf` : `Recibos ${localTxt} ${periodo}.pdf`;
-  masterSueldo.save(nombreSueldo);
+  _entregarPdf(masterSueldo, nombreSueldo);   // (14-nov-2026) o 🖨 Imprimir en el local
 
   // ── Paso 2: PDF combinado de SAC (solo si es junio/diciembre y hay SAC cargado) ──
   if (hayQueGenerarSAC) {
@@ -23517,7 +23519,7 @@ async function descargarTodosRecibosCombinados(local, periodo) {
       }
     }
     if (masterSAC) {
-      masterSAC.save(`SAC ${localTxt} ${periodo}.pdf`);
+      _entregarPdf(masterSAC, `SAC ${localTxt} ${periodo}.pdf`);   // (14-nov-2026) o 🖨 Imprimir en el local
     }
     toast(`✓ Sueldos: ${okSuel}${failSuel ? ' ('+failSuel+' err)' : ''} · SAC: ${okSAC}${failSAC ? ' ('+failSAC+' err)' : ''} — 2 archivos descargados`, 'success');
   } else {
@@ -23887,9 +23889,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else init();
 
 </script>
-<script src="recibos-pdf.js?v=18"></script>
+<script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=53"></script>
+<script src="manuales.js?v=54"></script>
 <script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=24"></script>

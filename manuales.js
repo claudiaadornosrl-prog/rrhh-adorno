@@ -124,6 +124,7 @@ const MANUAL_GERENTE = [
       'Si las asistencias del local siguen abiertas aparece una flecha: te lleva directo al Resumen mensual de Asistencias de ese local y ese mes, donde se cierra el mes.',
       'Click en la celda amarilla "Recibo" para ver el desglose completo del recibo CCT.',
       'Click sobre los íconos de Acciones para descargar el PDF de cada recibo. En Acciones: candado (mes abierto 🔓 / cerrado 🔒), firma (✍️ falta firmar · 🖋️ firmada) y 🖨️ imprime todos los recibos.',
+      'Con el botón 🖨 Imprimir en el local (desde el 14-nov-2026), el recibo sale por la impresora del local (la que eligió administración en el Hub → Permisos → Computadoras), también desde el celular o la tablet, sin PrintShare. Al tocar un recibo te pregunta si lo descargás o lo imprimís; si tu local no tiene impresora elegida, baja directo como siempre.',
       '🔒 Cerrar el mes de sueldos de tu local (desde el 3-nov-2026): en la pestaña Sueldo, cuando los recibos ya se firmaron y mandaron, tocá el candado 🔒 de la barra. El sistema controla que haya ventas, que las asistencias del local estén cerradas y que se haya respondido el aumento si lo hubo; te pide confirmar y una observación opcional. Al cerrar: las liquidaciones quedan firmadas, se aplican las cuotas de préstamo del mes, se pre-cargan los borradores del mes siguiente y se publica el resumen "Mi sueldo" a cada colaboradora con su push. Si alguna liquidación no se pudo firmar te lo dice; avisale a JP. Reabrir un mes cerrado es solo de JP.',
       'Cuando se cierra el mes de sueldos, cada colaboradora recibe un push y puede abrir una sola vez su resumen (pestaña "Mi sueldo"): solo iniciales y números, sin nombre ni empresa. Vos también lo tenés.',
       'En SEPTIEMBRE el recibo trae el "Día del Gremio" (26/9, Día del Empleado de Comercio): el básico va por 29 días y se suma 1 día pagado como básico ÷ 25. Lo calcula solo el sistema, igual que el estudio.',
@@ -479,7 +480,7 @@ const MANUAL_OFICINA = [
   },
   {
     tab: 'liquidaciones', icon: '🏦', titulo: 'Banco (recibos de todo el personal)',
-    desc: 'Muestra la parte en blanco de los sueldos del mes para pagar por el banco e imprimir los recibos. Lo abre solo un usuario superior.',
+    desc: 'Muestra la parte en blanco de los sueldos del mes para pagar por el banco e imprimir los recibos (también con 🖨 Imprimir en el local, por la impresora del local, sin PrintShare). Lo abre solo un usuario superior.',
     pasos: [
       'Al entrar aparece un candado. Tocá 🔑 "Pedir permiso": pide el usuario y la clave PERSONAL de alguien con el permiso "ver los recibos de todos" (Marisa) o de un administrador. La clave de la cuenta de la oficina y la clave personal de Rivera no sirven. Si esa cuenta tiene el código del celular, también lo pide.',
       'Con el permiso dado, Banco se ve igual que para administración: filtro por mes y local, 🖨️ imprimir recibos y 📤 exportar (archivo del Galicia, LSD, planilla en blanco). La liquidación total (pestaña Sueldo) no está para la cuenta de la oficina.',

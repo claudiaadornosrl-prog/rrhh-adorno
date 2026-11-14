@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v519-registro-al-guardar';
+const CACHE_VERSION = 'rrhh-v520-imprimir-en-el-local';
 const ASSETS = [
   './',
   './index.html',

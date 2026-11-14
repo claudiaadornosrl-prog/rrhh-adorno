@@ -60,6 +60,48 @@ async function _loadForumFont(doc) {
 
 
 
+// ── (14-nov-2026, JP vía Infra: "desde un celular o una tablet poder imprimir en las impresoras los recibos de sueldo;
+//   hoy Andrea o Soraya lo hacen con PrintShare") 🖨 Imprimir en el local. /hub/imprimir.js (ADORNO_IMPRIMIR) manda el PDF a
+//   la impresora que administración eligió para el local en Hub → Permisos → Computadoras; la imprime el programa de
+//   impresión del local. Los destinos se cargan una vez al entrar; si no hay ninguno, el botón no existe y todo baja
+//   directo como siempre. El PDF no queda guardado: se borra apenas sale.
+let _impDestinos = null;
+async function _impCargarDestinos() {
+  try { _impDestinos = (window.ADORNO_IMPRIMIR && typeof sb !== 'undefined' && sb) ? (await ADORNO_IMPRIMIR.destinos({ cli: sb })) || [] : []; }
+  catch (_) { _impDestinos = []; }
+  return _impDestinos;
+}
+function _impHay() { return !!(window.ADORNO_IMPRIMIR && _impDestinos && _impDestinos.length); }
+// Entrega un PDF: con impresora en el local pregunta "¿Descargar o imprimir?"; sin impresora, descarga directo.
+function _entregarPdf(doc, nombre, msgOk) {
+  const bajar = () => { try { doc.save(nombre); if (msgOk) toast(msgOk, 'success'); } catch (e) { toast('No se pudo descargar: ' + (e.message || e), 'error'); } };
+  if (!_impHay()) { bajar(); return; }
+  const old = document.getElementById('imp-elegir'); if (old) old.remove();
+  const dest = _impDestinos.map(d => (d.local || '').charAt(0).toUpperCase() + (d.local || '').slice(1) + (d.conectada === false ? ' (impresora apagada)' : '')).join(' · ');
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="imp-elegir" style="position:fixed;inset:0;z-index:99998;background:rgba(28,22,18,.5);display:flex;align-items:center;justify-content:center;padding:16px;">
+      <div style="background:var(--surface,#fff);color:var(--text,#1C1612);border-radius:28px;padding:20px 22px;max-width:380px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25);">
+        <div style="font-size:16px;font-weight:500;margin-bottom:4px;">${(nombre || 'PDF').replace(/\.pdf$/i, '').replace(/_/g, ' ')}</div>
+        <div style="font-size:12.5px;color:var(--muted,#685B51);margin-bottom:14px;">Impresora del local: ${dest}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;">
+          <button class="btn" style="border-radius:999px;" onclick="document.getElementById('imp-elegir').remove()">Cancelar</button>
+          <button class="btn" style="border-radius:999px;" id="imp-bajar">⬇️ Descargar</button>
+          <button class="btn primary" style="border-radius:999px;" id="imp-local">🖨 Imprimir en el local</button>
+        </div>
+      </div>
+    </div>`);
+  document.getElementById('imp-bajar').onclick = () => { document.getElementById('imp-elegir').remove(); bajar(); };
+  document.getElementById('imp-local').onclick = async () => {
+    document.getElementById('imp-elegir').remove();
+    try {
+      const r = await ADORNO_IMPRIMIR.enviar({ cli: sb, pdf: doc, nombre: (nombre || 'Recibo').replace(/\.pdf$/i, '').replace(/_/g, ' '), modulo: 'rrhh' });
+      if (r && r.ok) toast(r.estado === 'impreso' ? '🖨 Impreso en el local ✓' : '🖨 Enviado a la impresora del local', 'success');
+      else if (r && r.motivo === 'sin_impresora') toast('Ese local no tiene impresora elegida en el Hub', 'warning');
+      else if (r && r.motivo === 'error') toast('No se pudo imprimir: ' + (r.error || ''), 'error');
+    } catch (e) { toast('No se pudo imprimir: ' + (e.message || e), 'error'); }
+  };
+}
+
 // Visor embebido (31-jul): el window.open lo bloqueaban los popup-blockers y
 // parecía que "no pasaba nada". Ahora el PDF se muestra en un modal con iframe.
 function _mostrarPdfInline(doc, titulo, opts = {}) {
@@ -74,7 +116,7 @@ function _mostrarPdfInline(doc, titulo, opts = {}) {
   // (3-nov-2026, JP) Nada de visor, en ningún dispositivo: tocar el recibo descarga el PDF directo.
   if (movil || true) {
     const nombre = doc.__fileName || (((titulo || 'Recibo').replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, '').trim() || 'Recibo') + '.pdf');
-    try { doc.save(nombre); toast('⬇️ ' + nombre + ' descargado', 'success'); } catch (e) { toast('No se pudo descargar: ' + (e.message || e), 'error'); }
+    _entregarPdf(doc, nombre, '⬇️ ' + nombre + ' descargado');   // (14-nov-2026) o 🖨 Imprimir en el local
     return;
   }
   const btnAbrir = movil
@@ -755,9 +797,8 @@ async function generarPDFRecibo(liqId, opts = {}) {
     const fileName = `Recibo_${apellido}_${periodoSafe}.pdf`;
     doc.__fileName = fileName;   // (3-nov-2026) lo usa la descarga directa en celu
     if (opts.autoSave !== false) {
-      doc.save(fileName);
+      _entregarPdf(doc, fileName, 'Recibo descargado ✓');   // (14-nov-2026) o 🖨 Imprimir en el local
       await sb.from('rrhh_liquidacion').update({ pdf_generado_at: new Date().toISOString() }).eq('id', liqId);
-      toast('Recibo descargado ✓', 'success');
     }
     return doc;
   } catch (e) {
