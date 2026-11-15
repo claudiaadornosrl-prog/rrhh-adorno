@@ -295,8 +295,8 @@ const MANUAL_ADMIN = [
       'Roles: admin (vos) ve todo; gerente (encargada) su local; empleado su propia información; directora (Claudia) ve colaboradores y la liquidación de los meses cerrados; administracion@ solo Banco y Préstamos.',
       'Escala CCT y categorías: básicos por mes y categoría, origen faecys/estimada/manual; lo manual no se pisa.',
       'Feriados: cargar los del año (cierra oficina / shoppings) para calendarios y feriado trabajado. Un feriado puede regir solo en algunos locales (columna locales; vacía = todos): los de la visita del Papa quedaron así, 9/11 en todos, 10/11 solo Alcorta (CABA) y 11/11 Unicenter y Oficina (Provincia).',
-    ],
       '📍 Fichar desde el celular: coordenadas y radio (m) de cada local para la fichada móvil de las colaboradoras. Parate en el medio del local con el celular y tocá "Estoy acá", o pegá las coordenadas de Google Maps. Sin coordenadas, ese local no habilita la fichada móvil. La oficina quedó sin cargar.',
+    ],
     img: null,
   },
 ];
