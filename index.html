@@ -723,7 +723,7 @@ window.ADORNO_SSO = (function () {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
 <script src="/hub/pos-autorizar.js?v=2"></script>
-<script src="/hub/caras.js?v=5" defer></script>   <!-- v5 (15-nov-2026): quien({sinLlave,sinLista}) para Fichar desde el celular -->
+<script src="/hub/caras.js?v=6" defer></script>   <!-- v6 (15-nov-2026): quien({sinLlave,sinLista,rapida,circulo}) para Fichar desde el celular -->
 <script src="/hub/imprimir.js?v=1" defer></script>   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
@@ -7749,7 +7749,7 @@ async function ficharAhora() {
   const uid = 'cel-' + e.empleado_id + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   let r;
   try {
-    r = await ADORNO_CARAS.quien({ cli: sb, rpc: 'rrhh_fichar_celular', sinLlave: true, sinLista: true,
+    r = await ADORNO_CARAS.quien({ cli: sb, rpc: 'rrhh_fichar_celular', sinLlave: true, sinLista: true, rapida: true, circulo: true,
       params: { p_lat: pos.lat, p_lng: pos.lng, p_precision: pos.precision, p_uid: uid },
       titulo: 'Fichar', nota: 'Mirá a la cámara de frente. Te reconozco y queda tomada la fichada.' });
   } finally { ficharState.ocupado = false; if (btn) btn.disabled = false; }

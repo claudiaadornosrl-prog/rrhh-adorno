@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v522-fichar-admin';
+const CACHE_VERSION = 'rrhh-v523-fichar-circulo-rapido';
 const ASSETS = [
   './',
   './index.html',
