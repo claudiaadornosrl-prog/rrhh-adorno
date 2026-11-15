@@ -723,7 +723,7 @@ window.ADORNO_SSO = (function () {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
 <script src="/hub/pos-autorizar.js?v=2"></script>
-<script src="/hub/caras.js?v=4" defer></script>
+<script src="/hub/caras.js?v=5" defer></script>   <!-- v5 (15-nov-2026): quien({sinLlave,sinLista}) para Fichar desde el celular -->
 <script src="/hub/imprimir.js?v=1" defer></script>   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
@@ -1095,6 +1095,7 @@ const NAV = {
     { id: 'prestamos',     label: 'Préstamos',          icon: '💵', section: null },
     { id: 'aumentos',      label: 'Aumentos',           icon: '📈', section: null },
     { id: 'empleados',     label: 'Mi equipo',          icon: '👥', section: null },
+    { id: 'fichar',        label: 'Fichar',             icon: '📍', section: 'Mi cuenta' },   // (15-nov-2026) desde el celular, en el local
     { id: 'mi-legajo',     label: 'Mi legajo',          icon: '👤', section: 'Mi cuenta' },
     { id: 'mis-recibos',   label: 'Mis recibos',        icon: '💰', section: 'Mi cuenta' },
     { id: 'mi-sueldo',     label: 'Mi sueldo',          icon: '🧾', section: 'Mi cuenta' },   // oculto salvo resumen sin abrir
@@ -1112,6 +1113,7 @@ const NAV = {
     { id: 'manual',        label: 'Manual',             icon: '📖', section: null },
   ],
   empleado: [   // (3-nov-2026, JP) mismo criterio: inicio, sueldo, asistencias, vacaciones, préstamos, legajo, buzón, manual
+    { id: 'fichar',        label: 'Fichar',              icon: '📍', section: null },   // (15-nov-2026, JP) fichada desde el celular: en el local + cara
     { id: 'mi-calendario', label: 'Mi calendario',       icon: '📅', section: null },
     { id: 'mis-recibos',   label: 'Mis recibos',         icon: '💰', section: null },
     { id: 'mi-sueldo',     label: 'Mi sueldo',           icon: '🧾', section: null },   // oculto salvo resumen sin abrir
@@ -1143,6 +1145,7 @@ const NAV_ICONOS = {
   'mi-sueldo':        '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
   'mi-legajo':        '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   'mis-recibos':      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  'fichar':           '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
   'mi-calendario':    '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   'mis-permisos':     '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
   'mi-banco':         '<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
@@ -1348,7 +1351,7 @@ const RRHH_FUNCIONES = {
 const TAB_FUNCION = {
   'dashboard': 'rrhh.mi_local', 'asistencias': 'rrhh.asistencias', 'vacaciones': 'rrhh.asistencias', 'retiros': 'rrhh.retiros',
   'prestamos': 'rrhh.prestamos', 'adelantos-ef': 'rrhh.prestamos', 'aumentos': 'rrhh.aumentos', 'empleados': 'rrhh.legajos',
-  'buzon-admin': 'rrhh.buzon', 'buzon': 'rrhh.buzon', 'config': 'rrhh.config', 'mi-calendario': 'rrhh.asistencias',
+  'buzon-admin': 'rrhh.buzon', 'buzon': 'rrhh.buzon', 'config': 'rrhh.config', 'mi-calendario': 'rrhh.asistencias', 'fichar': 'rrhh.asistencias',
   'mis-fichadas': 'rrhh.asistencias', 'mi-banco': 'rrhh.asistencias', 'mis-recibos': 'rrhh.mis_recibos', 'mi-sueldo': 'rrhh.mis_recibos',
   'mis-permisos': 'rrhh.pedidos_propios', 'mis-vacaciones': 'rrhh.pedidos_propios', 'mis-prestamos': 'rrhh.pedidos_propios', 'mis-certif': 'rrhh.pedidos_propios',
 };
@@ -2031,6 +2034,7 @@ async function renderPage(tabId) {
     'buzon':           renderBuzonEnviar,
     'buzon-admin':     renderBuzonAdmin,
     'mi-calendario':   renderMiCalendario,
+    'fichar':          renderFichar,
     'mi-legajo':       renderMiLegajo,
     'mis-recibos':     renderMisRecibos,
     'mi-sueldo':       renderMiSueldo,
@@ -2051,6 +2055,7 @@ async function renderPage(tabId) {
     if (html != null) main.innerHTML = html;
     // Hooks post-render por tab
     if (tabId === 'mis-vacaciones') setTimeout(wireVacacionesForm, 0);
+    if (tabId === 'fichar') setTimeout(ficharArrancar, 0);
     if (tabId === 'liquidaciones' && liqState.busqueda) setTimeout(liqFiltrarBusquedaLocal, 0);
     if (tabId === 'liquidaciones') setTimeout(liqWireScrollDoble, 50);
     // Auto-refresh silencioso de comisiones al entrar a Sueldo (Fase 2A)
@@ -7642,6 +7647,176 @@ async function renderMisFichadas() {
   `;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 📍 FICHAR DESDE EL CELULAR (15-nov-2026, pedido de JP: "que las chicas puedan fichar desde su celular… solo cuando
+//    el celular está dentro del local donde tiene que fichar… que abra la cámara y saque una foto para reconocerla")
+//  · La ubicación la pide el navegador (GPS). Se manda a rrhh_fichar_celular_estado → dice a cuántos metros del
+//    local estás y si podés fichar (radio por local en rrhh_locales_ubicacion, admin lo ajusta en Configuración).
+//  · El botón grande solo se habilita adentro del radio. Al tocarlo, ADORNO_CARAS.quien (cámara frontal, misma
+//    lectura que el Hub) manda el descriptor a rrhh_fichar_celular, que compara SOLO con las tomas de esa persona y
+//    vuelve a chequear la distancia en el servidor. La foto no se guarda nunca.
+//  · Resultado igual al fichador de la PC: "Fichada tomada · hh:mm" + el horario cargado de hoy.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+let ficharState = { pos: null, estado: null, resultado: null, ocupado: false };
+
+async function renderFichar() {
+  return `
+    <div class="page-header">
+      <h2>Fichar</h2>
+      <div class="subtitle">Desde tu celular, estando en el local · te reconoce por la cara</div>
+    </div>
+    <div class="card" style="max-width:460px;margin:0 auto;border-radius:22px;">
+      <div id="fichar-cuerpo" style="padding:18px 14px 20px;text-align:center;">
+        <div class="spinner"></div>
+        <div style="font-size:13px;color:var(--muted);margin-top:8px;">Buscando tu ubicación…</div>
+      </div>
+    </div>`;
+}
+
+function _ficharCaja(html) { const c = document.getElementById('fichar-cuerpo'); if (c) c.innerHTML = html; }
+
+function _ficharUbicacion() {
+  return new Promise((ok, mal) => {
+    if (!navigator.geolocation) return mal(new Error('Este navegador no deja usar la ubicación.'));
+    navigator.geolocation.getCurrentPosition(
+      p => ok({ lat: p.coords.latitude, lng: p.coords.longitude, precision: p.coords.accuracy }),
+      e => mal(new Error(e.code === 1 ? 'El celular no dio permiso de ubicación. Tocá el candado de la barra de direcciones (o Ajustes → Safari/Chrome → Ubicación) y permitila.'
+                        : e.code === 3 ? 'No pude obtener la ubicación a tiempo. Probá de nuevo con el GPS prendido.'
+                        : 'No pude obtener la ubicación: ' + (e.message || e.code))),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 });
+  });
+}
+
+async function ficharArrancar() {
+  ficharState.resultado = null;
+  _ficharCaja('<div class="spinner"></div><div style="font-size:13px;color:var(--muted);margin-top:8px;">Buscando tu ubicación…</div>');
+  let pos = null, errPos = null;
+  try { pos = await _ficharUbicacion(); } catch (e) { errPos = e.message; }
+  ficharState.pos = pos;
+  let est = null;
+  try {
+    const r = await sb.rpc('rrhh_fichar_celular_estado', { p_lat: pos?.lat ?? null, p_lng: pos?.lng ?? null, p_precision: pos?.precision ?? null });
+    if (r.error) throw r.error;
+    est = r.data;
+  } catch (e) {
+    _ficharCaja(`<div style="font-size:32px;">⚠️</div><div style="margin-top:8px;color:var(--danger);font-size:14px;">${escapeHtml(e.message || String(e))}</div>
+      <button class="btn small" style="margin-top:14px;border-radius:999px;" onclick="ficharArrancar()">Probar de nuevo</button>`);
+    return;
+  }
+  ficharState.estado = est;
+  _ficharPintar(errPos);
+}
+
+function _ficharPintar(errPos) {
+  const e = ficharState.estado, pos = ficharState.pos;
+  const nombre = (typeof ADORNO_CARAS !== 'undefined' && ADORNO_CARAS.pila) ? ADORNO_CARAS.pila(e.nombre) : e.nombre;
+  const turno = e.turno ? `<div style="margin-top:14px;font-size:13px;color:var(--muted);">${escapeHtml(e.turno)}</div>` : '';
+  const ultima = e.ultima_hoy ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;">Última fichada de hoy: <b>${escapeHtml(e.ultima_hoy)}</b></div>` : '';
+  const pie = `<div style="margin-top:16px;font-size:11px;color:var(--muted);line-height:1.4;">La foto no se guarda: solo queda la hora, el local y que eras vos.</div>`;
+  let estado, boton = '';
+  if (!e.configurado) {
+    estado = `<div style="font-size:32px;">📍</div><div style="margin-top:8px;font-size:14px;">La fichada desde el celular todavía no está habilitada para <b>${escapeHtml(e.local_nombre)}</b>.</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">Mientras tanto, fichá en el reloj o en la cámara de la PC.</div>`;
+  } else if (errPos || !pos) {
+    estado = `<div style="font-size:32px;">📡</div><div style="margin-top:8px;font-size:14px;color:var(--danger);">${escapeHtml(errPos || 'Sin ubicación')}</div>`;
+    boton = `<button class="btn small" style="margin-top:14px;border-radius:999px;" onclick="ficharArrancar()">Volver a buscar</button>`;
+  } else if (!e.cara_grabada) {
+    estado = `<div style="font-size:32px;">🙂</div><div style="margin-top:8px;font-size:14px;">Todavía no tenés la cara grabada.</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">Pedile a tu encargada que te la grabe desde el Hub (ícono de persona → Caras) y después fichás desde acá.</div>`;
+  } else if (e.dentro) {
+    estado = `<div style="display:inline-flex;align-items:center;gap:8px;background:#d1fae5;color:#065f46;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;">✓ Estás en ${escapeHtml(e.local_nombre)}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">a ${e.distancia_m ?? '?'} m del punto del local${pos.precision > 60 ? ' · GPS impreciso (±' + Math.round(pos.precision) + ' m)' : ''}</div>`;
+    boton = `<button id="fichar-btn" type="button" onclick="ficharAhora()" style="margin:22px auto 0;width:168px;height:168px;border-radius:50%;border:0;background:var(--primary,#8B5E3C);color:#fff;font-size:22px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.18);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;">
+               <span style="font-size:34px;line-height:1;">📷</span>Fichar</button>
+             <div style="font-size:12px;color:var(--muted);margin-top:12px;">Se abre la cámara de adelante: mirá de frente, con luz.</div>`;
+  } else {
+    estado = `<div style="display:inline-flex;align-items:center;gap:8px;background:#fee2e2;color:#991b1b;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;">Estás a ${e.distancia_m ?? '?'} m de ${escapeHtml(e.local_nombre)}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:8px;">Solo se puede fichar desde adentro del local (hasta ${e.radio_m} m)${pos.precision > 60 ? '. Tu GPS está impreciso (±' + Math.round(pos.precision) + ' m): salí un segundo a cielo abierto o prendé el wifi y volvé a buscar' : ''}.</div>`;
+    boton = `<button class="btn small" style="margin-top:14px;border-radius:999px;" onclick="ficharArrancar()">Volver a buscar</button>`;
+  }
+  _ficharCaja(`<div style="font-size:15px;font-weight:600;margin-bottom:10px;">Hola, ${escapeHtml(nombre)}</div>${estado}${boton}${turno}${ultima}${pie}`);
+}
+
+async function ficharAhora() {
+  if (ficharState.ocupado) return;
+  const pos = ficharState.pos, e = ficharState.estado;
+  if (!pos || !e || !e.dentro) { ficharArrancar(); return; }
+  if (typeof ADORNO_CARAS === 'undefined' || !ADORNO_CARAS.quien) { toast('No cargó el módulo de caras. Recargá la página.', 'error'); return; }
+  ficharState.ocupado = true;
+  const btn = document.getElementById('fichar-btn'); if (btn) btn.disabled = true;
+  const uid = 'cel-' + e.empleado_id + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  let r;
+  try {
+    r = await ADORNO_CARAS.quien({ cli: sb, rpc: 'rrhh_fichar_celular', sinLlave: true, sinLista: true,
+      params: { p_lat: pos.lat, p_lng: pos.lng, p_precision: pos.precision, p_uid: uid },
+      titulo: 'Fichar', nota: 'Mirá a la cámara de frente. Te reconozco y queda tomada la fichada.' });
+  } finally { ficharState.ocupado = false; if (btn) btn.disabled = false; }
+  if (!r || !r.ok) {
+    if (r && r.motivo === 'camara') toast(r.error || 'No se pudo abrir la cámara', 'error');
+    return;
+  }
+  const d = r.data || {};
+  ficharState.resultado = d;
+  const repetida = d.estado === 'repetida';
+  const titulo = repetida ? 'Ya habías fichado' : 'Fichada tomada';
+  const hora = d.hora || '';
+  const prueba = d.destino !== 'real' ? '<div style="font-size:11px;color:var(--muted);margin-top:6px;">(período de prueba: esta fichada no afecta todavía tu asistencia)</div>' : '';
+  _ficharCaja(`<div style="font-size:44px;line-height:1;">${repetida ? '🕐' : '✅'}</div>
+    <div style="font-size:20px;font-weight:700;margin-top:10px;">${titulo}</div>
+    <div style="font-size:34px;font-weight:700;letter-spacing:1px;margin-top:4px;">${escapeHtml(hora)}</div>
+    <div style="font-size:14px;margin-top:6px;">${escapeHtml(ADORNO_CARAS.nombre ? ADORNO_CARAS.nombre(d.nombre) : d.nombre)} · ${escapeHtml(e.local_nombre)}</div>
+    ${d.turno ? `<div style="margin-top:12px;padding:10px 14px;border-radius:14px;background:var(--bg-soft,#f6f1ea);font-size:13px;">${escapeHtml(d.turno)}</div>` : ''}
+    ${prueba}
+    <button class="btn small" style="margin-top:18px;border-radius:999px;" onclick="ficharArrancar()">Listo</button>`);
+  toast(titulo + ' · ' + hora, repetida ? '' : 'success');
+}
+
+// Admin: coordenadas y radio de cada local (Configuración → 📍 Fichar desde el celular)
+async function renderConfigFichar(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data, error } = await sb.from('rrhh_locales_ubicacion').select('*').order('local');
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
+  const filas = (data || []).map(u => `
+    <tr style="border-top:1px solid var(--border);">
+      <td style="padding:8px;font-weight:600;">${escapeHtml(u.nombre)}<div style="font-size:11px;color:var(--muted);font-weight:400;">${escapeHtml(u.local)}</div></td>
+      <td style="padding:8px;"><input class="input" data-ub="lat" data-local="${u.local}" value="${u.lat ?? ''}" placeholder="-34.5752" style="width:120px;border-radius:999px;"></td>
+      <td style="padding:8px;"><input class="input" data-ub="lng" data-local="${u.local}" value="${u.lng ?? ''}" placeholder="-58.4053" style="width:120px;border-radius:999px;"></td>
+      <td style="padding:8px;"><input class="input" data-ub="radio" data-local="${u.local}" type="number" min="30" max="2000" value="${u.radio_m}" style="width:80px;border-radius:999px;"></td>
+      <td style="padding:8px;text-align:center;"><input type="checkbox" data-ub="activo" data-local="${u.local}" ${u.activo ? 'checked' : ''}></td>
+      <td style="padding:8px;white-space:nowrap;">
+        <button class="btn small" style="border-radius:999px;" onclick="cfgFicharUsarMiUbicacion('${u.local}')" title="Pone acá las coordenadas de donde estás parado">📍 Estoy acá</button>
+        <button class="btn small primary" style="border-radius:999px;" onclick="cfgFicharGuardar('${u.local}')">Guardar</button>
+      </td>
+    </tr>`).join('');
+  cont.innerHTML = `
+    <div class="card" style="overflow-x:auto;">
+      <div class="section-title">📍 Fichar desde el celular</div>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px;">Cada colaboradora puede fichar desde Colaboradores → Fichar solo si su celular está a menos del radio indicado del punto del local, y si la cámara la reconoce (contra su propia cara grabada). Para cargar un local, parate en el medio del local con el celular, entrá acá y tocá "📍 Estoy acá", o pegá las coordenadas de Google Maps (clic derecho en el mapa → el primer renglón). Adentro de un shopping el GPS es flojo: dejá radios de 150 a 250 m.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f9fafb;text-align:left;"><th style="padding:8px;">Local</th><th style="padding:8px;">Latitud</th><th style="padding:8px;">Longitud</th><th style="padding:8px;">Radio (m)</th><th style="padding:8px;text-align:center;">Activo</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+async function cfgFicharUsarMiUbicacion(local) {
+  try {
+    const p = await _ficharUbicacion();
+    document.querySelector(`[data-ub="lat"][data-local="${local}"]`).value = p.lat.toFixed(6);
+    document.querySelector(`[data-ub="lng"][data-local="${local}"]`).value = p.lng.toFixed(6);
+    toast(`Ubicación tomada (±${Math.round(p.precision)} m). Tocá Guardar.`, 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function cfgFicharGuardar(local) {
+  const v = k => document.querySelector(`[data-ub="${k}"][data-local="${local}"]`);
+  const lat = parseFloat(String(v('lat').value).replace(',', '.')), lng = parseFloat(String(v('lng').value).replace(',', '.'));
+  const radio = parseInt(v('radio').value, 10), activo = v('activo').checked;
+  if (v('lat').value !== '' && (isNaN(lat) || isNaN(lng))) { toast('Latitud o longitud inválida', 'error'); return; }
+  const r = await sb.rpc('rrhh_fichar_celular_config', { p_local: local, p_lat: isNaN(lat) ? null : lat, p_lng: isNaN(lng) ? null : lng, p_radio_m: radio, p_activo: activo });
+  if (r.error) { toast(r.error.message, 'error'); return; }
+  toast('Guardado', 'success');
+}
+
 async function renderMisPrestamos() {
   if (!session.empleado_id) {
     return '<div class="emp-empty">Tu usuario no está vinculado a un empleado.</div>';
@@ -11678,6 +11853,7 @@ async function renderConfigAdmin() {
       <!-- (10-ago) Audit log oculto: renderConfigLog no existe todavía -->
       <!-- (13-nov-2026, JP) "🔔 Mis notificaciones" se fue: se activan desde el Hub -->
       <button class="modal-tab ${configState.tab==='borrados'?'active':''}" data-cfg="borrados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗑️ Borrados pendientes</button>
+      <button class="modal-tab ${configState.tab==='fichar'?'active':''}" data-cfg="fichar" style="border-bottom:2px solid transparent;padding:12px 14px;">📍 Fichar desde el celular</button>
     </div>
 
     <div id="cfg-content" style="margin-top:20px;"><div class="spinner"></div></div>
@@ -11703,6 +11879,7 @@ async function renderConfigContent() {
   else if (configState.tab === 'salvados') await renderConfigSalvados(cont);
   else if (configState.tab === 'log')      await renderConfigLog(cont);
   else if (configState.tab === 'borrados') await renderConfigBorrados(cont);
+  else if (configState.tab === 'fichar')   await renderConfigFichar(cont);
 }
 
 async function renderConfigBorrados(cont) {
@@ -23891,7 +24068,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=54"></script>
+<script src="manuales.js?v=55"></script>
 <script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=24"></script>

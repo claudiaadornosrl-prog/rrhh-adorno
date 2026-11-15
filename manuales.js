@@ -296,6 +296,7 @@ const MANUAL_ADMIN = [
       'Escala CCT y categorías: básicos por mes y categoría, origen faecys/estimada/manual; lo manual no se pisa.',
       'Feriados: cargar los del año (cierra oficina / shoppings) para calendarios y feriado trabajado. Un feriado puede regir solo en algunos locales (columna locales; vacía = todos): los de la visita del Papa quedaron así, 9/11 en todos, 10/11 solo Alcorta (CABA) y 11/11 Unicenter y Oficina (Provincia).',
     ],
+      '📍 Fichar desde el celular: coordenadas y radio (m) de cada local para la fichada móvil de las colaboradoras. Parate en el medio del local con el celular y tocá "Estoy acá", o pegá las coordenadas de Google Maps. Sin coordenadas, ese local no habilita la fichada móvil. La oficina quedó sin cargar.',
     img: null,
   },
 ];
@@ -306,11 +307,23 @@ const MANUAL_EMPLEADO = [
     desc: 'Es igual en todos los módulos: mismo lugar para cada cosa y el color de la moneda del módulo (el mismo del Hub).',
     pasos: [
       'A la izquierda, la moneda y el nombre del módulo. En la computadora, tocando el nombre (Colaboradores ▾) se abre la lista para pasar a otro módulo; al final de esa lista está «Volver al Hub». Al lado, tu nombre y tu perfil. Colaboradores se usa con tu usuario personal: la cuenta del local (alcorta@, unicenter@) no entra.',
-      'Al lado van los apartados (Mi calendario, Mis recibos, Mis permisos, Mi banco, Mis vacaciones, Mis préstamos, Mis certif. médicos, Mi legajo, Buzón anónimo): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre. El Manual no está en la barra: preguntale a Clodi.',
+      'Al lado van los apartados (Fichar, Mi calendario, Mis recibos, Mis permisos, Mi banco, Mis vacaciones, Mis préstamos, Mis certif. médicos, Mi legajo, Buzón anónimo): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre. El Manual no está en la barra: preguntale a Clodi.',
       'A la derecha: ⬇ Instalar (si el navegador lo ofrece) y Salir.',
       'En el celular: los apartados están adentro del botón ☰; a la vista quedan 🏠 Hub (volver al Hub) y Salir.',
       'Permisos (desde el 13-nov-2026): qué apartados y qué botones ves depende de los permisos que JP define en el Hub (ícono de persona → Permisos), por perfil y por persona. Cada función puede estar habilitada, oculta (no aparece) o "pide permiso": se ve, pero al usarla se abre una ventana para que alguien que la tenga habilitada ponga su usuario y clave personal (siempre una persona: la cuenta del local o de la oficina no sirve para autorizar; no queda guardada y vale 10 minutos). Si JP marcó una función con "📷 Registra quién" en el Hub, al usarla se pide quién la está haciendo (por la cara, o tocando tu nombre en la lista); con usuario personal se anota solo, sin ventana. La foto no se guarda: queda quién, cuándo y qué hizo (JP lo ve en Hub → Permisos → Registro). Si te falta algo que necesitás, pedíselo a JP.',
       '¿Dudas? Preguntale a Clodi (el botón de abajo a la derecha): sabe todo lo que dice este manual.',
+    ],
+    img: null,
+  },
+  {
+    tab: 'fichar', icon: '📍', titulo: 'Fichar (desde el celular)',
+    desc: 'Desde el 15-nov-2026 podés fichar con tu celular, pero solo estando adentro de tu local y mirando a la cámara.',
+    pasos: [
+      'Entrá a Colaboradores desde el celular con tu usuario personal y tocá 📍 Fichar. La primera vez el celular te pide permiso de ubicación: hay que permitirlo (si lo negaste, se vuelve a dar desde el candado de la barra de direcciones o en Ajustes del celular).',
+      'La pantalla te dice a cuántos metros estás del punto del local. Si estás adentro del radio (unos 200 m: adentro del shopping el GPS no es exacto), aparece el botón redondo "Fichar"; si estás lejos, no hay botón: solo se puede fichar desde el local. Si dice que tu GPS está impreciso, prendé el wifi o acercate a una ventana y tocá "Volver a buscar".',
+      'Tocá "Fichar": se abre la cámara de adelante. Mirá de frente, con luz, y quedate quieta un segundo. Te reconoce comparando con tu propia cara grabada (no con la de otras): si no tenés la cara grabada, pedile a tu encargada que te la grabe desde el Hub.',
+      'Si te reconoce, ves "Fichada tomada · hh:mm" y tu horario cargado de hoy, igual que en la cámara de la PC: si el horario que muestra no es el tuyo, avisale a tu encargada. Si fichaste hace menos de 5 minutos dice "Ya habías fichado". Si no te reconoce, probá de nuevo con más luz: la foto nunca se guarda.',
+      'Mientras el fichador por cámara esté en período de prueba, estas fichadas no cambian tu asistencia: se cruzan con el reloj a fin de mes.',
     ],
     img: null,
   },
