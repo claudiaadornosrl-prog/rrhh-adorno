@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v521-fichar-desde-el-celular';
+const CACHE_VERSION = 'rrhh-v522-fichar-admin';
 const ASSETS = [
   './',
   './index.html',
