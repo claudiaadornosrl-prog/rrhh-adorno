@@ -17980,7 +17980,7 @@ async function liqGenerarGaliciaAjuste(local, periodo) {
       'Observaciones': `Ajuste paritaria ${periodo}`,
     });
   }
-  if (filas.length === 0) { toast('Sin diferencias positivas para exportar', 'warning'); return; }
+  if (filas.length === 0) { toast('Sin diferencias positivas para exportar', 'info'); return; }
   if (sinCuenta.length > 0) {
     if (!confirm(`⚠ ${sinCuenta.length} colaboradoras sin CBU quedan fuera:\n\n  • ${sinCuenta.join('\n  • ')}\n\n¿Generar archivo con las ${filas.length} restantes?`)) return;
   }
@@ -19872,7 +19872,7 @@ async function aumPuntualAplicar() {
   if (!actual) { toast('La colaboradora no tiene config vigente', 'error'); return; }
 
   if (fijoNuevo === Number(actual.fijo)) {
-    toast('El fijo nuevo es igual al actual', 'warning'); return;
+    toast('El fijo nuevo es igual al actual', 'info'); return;
   }
 
   const emp = _aumPuntualConfigs.find(x => x.empleado_id === empId)?.rrhh_empleados;
@@ -20328,7 +20328,7 @@ async function _aumAbrirPedido_DEPRECATED() {
     pedido_id: ped.id, empleado_id: c.empleado_id, fijo_anterior: c.fijo_mensual,
   }));
   if (filas.length === 0) {
-    toast('No hay colaboradoras activas en ' + local, 'warning');
+    toast('No hay colaboradoras activas en ' + local, 'info');
   } else {
     const { error: e2 } = await sb.from('rrhh_aumento_pedido_detalle').insert(filas);
     if (e2) { toast('Pedido creado pero falló detalle: ' + e2.message, 'error'); return; }
@@ -20644,7 +20644,7 @@ async function aumPreviewRangos() {
     .forEach(c => { porEmp[c.empleado_id] = c; });
 
   const colaboradores = Object.values(porEmp).filter(c => Number(c.fijo) > 0);
-  if (colaboradores.length === 0) { toast('No hay vendedoras con fijo > 0', 'warning'); return; }
+  if (colaboradores.length === 0) { toast('No hay vendedoras con fijo > 0', 'info'); return; }
 
   // Redondear hacia el múltiplo más cercano
   const redondear = (n) => Math.round(n / redondeo) * redondeo;
@@ -21828,7 +21828,7 @@ async function renderPrestamos() {
 // de reventar contra la RLS con un error tecnico.
 function prestamoSoloLectura() {
   if (session.oficina) {
-    toast('Vista de consulta: los préstamos los gestiona JP. Para uno propio usá "Pedir préstamo con mi usuario".', 'warning');
+    toast('Vista de consulta: los préstamos los gestiona JP. Para uno propio usá "Pedir préstamo con mi usuario".', 'info');
     return true;
   }
   return false;
@@ -23732,7 +23732,7 @@ async function descargarTodosRecibosCombinados(local, periodo) {
   if (local && local !== 'todos') q = q.eq('local', local);
   const { data: liqs, error } = await q;
   if (error) { toast('Error: ' + error.message, 'error'); return; }
-  if (!liqs || liqs.length === 0) { toast('No hay recibos para combinar', 'warning'); return; }
+  if (!liqs || liqs.length === 0) { toast('No hay recibos para combinar', 'info'); return; }
 
   // Detectar si estamos en un mes de SAC (junio/diciembre) y si hay alguna liq con SAC neto > 0
   const mesNum = parseInt(periodo.split('-')[1], 10);
@@ -24149,8 +24149,8 @@ else init();
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
 <script src="manuales.js?v=64"></script>
-<script src="exportaciones.js?v=8"></script>
-<script src="salary-workflow.js?v=4"></script>
+<script src="exportaciones.js?v=9"></script>
+<script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
 <script>
 // ⇪ Aviso de Bloq Mayús en campos de contraseña (agregado 14-ago-2026)

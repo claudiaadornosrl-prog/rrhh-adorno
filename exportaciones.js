@@ -99,7 +99,7 @@ async function exportarGaliciaXLSX(local, periodo) {
     if (local && local !== 'todos') q = q.eq('local', local);
     const { data: liqs, error } = await q;
     if (error) { toast('Error: ' + error.message, 'error'); return; }
-    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'warning'); return; }
+    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'info'); return; }
 
     const fmtNombre = _galiciaNombre;
 
@@ -230,7 +230,7 @@ async function exportarPlanillaBlancaLiq(local, periodo) {
     if (local && local !== 'todos') q = q.eq('local', local);
     const { data: liqs, error } = await q;
     if (error) { toast('Error: ' + error.message, 'error'); return; }
-    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'warning'); return; }
+    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para exportar', 'info'); return; }
 
     // 2) Separar Adelantos (1 cuota tasa 0) vs Préstamos largos
     const empIds = [...new Set(liqs.map(l => l.empleado_id))];
@@ -357,7 +357,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
       .eq('periodo', periodoFull)
       .order('empleado(apellido)');
     if (error) { toast('Error: ' + error.message, 'error'); return; }
-    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para ese período', 'warning'); return; }
+    if (!liqs || liqs.length === 0) { toast('No hay liquidaciones para ese período', 'info'); return; }
     // Filtrar fuera a monotributistas
     liqs = liqs.filter(l => !l.empleado?.monotributista);
 
@@ -365,7 +365,7 @@ async function generarLSDTxt(periodo, jurisdiccionFiltro, nroLiquidacion) {
     if (jurisdiccionFiltro) {
       liqs = liqs.filter(l => (l.empleado?.jurisdiccion || 'NACION') === jurisdiccionFiltro);
       if (liqs.length === 0) {
-        toast('No hay colaboradores con jurisdicción ' + jurisdiccionFiltro + ' en este período', 'warning');
+        toast('No hay colaboradores con jurisdicción ' + jurisdiccionFiltro + ' en este período', 'info');
         return;
       }
     }

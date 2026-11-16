@@ -138,7 +138,7 @@ const salaryWorkflow = (() => {
       if (error) throw error;
       r = data;
     } catch (e) {
-      if (hay) { try { toast(`⚠ No pude revisar FAECYS (${e.message || e}). Sigo con la escala cargada.`, 'warn'); } catch (_) {} return; }
+      if (hay) { try { toast(`⚠ No pude revisar FAECYS (${e.message || e}). Sigo con la escala cargada.`, 'info'); } catch (_) {} return; }
       throw new Error(`No hay escala CCT para ${MES} y no pude consultar FAECYS (${e.message || e}). Probá de nuevo en un rato.`);
     }
     if (!r || !r.ok) {
