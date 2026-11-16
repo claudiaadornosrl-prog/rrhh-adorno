@@ -725,7 +725,7 @@ window.ADORNO_SSO = (function () {
 <script src="/hub/pos-autorizar.js?v=3"></script>
 <script src="/hub/caras.js?v=7" defer></script>   <!-- v6 (15-nov-2026): quien({sinLlave,sinLista,rapida,circulo}) para Fichar desde el celular -->
 <script src="/hub/imprimir.js?v=1" defer></script>
-<script src="/hub/autorizar.js?v=3" defer></script>   <!-- (15-nov-2026) ventana común de autorización: cara → celu → clave -->   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
+<script src="/hub/autorizar.js?v=4" defer></script>   <!-- (15-nov-2026) ventana común de autorización: cara → celu → clave -->   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
@@ -1321,7 +1321,7 @@ async function liqPedirPermisoBanco() {
 // (admin siempre 'h'; si el perfil no ve el módulo, 'o'). 'o' esconde el apartado o corta el botón; 'a' deja ver,
 // pero al usarla pide usuario y clave de alguien que con SU sesión pase hub_autoriza(id, local): persona con legajo, nunca una cuenta genérica, con hub_puedo(id) = 'h' (y, si la función es
 // "en su local", que tenga ese local en hub_mis_locales()), en el cliente aparte sin sesión guardada; la autorización
-// dura 10 minutos en esta ventana. Lo que graba la base lo sigue validando la base (RLS por rol); el chequeo con
+// vale para UNA sola operación (JP, 15-nov-2026; antes 10 min). Lo que graba la base lo sigue validando la base (RLS por rol); el chequeo con
 // hub_puedo del lado de la base queda pendiente de Infraestructura. Si hace falta una función que no está, se pide a
 // JP y se agrega en el Hub (tabla hub_funciones). Ids: solo estos.
 const RRHH_FUNCIONES = {
@@ -1380,7 +1380,7 @@ async function cargarPermisosHub() {
   console.log('[permisos]', session.permisos, session.locales);
 }
 function navVisibles(items) { return (items || []).filter(i => { const f = tabFuncion(i.id); return !f || puedo(f) !== 'o'; }); }
-const _autorizadas = {};   // id → hasta (ms): autorizaciones de usuario superior vigentes en esta ventana (10 min)
+const _autorizadas = {};   // id → hasta (ms): pase de 5 s SOLO para entrar a un apartado tras autorizar (_gateVista). Las operaciones no reutilizan nada: una autorización = una operación (JP, 15-nov-2026)
 function _localTrabajo() { return session?.oficina ? 'oficina' : (session?.empleadoData?.local || session?.local_gerencia || null); }
 // Al principio de cada operación: `if (await _gate('rrhh.x', 'nombreFuncion', arguments)) return;`
 // true = la función quedó frenada: oculta → aviso; "pide permiso" → ventana de usuario superior y, si no autorizan, no
@@ -1392,7 +1392,7 @@ async function _gate(id, accion, args, opts) {
   if (!session) return false;
   const e = puedo(id);
   const que = (RRHH_FUNCIONES[id] || {}).que || id;
-  if (e !== 'h' && !(_autorizadas[id] > Date.now())) {
+  if (e !== 'h') {
     if (e === 'o') { toast(`No tenés habilitado ${que}. Se habilita desde el Hub → Permisos.`, 'warning'); return true; }
     if (!(await exigirAutorizacion(id, _resumenOperacion(accion, args)))) return true;
   }
@@ -1406,7 +1406,7 @@ function _gateVista(id, reintentar) {
   if (e === 'h' || (_autorizadas[id] && _autorizadas[id] > Date.now())) return false;
   const que = (RRHH_FUNCIONES[id] || {}).que || id;
   if (e === 'o') { toast(`No tenés habilitado ${que}. Se habilita desde el Hub → Permisos.`, 'warning'); return true; }
-  exigirAutorizacion(id).then(ok => { if (ok && typeof reintentar === 'function') reintentar(); });
+  exigirAutorizacion(id).then(ok => { if (ok && typeof reintentar === 'function') { _autorizadas[id] = Date.now() + 5000; reintentar(); } });
   return true;
 }
 // (14-nov-2026, JP: "poner a cada función si necesita o no grabar quién la hizo; si pongo que sí, el sistema tiene que
@@ -1453,24 +1453,26 @@ function _detalleRegistro(accion, args) {
 // tres pasos y la base (hub_autorizantes / hub_autorizacion_*) aplica las mismas reglas que hub_autoriza: autoriza una
 // persona con legajo que tenga la función en 'h' y ese local, o un dueño; nunca a sí misma ni una cuenta genérica.
 // Como las operaciones de Colaboradores escriben directo en las tablas (no por una RPC), la autorización se "gasta" acá
-// mismo con hub_autorizacion_usar (un solo uso) y después vale 10 minutos en esta ventana, igual que antes.
+// mismo con hub_autorizacion_usar: UN solo uso, una autorización por operación (JP, 15-nov-2026: "Sí, una sola"; reemplaza
+// los 10 min del 13-nov). La ventana usa la sesión DEL MÓDULO (sesion: {email, token}, autorizar.js v4): en una compu
+// puede haber otra cuenta abierta en el Hub y el pedido saldría con esa.
 async function exigirAutorizacion(id, resumen) {
   const f = RRHH_FUNCIONES[id] || { que: id };
   const loc = _localTrabajo() || 'oficina';
   if (!window.ADORNO_AUTORIZAR) { toast('No cargó la ventana de autorización. Recargá la página y probá de nuevo.', 'error'); return false; }
-  let a;
+  let a, ses = null;
+  try { const s = (await sb.auth.getSession()).data.session; if (s?.access_token) ses = { email: s.user?.email || session?.email || '', token: s.access_token }; } catch (_) {}
   try {
-    a = await ADORNO_AUTORIZAR.pedir({ funcion: id, local: loc, que: f.que, resumen: resumen || f.que, modulo: 'rrhh',
+    a = await ADORNO_AUTORIZAR.pedir({ funcion: id, local: loc, que: f.que, resumen: resumen || f.que, modulo: 'rrhh', sesion: ses,
       detalle: { modulo: 'colaboradores', funcion: id, cuenta: session?.email || null } });
   } catch (x) { toast('No se pudo pedir la autorización: ' + (x.message || x), 'error'); return false; }
   if (!a) return false;   // canceló
-  try { await ADORNO_AUTORIZAR.usar(a.id, { funcion: id, local: loc, usado_en: 'Colaboradores · ' + f.que + (resumen ? ' · ' + resumen : '') }); }
+  try { await ADORNO_AUTORIZAR.usar(a.id, { funcion: id, local: loc, sesion: ses, usado_en: 'Colaboradores · ' + f.que + (resumen ? ' · ' + resumen : '') }); }
   catch (x) { toast('La autorización no sirvió: ' + (x.message || x), 'error'); return false; }
-  _autorizadas[id] = Date.now() + 10 * 60000;
   const quien = a.nombre || '?';
   const como = (ADORNO_AUTORIZAR.MODO || {})[a.modo] || a.modo || '';
   auditLog('autorizacion_funcion', 'hub_funciones', null, id, null, `${quien} autorizó "${id}" ${como} (aut #${a.id}) en la sesión de ${session.email}`);
-  toast(`✅ Autorizado por ${quien} ${como} (10 min)`, 'success');
+  toast(`✅ Autorizado por ${quien} ${como} · solo para esta operación`, 'success');
   return true;
 }
 
@@ -24076,7 +24078,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=57"></script>
+<script src="manuales.js?v=58"></script>
 <script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=24"></script>
