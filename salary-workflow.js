@@ -749,7 +749,7 @@ const salaryWorkflow = (() => {
     const fers = (_cache.feriados && _cache.periodo === periodo)
       ? _cache.feriados
       : (await sb.from('rrhh_feriados')
-          .select('fecha, cierra_oficina, cierra_shoppings')
+          .select('fecha, cierra_oficina, cierra_shoppings, locales')
           .gte('fecha', desdeFer).lte('fecha', hastaFer)).data || [];
     const { data: detalleEmp } = await sb.from('rrhh_asistencias_detalle')
       .select('fecha, estado').eq('empleado_id', empleadoId)
@@ -762,6 +762,9 @@ const salaryWorkflow = (() => {
     );
     let feriado_dias = 0;
     (fers || []).forEach(f => {
+      // (16-nov-2026) Feriado de una sola jurisdicción (rrhh_feriados.locales, 3-nov): si no rige en este local, no es
+      // feriado para esta persona. Mismo criterio que feriadoAplica() de asistencias. Vacía/NULL = rige en todos.
+      if (Array.isArray(f.locales) && f.locales.length && !f.locales.includes(emp.local)) return;
       const localTrabaja = (emp.local === 'oficina') ? !f.cierra_oficina : !f.cierra_shoppings;
       if (!localTrabaja) return;
       if (noDisponiblePorFecha.has(f.fecha)) return;
@@ -1190,7 +1193,7 @@ const salaryWorkflow = (() => {
     const [paritariaCache, cfgLocalCache, feriadosCache] = await Promise.all([
       cargarParitaria(periodo),
       cargarConfigLocal(local, periodo),
-      sb.from('rrhh_feriados').select('fecha, cierra_oficina, cierra_shoppings')
+      sb.from('rrhh_feriados').select('fecha, cierra_oficina, cierra_shoppings, locales')
         .gte('fecha', desdeFer).lte('fecha', hastaFer).then(r => r.data || []),
     ]);
     const cache = { paritaria: paritariaCache, cfgLocal: cfgLocalCache, feriados: feriadosCache, local, periodo };

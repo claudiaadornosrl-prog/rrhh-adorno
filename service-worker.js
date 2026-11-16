@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v529-recordatorio-fichada';
+const CACHE_VERSION = 'rrhh-v530-feriado-por-local';
 const ASSETS = [
   './',
   './index.html',
