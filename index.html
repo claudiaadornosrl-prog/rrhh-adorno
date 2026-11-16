@@ -718,7 +718,7 @@ window.ADORNO_SSO = (function () {
       <button class="hbtn ab-fijo" id="logout-btn" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </header>
-  <script src="/hub/banner.js?v=7"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) -->
+  <script src="/hub/banner.js?v=8"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) -->
   <div class="layout">
     <main class="main" id="main">
       <div class="spinner"></div>
@@ -1720,7 +1720,7 @@ async function init() {
       });
       if (setErr) {
         console.error('[AUTH-INIT] setSession error:', setErr);
-        alert(`⚠️ No se pudo procesar el link de recuperación.\n\nError: ${setErr.message}\n\nPedí un mail nuevo o avisale al admin para que te resetee la pass.`);
+        _errorAviso(`⚠️ No se pudo procesar el link de recuperación.\n\nError: ${setErr.message}\n\nPedí un mail nuevo o avisale al admin para que te resetee la pass.`);
         return;
       }
       console.log('[AUTH-INIT] Sesión seteada, abriendo modal de recovery');
@@ -1728,7 +1728,7 @@ async function init() {
       return;
     } catch (e) {
       console.error('[AUTH-INIT] setSession exception:', e);
-      alert(`⚠️ Error procesando el link: ${e.message}\n\nPedí un mail nuevo o avisale al admin.`);
+      _errorAviso(`⚠️ Error procesando el link: ${e.message}\n\nPedí un mail nuevo o avisale al admin.`);
       return;
     }
   }
@@ -1742,7 +1742,7 @@ async function init() {
     }
     showLogin();
     setTimeout(() => {
-      alert(`⚠️ El link de recuperación expiró o ya fue usado.\n\nDetalle: ${desc}\n\nPedí un mail nuevo o avisale al admin para que te resetee la pass desde el panel.`);
+      _errorAviso(`⚠️ El link de recuperación expiró o ya fue usado.\n\nDetalle: ${desc}\n\nPedí un mail nuevo o avisale al admin para que te resetee la pass desde el panel.`);
     }, 100);
     return;
   }
@@ -2137,7 +2137,7 @@ async function renderPage(tabId) {
     if (tabId === 'prestamos' && prestamoState.q) setTimeout(() => _prestamoSetQ(prestamoState.q), 0);
   } catch (e) {
     console.error(e);
-    main.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${e.message}</div>`;
+    main.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${_errTxt(e)}</div>`;
   }
 }
 
@@ -2189,7 +2189,7 @@ async function enviarBuzonMensaje() {
   const fb = document.getElementById('buzon-feedback');
   if (!msg) { fb.innerHTML = '<span style="color:var(--danger)">Escribí un mensaje antes de enviar.</span>'; return; }
   const { error } = await sb.from('rrhh_inbox_anonimo').insert({ categoria: cat, mensaje: msg });
-  if (error) { fb.innerHTML = '<span style="color:var(--danger)">Error: ' + error.message + '</span>'; return; }
+  if (error) { fb.innerHTML = '<span style="color:var(--danger)">Error: ' + _errTxt(error) + '</span>'; return; }
   document.getElementById('buzon-mensaje').value = '';
   fb.innerHTML = '<span style="color:var(--success)">✓ Enviado. ¡Gracias por tu mensaje!</span>';
 }
@@ -2921,6 +2921,12 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 // ════════════════════════════════════════════════════════════
 // UTILS
 // ════════════════════════════════════════════════════════════
+// (16-nov-2026, JP vía Infra, Hub v132: "los carteles rojos… que no se cierren solos, con una X, en español y que se
+// entiendan") Los toast(…, 'error') los toma solo /hub/banner.js v8 (ADORNO_AVISO): cartel rojo fijo con ✕ y el texto
+// traducido a castellano simple; los demás toasts siguen cerrándose solos. Para los alert() de error y los errores
+// pintados adentro de una pantalla, estos dos ayudantes:
+function _errorAviso(msg) { if (window.ADORNO_AVISO && ADORNO_AVISO.error) ADORNO_AVISO.error(msg); else alert(msg); }
+function _errTxt(e) { try { if (window.ADORNO_AVISO && ADORNO_AVISO.traducir) return escapeHtml(ADORNO_AVISO.traducir(e).texto); } catch (_) {} return escapeHtml((e && e.message) || String(e || '')); }
 function toast(msg, kind = '') {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -3184,7 +3190,7 @@ async function renderEmpleadosList() {
 
   const { data, error } = await q;
   if (error) {
-    cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`;
+    cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${_errTxt(error)}</div>`;
     return;
   }
   empleadosState.empleados = data || [];
@@ -3882,7 +3888,7 @@ async function renderTabDocumentos() {
   const { data, error } = await sb.from('rrhh_documentos')
     .select('*').eq('empleado_id', empModalState.empleadoId)
     .order('created_at', { ascending: false });
-  if (error) { body.innerHTML = `<div style="color:var(--danger)">${error.message}</div>`; return; }
+  if (error) { body.innerHTML = `<div style="color:var(--danger)">${_errTxt(error)}</div>`; return; }
 
   // Agrupar por tipo
   const grupos = {};
@@ -4044,7 +4050,7 @@ async function renderTabSueldos() {
     .limit(12);
 
   if (error) {
-    body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${escapeHtml(error.message)}</p></div>`;
+    body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${_errTxt(error)}</p></div>`;
     return;
   }
   if (!liqs || liqs.length === 0) {
@@ -4199,7 +4205,7 @@ async function renderTabAsistencias() {
     .order('fecha', { ascending: false });
 
   if (error) {
-    body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${escapeHtml(error.message)}</p></div>`;
+    body.innerHTML = `<div class="placeholder"><div class="icon">⚠️</div><h3>Error al cargar</h3><p>${_errTxt(error)}</p></div>`;
     return;
   }
   if (!detalle || detalle.length === 0) {
@@ -4323,7 +4329,7 @@ async function renderTabLicencias() {
   const { data, error } = await sb.from('rrhh_licencias')
     .select('*').eq('empleado_id', empModalState.empleadoId)
     .order('fecha_desde', { ascending: false });
-  if (error) { body.innerHTML = '<div style="color:var(--danger)">' + escapeHtml(error.message) + '</div>'; return; }
+  if (error) { body.innerHTML = '<div style="color:var(--danger)">' + _errTxt(error) + '</div>'; return; }
 
   const TIPOS_LABEL = {
     matrimonio: '💍 Matrimonio',
@@ -4764,7 +4770,7 @@ async function renderDocList() {
   if (docState.local) q = q.eq('empleado.local', docState.local);
 
   const { data, error } = await q;
-  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">${error.message}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">${_errTxt(error)}</div>`; return; }
 
   let lista = data || [];
   if (docState.search.trim()) {
@@ -4905,7 +4911,7 @@ async function renderVacContent() {
       .select(`*, empleado:rrhh_empleados(id, nombre_completo, local)`)
       .eq('estado', 'solicitada').order('fecha_desde', { ascending: true });
     const { data, error } = await q;
-    if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${error.message}</div>`; return; }
+    if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${_errTxt(error)}</div>`; return; }
     const lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
     if (lista.length === 0) { cont.innerHTML = `<div class="emp-empty">🎉 No hay solicitudes pendientes.</div>`; return; }
     // (7-sep) superposiciones por solicitud de toma
@@ -5052,7 +5058,7 @@ async function renderVacContent() {
       .select(`*, empleado:rrhh_empleados(id, nombre_completo, local), vacaciones:rrhh_vacaciones(año)`)
       .order('fecha_solicitud', { ascending: false, nullsFirst: false });
     const { data, error } = await q;
-    if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
+    if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${_errTxt(error)}</div>`; return; }
     let lista = (data || []).filter(m => !localFiltro || m.empleado?.local === localFiltro);
 
     // Año del ejercicio: viene del saldo asociado; fallback = año de la fecha de inicio
@@ -5428,7 +5434,7 @@ async function decidirVacacion(movId, accion) {
         periodo_liquidacion: periodoLiq || null,
         observaciones: (mov.observaciones || '') + ` · Aprobado y pagado FIFO → ${tramos[0].año}`,
       }).eq('id', movId);
-      if (eUp1) { alert('No se pudo aprobar el pago: ' + eUp1.message); return; }
+      if (eUp1) { _errorAviso('No se pudo aprobar el pago: ' + eUp1.message); return; }
     } else {
       // Múltiples tramos: marcamos el original como pagada con el primer año, y creamos extras
       const { error: eUp2 } = await sb.from('rrhh_vacaciones_movimientos').update({
@@ -5441,7 +5447,7 @@ async function decidirVacacion(movId, accion) {
         periodo_liquidacion: periodoLiq || null,
         observaciones: (mov.observaciones || '') + ` · FIFO tramo 1/${tramos.length} → ${tramos[0].año}`,
       }).eq('id', movId);
-      if (eUp2) { alert('No se pudo aprobar el pago: ' + eUp2.message); return; }
+      if (eUp2) { _errorAviso('No se pudo aprobar el pago: ' + eUp2.message); return; }
       const extras = tramos.slice(1).map((t, i) => ({
         vacaciones_id: t.vacId, empleado_id: mov.empleado_id,
         fecha_desde: fecha, fecha_hasta: fecha,
@@ -5807,7 +5813,7 @@ async function enviarReporteTurno() {
     empleado_id: emp.id, local: emp.local, fecha,
     turno_actual: turnoActual, turno_propuesto: propuesto || null, comentario: comentario || null,
   });
-  if (error) { fb.innerHTML = '<span style="color:var(--danger)">Error: ' + error.message + '</span>'; return; }
+  if (error) { fb.innerHTML = '<span style="color:var(--danger)">Error: ' + _errTxt(error) + '</span>'; return; }
   fb.innerHTML = '<span style="color:var(--success)">✓ Reporte enviado. Tu encargada lo va a revisar.</span>';
   toast('Reporte enviado', 'success');
   setTimeout(() => { const md = document.getElementById('reporte-turno-modal'); if (md) md.remove(); }, 1500);
@@ -7850,7 +7856,7 @@ async function ficharAhora() {
 async function renderConfigFichar(cont) {
   cont.innerHTML = '<div class="spinner"></div>';
   const { data, error } = await sb.from('rrhh_locales_ubicacion').select('*').order('local');
-  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${_errTxt(error)}</div>`; return; }
   const filas = (data || []).map(u => `
     <tr style="border-top:1px solid var(--border);">
       <td style="padding:8px;font-weight:600;">${escapeHtml(u.nombre)}<div style="font-size:11px;color:var(--muted);font-weight:400;">${escapeHtml(u.local)}</div></td>
@@ -9794,7 +9800,7 @@ async function renderFichadas(cont) {
   if (localFiltro) q = q.eq('local', localFiltro);
   const { data, error } = await q;
   const elc = document.getElementById('fich-container');
-  if (error) { elc.innerHTML = `<div style="color:var(--danger)">${error.message}</div>`; return; }
+  if (error) { elc.innerHTML = `<div style="color:var(--danger)">${_errTxt(error)}</div>`; return; }
   if (!data || data.length === 0) {
     elc.innerHTML = `<div class="card">
       <div class="placeholder">
@@ -11962,7 +11968,7 @@ async function renderConfigBorrados(cont) {
     .select('*, empleado:rrhh_empleados(nombre_completo, local)')
     .order('created_at', { ascending: false })
     .limit(100);
-  if (error) { cont.innerHTML = `<div class="emp-empty">Error: ${escapeHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="emp-empty">Error: ${_errTxt(error)}</div>`; return; }
 
   const pendientes = (data||[]).filter(s => s.estado === 'pendiente');
   const decididas  = (data||[]).filter(s => s.estado !== 'pendiente');
@@ -12142,7 +12148,7 @@ async function renderConfigUsuarios(cont) {
   const { data: usuarios, error } = await sb.from('rrhh_usuarios')
     .select(`*, empleado:rrhh_empleados(nombre_completo, local)`)
     .order('rol').order('email');
-  if (error) { cont.innerHTML = `<div style="color:var(--danger)">${error.message}</div>`; return; }
+  if (error) { cont.innerHTML = `<div style="color:var(--danger)">${_errTxt(error)}</div>`; return; }
 
   cont.innerHTML = `
     <div class="card" style="margin-bottom:16px;background:#eff6ff;border-color:#bfdbfe;">
@@ -12496,7 +12502,7 @@ async function listarPermisos() {
 
   const { data: permisosRaw, error } = await q;
   if (error) {
-    cont.innerHTML = `<div class="card" style="color:var(--danger);">Error: ${escapeHtml(error.message)}</div>`;
+    cont.innerHTML = `<div class="card" style="color:var(--danger);">Error: ${_errTxt(error)}</div>`;
     return;
   }
 
@@ -14945,7 +14951,7 @@ async function listarExtras(fechaDesde, fechaHasta) {
     .gte('fecha', fechaDesde).lte('fecha', fechaHasta)
     .order('fecha', { ascending: false });
   const { data: extras, error } = await q;
-  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger);">${escapeHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger);">${_errTxt(error)}</div>`; return; }
 
   // Totales
   const totalMin = (extras||[]).reduce((s,e) => s + (e.minutos||0), 0);
@@ -15025,7 +15031,7 @@ async function renderHorariosAdmin(cont) {
   let q = sb.from('rrhh_templates_turno').select('*').order('local').order('orden');
   if (!isAdmin && localGerente) q = q.eq('local', localGerente);
   const { data: templates, error } = await q;
-  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${escapeHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="card" style="color:var(--danger)">Error: ${_errTxt(error)}</div>`; return; }
 
   // Agrupar por local
   const porLocal = {};
@@ -15451,7 +15457,7 @@ async function renderBancoAdmin(cont) {
   if (localFiltro) q = q.eq('local', localFiltro);
   const { data: saldos, error } = await q;
   if (error) {
-    document.getElementById('banco-list').innerHTML = `<div class="card" style="color:var(--danger);">${escapeHtml(error.message)}</div>`;
+    document.getElementById('banco-list').innerHTML = `<div class="card" style="color:var(--danger);">${_errTxt(error)}</div>`;
     return;
   }
 
@@ -15564,10 +15570,10 @@ async function abrirCompensarVacaciones(selfMode = false) {
   const esSelf = selfMode || session.rol !== 'admin';
   let negativos;
   if (esSelf) {
-    if (!session.empleado_id) { alert('Tu usuario no está vinculado a un empleado. Avisale a JP.'); return; }
+    if (!session.empleado_id) { _errorAviso('Tu usuario no está vinculado a un empleado. Avisale a JP.'); return; }
     const { data: s, error: eS } = await sb.from('rrhh_banco_saldo').select('*')
       .eq('empleado_id', session.empleado_id).maybeSingle();
-    if (eS) { alert('No pude leer tu banco de minutos: ' + eS.message); return; }
+    if (eS) { _errorAviso('No pude leer tu banco de minutos: ' + eS.message); return; }
     if (!s || (s.saldo_minutos || 0) >= 0) { alert('Tu banco no está en negativo — no hay nada para compensar.'); return; }
     negativos = [s];
   } else {
@@ -15623,10 +15629,10 @@ async function abrirCompensarVacaciones(selfMode = false) {
   if (esSelf) {
     const se = document.getElementById('vc-emp');
     se.value = String(session.empleado_id);
-    vcCargarAnios().catch(e => alert('No pude cargar tus vacaciones: ' + (e.message || e)));
+    vcCargarAnios().catch(e => _errorAviso('No pude cargar tus vacaciones: ' + (e.message || e)));
   }
   } catch (e) {
-    alert('Error al abrir la compensación: ' + (e.message || e));
+    _errorAviso('Error al abrir la compensación: ' + (e.message || e));
   }
 }
 
@@ -15881,7 +15887,7 @@ async function guardarEdicionAjusteBanco(id, empleadoId) {
   const minutos = signo * cant;
   if (!confirm((signo === 1 ? 'Dejar el ajuste en +' : 'Dejar el ajuste en −') + cant + ' min y AVISARLE a la colaboradora.\n\n¿Confirmás?')) return;
   const { data, error } = await sb.rpc('rrhh_banco_ajuste_editar', { p_id: id, p_minutos: minutos, p_motivo: motivo });
-  if (error) { alert('No se pudo corregir: ' + error.message); return; }
+  if (error) { _errorAviso('No se pudo corregir: ' + error.message); return; }
   if (data && data.ok === false) { toast('Sin cambios', 'info'); document.getElementById('ajuste-modal').remove(); return; }
   await auditLog('editar_ajuste_banco', 'rrhh_banco_minutos', id, null, null, `${data.antes} → ${data.despues} min - ${motivo}`);
   toast(`Ajuste corregido ✓ · saldo ${data.saldo} min · aviso enviado`, 'success');
@@ -18140,7 +18146,7 @@ async function liqGenerarImportes(local, periodo) {
     toast(msg, todosErrores.length ? 'error' : 'success');
     if (todosErrores.length) {
       console.error('Errores importes:', todosErrores);
-      alert('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+      _errorAviso('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
     }
     switchTab('liquidaciones');
   } catch (e) {
@@ -18166,7 +18172,7 @@ async function liqGenerarDobleBlanco(local, periodo) {
     toast(msg, todosErrores.length ? 'error' : 'success');
     if (todosErrores.length) {
       console.error('Errores doble_blanco:', todosErrores);
-      alert('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+      _errorAviso('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
     }
     switchTab('liquidaciones');
   } catch (e) {
@@ -18207,7 +18213,7 @@ async function liqGenerarMes(local, periodo) {
     toast(msg, todosErrores.length ? 'error' : 'success');
     if (todosErrores.length) {
       console.error('Errores liquidación:', todosErrores);
-      alert('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
+      _errorAviso('Errores en algunas liquidaciones:\n\n' + todosErrores.map(e => `[${e.local}] ${e.empleado.nombre_completo}: ${e.error}`).join('\n'));
     }
     switchTab('liquidaciones');
   } catch (e) {
@@ -18505,7 +18511,7 @@ async function liqCerrarMes(local, periodo) {
   let errores = [];
   for (const loc of locales) errores = errores.concat(await liqValidarCierreMes(loc, periodo));
   if (errores.length > 0) {
-    alert('⚠️ No se puede cerrar el mes — corregí estos puntos:\n\n' + errores.map(e => '• ' + e).join('\n'));
+    _errorAviso('⚠️ No se puede cerrar el mes — corregí estos puntos:\n\n' + errores.map(e => '• ' + e).join('\n'));
     return;
   }
   const target = locales.length > 1 ? locales.join(', ') : locales[0];
@@ -18538,7 +18544,7 @@ async function liqCerrarMes(local, periodo) {
     if (rc.cascada_creadas > 0) _ex.push(`📅 ${rc.cascada_creadas} borrador(es) del mes siguiente pre-cargado(s)`);
     if (noFirmadas.length) {
       const det = noFirmadas.map(f => `• ${f.empleado}: ${f.motivo}`).join('\n');
-      alert(`⚠ El mes ${periodo} quedó cerrado, pero ${noFirmadas.length} liquidación(es) NO se pudieron firmar:\n\n${det}\n\nLo más común es que la mercadería no coincida con la suma de sus cuotas. Avisale a JP.`);
+      _errorAviso(`⚠ El mes ${periodo} quedó cerrado, pero ${noFirmadas.length} liquidación(es) NO se pudieron firmar:\n\n${det}\n\nLo más común es que la mercadería no coincida con la suma de sus cuotas. Avisale a JP.`);
       toast(`Mes cerrado, pero ${noFirmadas.length} sin firmar — ver el detalle`, 'warning');
     } else {
       toast(`✓ Mes ${periodo} cerrado para ${local}${_ex.length ? '\n' + _ex.join('\n') : ''}`, 'success');
@@ -18726,7 +18732,7 @@ async function liqCerrarMes(local, periodo) {
   // El guardián de mercadería frena a propósito; frenar sin avisar es el bug.
   if (noFirmadas.length) {
     const det = noFirmadas.map(f => `• ${f.empleado} (${f.local}): ${f.motivo}`).join('\n');
-    alert(`⚠ El mes ${periodo} quedó cerrado, pero ${noFirmadas.length} liquidación(es) NO se `
+    _errorAviso(`⚠ El mes ${periodo} quedó cerrado, pero ${noFirmadas.length} liquidación(es) NO se `
         + `pudieron firmar:\n\n${det}\n\nLo más común es que la mercadería no coincida con la `
         + `suma de sus cuotas. Entrá a la liquidación, corregila y volvé a firmarla desde la grilla.`);
     toast(`Mes cerrado, pero ${noFirmadas.length} sin firmar — ver el detalle`, 'warning');
@@ -19667,7 +19673,7 @@ async function aumGerenteAplicarTodos(envioId, periodoAplica) {
   }
 
   if (errores.length) {
-    alert('⚠️ Corregí estos errores antes de aplicar:\n\n' + errores.join('\n'));
+    _errorAviso('⚠️ Corregí estos errores antes de aplicar:\n\n' + errores.join('\n'));
     return;
   }
   if (!items.length) {
@@ -20119,7 +20125,7 @@ async function aumExtrasAplicar() {
           `Ojo: las liquidaciones de ${_mesAum} que ya estén calculadas NO cambian solas.\nSi Asistencias de ese mes ya está cerrado, pedile a Claude que las recalcule (o reabrí y volvé a cerrar).`);
   } else {
     // Nunca más un "parcial" en un cartelito que desaparece: se queda en pantalla con el detalle.
-    alert(`⚠ El aumento NO se aplicó completo (${_mesAum}):\n• Colaboradoras: ${okEmp} de ${okEmp + errEmp}\n• Locales: ${okLoc} de ${okLoc + errLoc}\n\n` +
+    _errorAviso(`⚠ El aumento NO se aplicó completo (${_mesAum}):\n• Colaboradoras: ${okEmp} de ${okEmp + errEmp}\n• Locales: ${okLoc} de ${okLoc + errLoc}\n\n` +
           `Errores:\n${erroresDet.slice(0, 12).join('\n')}\n\nNo vuelvas a aplicarlo sin revisar: avisale a Claude.`);
   }
 }
@@ -20133,7 +20139,7 @@ async function aumHistorialRender() {
   const { data: envios, error } = await sb.from('rrhh_aumento_envio')
     .select('*').order('enviado_at', { ascending: false }).limit(20);
   if (error) {
-    cont.innerHTML = `<div class="section-title">📋 Histórico de envíos a encargadas</div><div style="color:#b91c1c;font-size:13px;">Error: ${escapeHtml(error.message)}</div>`;
+    cont.innerHTML = `<div class="section-title">📋 Histórico de envíos a encargadas</div><div style="color:#b91c1c;font-size:13px;">Error: ${_errTxt(error)}</div>`;
     return;
   }
   if (!envios || envios.length === 0) {
@@ -20456,7 +20462,7 @@ async function aumIPCRender() {
   const { data: ipcDb, error } = await sb.from('rrhh_ipc_argentina')
     .select('*').order('mes', { ascending: false }).limit(12);
   if (error) {
-    panel.innerHTML = `<div style="color:#b91c1c;font-size:13px;">Error cargando IPC: ${escapeHtml(error.message)}</div>`;
+    panel.innerHTML = `<div style="color:#b91c1c;font-size:13px;">Error cargando IPC: ${_errTxt(error)}</div>`;
     return;
   }
   // (30-oct-2026, JP) Se sacó "Cargar mes manual": los meses que faltan hasta el mes pasado aparecen
@@ -21380,7 +21386,7 @@ async function renderPrestamosLectura() {
     .select('id, empleado_id, fecha_otorgamiento, capital, cuotas_totales, cuota_monto, estado, notas, empleado:rrhh_empleados(apellido, nombre, local)')
     .eq('estado', 'activo')
     .order('fecha_otorgamiento', { ascending: false });
-  if (error) { cont.innerHTML = `<div class="card"><div class="card-body">Error: ${error.message}</div></div>`; return; }
+  if (error) { cont.innerHTML = `<div class="card"><div class="card-body">Error: ${_errTxt(error)}</div></div>`; return; }
   if (!prestamos || !prestamos.length) {
     cont.innerHTML = '<div class="card"><div class="card-body">No hay préstamos activos en este momento.</div></div>'; return;
   }
@@ -21505,7 +21511,7 @@ async function renderPrestamos() {
   if (filtro === 'rechazados') q = q.eq('estado', 'rechazado');
   const { data: prestamos, error } = await q;
   if (error) {
-    cont.innerHTML = `<div class="card"><div class="card-body" style="color:#b91c1c">Error: ${escapeHtml(error.message)}</div></div>`;
+    cont.innerHTML = `<div class="card"><div class="card-body" style="color:#b91c1c">Error: ${_errTxt(error)}</div></div>`;
     return;
   }
 
@@ -24142,7 +24148,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=63"></script>
+<script src="manuales.js?v=64"></script>
 <script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=4"></script>
 <script src="liquidaciones.js?v=24"></script>
