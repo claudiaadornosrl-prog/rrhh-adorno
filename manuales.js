@@ -324,6 +324,7 @@ const MANUAL_EMPLEADO = [
       'Tocá "Fichar": se abre la cámara de adelante. Mirá de frente, con luz, y quedate quieta un segundo. Te reconoce comparando con tu propia cara grabada (no con la de otras): si no tenés la cara grabada, pedile a tu encargada que te la grabe desde el Hub.',
       'Si te reconoce, ves "Fichada tomada · hh:mm" y tu horario cargado de hoy, igual que en la cámara de la PC: si el horario que muestra no es el tuyo, avisale a tu encargada. Si fichaste hace menos de 5 minutos dice "Ya habías fichado". Si no te reconoce, probá de nuevo con más luz: la foto nunca se guarda.',
       'Mientras el fichador por cámara esté en período de prueba, estas fichadas no cambian tu asistencia: se cruzan con el reloj a fin de mes.',
+      'Recordatorios en el celular (desde el 16-nov-2026): a la hora en que arranca tu turno de hoy te llega una notificación "⏰ Arrancás hh:mm · fichá la entrada", y 5 minutos antes de que termine otra "🏁 Terminás hh:mm · en 5 min fichá la salida". Usa el turno cargado del día (si no hay, el habitual); los días de franco no avisa, y si ya fichaste tampoco. Para recibirlos tenés que tener las notificaciones de Colaboradores activadas en tu celular (🔔 en Mi cuenta). Tocar la notificación abre 📍 Fichar.',
     ],
     img: null,
   },
