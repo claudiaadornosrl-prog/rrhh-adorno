@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v524-autorizar-comun';
+const CACHE_VERSION = 'rrhh-v525-camara-oculta';
 const ASSETS = [
   './',
   './index.html',
