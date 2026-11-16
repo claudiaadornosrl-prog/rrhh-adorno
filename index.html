@@ -718,7 +718,7 @@ window.ADORNO_SSO = (function () {
       <button class="hbtn ab-fijo" id="logout-btn" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </header>
-  <script src="/hub/banner.js?v=8"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) -->
+  <script src="/hub/banner.js?v=10"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) · v10: si la cámara la tiene el fichador, le pide pausa (127.0.0.1:8765) y reintenta -->
   <div class="layout">
     <main class="main" id="main">
       <div class="spinner"></div>
@@ -761,7 +761,7 @@ window.ADORNO_SSO = (function () {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
 <script src="/hub/pos-autorizar.js?v=3"></script>
-<script src="/hub/caras.js?v=7" defer></script>   <!-- v6 (15-nov-2026): quien({sinLlave,sinLista,rapida,circulo}) para Fichar desde el celular -->
+<script src="/hub/caras.js?v=10" defer></script>   <!-- v10 (16-nov-2026): los 7 s de reconocimiento corren recién con la cámara abierta -->   <!-- v6 (15-nov-2026): quien({sinLlave,sinLista,rapida,circulo}) para Fichar desde el celular -->
 <script src="/hub/imprimir.js?v=1" defer></script>
 <script src="/hub/autorizar.js?v=6" defer></script>   <!-- (15-nov-2026) ventana común de autorización: cara → celu → clave -->   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
@@ -24148,7 +24148,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=64"></script>
+<script src="manuales.js?v=65"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>

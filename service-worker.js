@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v534-avisos-info';
+const CACHE_VERSION = 'rrhh-v535-camara-fichador';
 const ASSETS = [
   './',
   './index.html',
