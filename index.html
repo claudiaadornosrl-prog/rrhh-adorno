@@ -1447,11 +1447,11 @@ function _verComo() { return !!window.ADORNO_VERCOMO; }
 function _verComoAviso(que) { toast('Modo «Ver como»: es solo para mirar' + (que ? ', no se puede ' + que : '') + '.', 'warning'); return true; }
 async function _gate(id, accion, args, opts) {
   if (!session) return false;
+  const e = puedo(id);
   if (_verComo()) {   // (16-nov-2026, JP: "necesitaría ver que la parte de pedir permiso esté funcionando bien") con 'a' se
     if (e === 'a') { await exigirAutorizacion(id, _resumenOperacion(accion, args)); return true; }   // abre la ventana (autorizar.js v6, solo lectura) y no sigue
     return _verComoAviso((RRHH_FUNCIONES[id] || {}).que);
   }
-  const e = puedo(id);
   const que = (RRHH_FUNCIONES[id] || {}).que || id;
   if (e !== 'h') {
     if (e === 'o') { toast(`No tenés habilitado ${que}. Se habilita desde el Hub → Permisos.`, 'warning'); return true; }

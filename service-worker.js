@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v531-ver-como';
+const CACHE_VERSION = 'rrhh-v532-ver-como-fix';
 const ASSETS = [
   './',
   './index.html',
