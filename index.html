@@ -718,7 +718,7 @@ window.ADORNO_SSO = (function () {
       <button class="hbtn ab-fijo" id="logout-btn" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </header>
-  <script src="/hub/banner.js?v=4"></script>
+  <script src="/hub/banner.js?v=7"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) -->
   <div class="layout">
     <main class="main" id="main">
       <div class="spinner"></div>
@@ -763,7 +763,7 @@ window.ADORNO_SSO = (function () {
 <script src="/hub/pos-autorizar.js?v=3"></script>
 <script src="/hub/caras.js?v=7" defer></script>   <!-- v6 (15-nov-2026): quien({sinLlave,sinLista,rapida,circulo}) para Fichar desde el celular -->
 <script src="/hub/imprimir.js?v=1" defer></script>
-<script src="/hub/autorizar.js?v=4" defer></script>   <!-- (15-nov-2026) ventana común de autorización: cara → celu → clave -->   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
+<script src="/hub/autorizar.js?v=6" defer></script>   <!-- (15-nov-2026) ventana común de autorización: cara → celu → clave -->   <!-- (14-nov-2026) 🖨 Imprimir en el local (ADORNO_IMPRIMIR) -->   <!-- (14-nov-2026) 📷 Registra quién (ADORNO_CARAS.registrar) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
@@ -1441,8 +1441,16 @@ function _localTrabajo() { return session?.oficina ? 'oficina' : (session?.emple
 // usuario personal, directo y sin ventana; con la cuenta compartida, por la cara o tocando el nombre en la lista) y si
 // la persona cierra esa ventana tampoco sigue. Todo en la misma llamada (async), así los callers que esperan el
 // resultado (`const ok = await cambiarTurnoDia(...)`) lo reciben de verdad.
+// (16-nov-2026, JP vía Infra, Hub v126) Modo «Ver como»: JP mira el módulo como otra cuenta, en solo lectura. La base ya
+// rechaza toda escritura; acá se corta ANTES de abrir la cámara o la ventana de autorización, para que no quede raro.
+function _verComo() { return !!window.ADORNO_VERCOMO; }
+function _verComoAviso(que) { toast('Modo «Ver como»: es solo para mirar' + (que ? ', no se puede ' + que : '') + '.', 'warning'); return true; }
 async function _gate(id, accion, args, opts) {
   if (!session) return false;
+  if (_verComo()) {   // (16-nov-2026, JP: "necesitaría ver que la parte de pedir permiso esté funcionando bien") con 'a' se
+    if (e === 'a') { await exigirAutorizacion(id, _resumenOperacion(accion, args)); return true; }   // abre la ventana (autorizar.js v6, solo lectura) y no sigue
+    return _verComoAviso((RRHH_FUNCIONES[id] || {}).que);
+  }
   const e = puedo(id);
   const que = (RRHH_FUNCIONES[id] || {}).que || id;
   if (e !== 'h') {
@@ -1471,6 +1479,7 @@ const _registra = {};   // id → { v: true/false, hasta }
 async function _registrarQuien(id, accion, args) {
   const C = window.ADORNO_CARAS;
   if (!C || !C.registrar) return true;   // caras.js no cargó: no se frena el trabajo
+  if (_verComo()) return false;   // (16-nov-2026) «Ver como»: nada que registrar, nada sigue
   const c = _registra[id];
   if (c && c.v === false && c.hasta > Date.now()) return true;
   const que = (RRHH_FUNCIONES[id] || {}).que || id;
@@ -1900,7 +1909,7 @@ async function onLoggedIn(user) {
 
   // Update last_login (best effort, sin bloquear)
   try {
-    sb.from('rrhh_usuarios').update({ last_login: new Date().toISOString() }).eq('id', usuarioRow.id).then(() => {}, () => {});
+    if (!window.ADORNO_VERCOMO) sb.from('rrhh_usuarios').update({ last_login: new Date().toISOString() }).eq('id', usuarioRow.id).then(() => {}, () => {});   // (16-nov-2026) en «Ver como» no
   } catch(_) {}
 
   console.log('[LOGIN] hiding login, showing app...');
@@ -7752,6 +7761,7 @@ function _ficharUbicacion() {
 }
 
 async function ficharArrancar() {
+  if (_verComo()) { _ficharCaja('<div style="font-size:15px;padding:10px 0;">Modo «Ver como»: es solo para mirar. Acá no se puede fichar.</div>'); return; }   // (16-nov-2026)
   ficharState.resultado = null;
   _ficharCaja('<div class="spinner"></div><div style="font-size:13px;color:var(--muted);margin-top:8px;">Buscando tu ubicación…</div>');
   let pos = null, errPos = null;
@@ -7802,6 +7812,7 @@ function _ficharPintar(errPos) {
 }
 
 async function ficharAhora() {
+  if (_verComo()) { _verComoAviso('fichar'); return; }   // (16-nov-2026)
   if (ficharState.ocupado) return;
   const pos = ficharState.pos, e = ficharState.estado;
   if (!pos || !e || !e.dentro) { ficharArrancar(); return; }
@@ -24131,7 +24142,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=62"></script>
+<script src="manuales.js?v=63"></script>
 <script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=4"></script>
 <script src="liquidaciones.js?v=24"></script>
@@ -24173,6 +24184,7 @@ else init();
 // borrada), no se toca. Regla viva: mantener igual en las 4 apps + hub.
 (async function _autoResubPush() {
   try {
+    if (window.ADORNO_VERCOMO) return;   // (16-nov-2026) «Ver como»: no suscribir el navegador de JP a nombre de otra persona
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if (typeof pushManager === 'undefined' || !pushManager.soportado()) return;
     const { data: { session: _s } } = await sb.auth.getSession();
