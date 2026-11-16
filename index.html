@@ -1365,7 +1365,22 @@ function puedo(id) { return (session && session.permisos && session.permisos[id]
 async function cargarPermisosHub() {
   const ids = Object.keys(RRHH_FUNCIONES);
   session.permisos = {}; session.locales = [];
-  if (session.rol === 'admin') { ids.forEach(i => session.permisos[i] = 'h'); session.locales = ['alcorta', 'unicenter', 'oficina']; return; }
+  if (session.rol === 'admin') {
+    ids.forEach(i => session.permisos[i] = 'h'); session.locales = ['alcorta', 'unicenter', 'oficina'];
+    // (15-nov-2026, JP vía Infra, Hub v118) Admin con "vista" (Clau): puede hacer y autorizar todo, pero ve solo los
+    // apartados que JP le dejó prendidos en Hub → Permisos → Perfiles. hub_puedo devuelve 'o' en las funciones de un
+    // apartado apagado (aunque sea admin); lo demás queda 'h'. JP (vista null) no consulta nada y ve todo.
+    try {
+      const { data: m } = await sb.rpc('hub_modulos');
+      session.vista = (m && m.vista) || null;
+      if (session.vista) {
+        const rs = await Promise.all(ids.map(i => sb.rpc('hub_puedo', { p_funcion: i })));
+        ids.forEach((i, k) => { if (rs[k] && rs[k].data === 'o') session.permisos[i] = 'o'; });
+        console.log('[permisos] vista', session.vista, session.permisos);
+      }
+    } catch (e) { console.warn('[permisos] no pude consultar la vista del admin:', e); }
+    return;
+  }
   try {
     const rs = await Promise.all(ids.map(i => sb.rpc('hub_puedo', { p_funcion: i })));
     ids.forEach((i, k) => { const v = rs[k] && rs[k].data; session.permisos[i] = (v === 'a' || v === 'o') ? v : 'h'; });
@@ -1864,7 +1879,7 @@ async function onLoggedIn(user) {
   // Tab inicial según rol — directora arranca en Liquidación (su vista principal)
   let firstTab;
   if (session.oficina) liqState.subTab = 'banco';   // (12-nov-2026) la oficina solo ve Banco
-  if (esNavSimple()) firstTab = 'liquidaciones';
+  if (esNavSimple() && puedo(tabFuncion('liquidaciones')) !== 'o') firstTab = 'liquidaciones';   // (15-nov-2026) salvo que JP le haya apagado Sueldos
   else firstTab = navVisibles(NAV[session.rol])[0]?.id || 'mi-legajo';   // (13-nov-2026) la primera que el perfil ve
   // (2-nov-2026) Si la app se abrió desde una notificación (./#mi-sueldo, ./#asistencias…), arrancar en esa pestaña.
   const _hashTab = tabDesdeHash(location.hash);
@@ -24078,7 +24093,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=58"></script>
+<script src="manuales.js?v=59"></script>
 <script src="exportaciones.js?v=8"></script>
 <script src="salary-workflow.js?v=3"></script>
 <script src="liquidaciones.js?v=24"></script>
