@@ -7423,6 +7423,155 @@ window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([{
   },
 }]);
 
+// ═══ Clodi · acciones de formularios · 17-nov-2026 (JP: "que pueda hacer todos los formularios… pero no autorizar nada;
+// que avance hasta el punto de autorización y ahí frene, y cada usuario revise y controle lo que le cargó") ═══
+// Regla: preparar() abre y COMPLETA el formulario; confirmar() corre la misma función que el botón de la pantalla (con
+// _gate, Hub, cámara y autorización incluidos). Clodi nunca graba por su cuenta.
+const _CLODI_TIPOS_PERMISO = { llegar_tarde: 'llegar más tarde', retirarse_antes: 'retirarse antes', dia_completo: 'día completo', salir_volver: 'salir y volver' };
+function _clodiNorm(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+function _clodiHora(h) { const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(String(h || '').trim()); if (!m) return null; const hh = +m[1], mm = +(m[2] || 0); if (hh > 23 || mm > 59) return null; return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); }
+function _clodiFechaTxt(f) { return (f || '').split('-').reverse().join('/'); }
+async function _clodiEsperar(id, ms = 8000) { const t0 = Date.now(); while (!document.getElementById(id) && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 120)); return document.getElementById(id); }
+// elige la opción de un <select> de colaboradores por nombre (todas las palabras dichas tienen que estar en el nombre)
+function _clodiElegirColaborador(sel, nombre) {
+  const palabras = _clodiNorm(nombre).split(/\s+/).filter(Boolean);
+  if (!palabras.length) return { error: 'no entendí el nombre' };
+  const ops = [...sel.options].filter((o) => o.value);
+  const cand = ops.filter((o) => { const t = _clodiNorm(o.textContent); return palabras.every((p) => t.includes(p)); });
+  if (!cand.length) return { error: `no encuentro a "${nombre}" entre los colaboradores que podés cargar` };
+  if (cand.length > 1) return { error: `hay varias personas que coinciden con "${nombre}": ${cand.map((o) => o.textContent.replace(/\s*\(.*\)$/, '')).join(', ')}. Decime el nombre completo` };
+  sel.value = cand[0].value; sel.dispatchEvent(new Event('change'));
+  return { ok: true, nombre: cand[0].textContent.replace(/\s*\(.*\)$/, '') };
+}
+function _clodiResaltar(re) {
+  const btn = [...document.querySelectorAll('button')].find((x) => re.test(x.getAttribute('onclick') || ''));
+  if (btn) { btn.classList.add('asist-resalta'); setTimeout(() => btn.classList.remove('asist-resalta'), 4000); try { btn.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {} }
+}
+window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([
+{
+  nombre: 'cargar_permiso',
+  descripcion: 'Prepara el formulario "Cargar permiso puntual" para OTRA persona del equipo (encargada o admin): colaborador, fecha, tipo y hora. Para "llegar más tarde" solo hace falta a qué hora entra; para "retirarse antes", a qué hora se retira (el sistema compara con el turno asignado y calcula los minutos). Para "salir y volver" hacen falta las dos horas. Queda aprobado recién cuando la persona toca Enviar.',
+  parametros: { type: 'object', properties: {
+      colaborador: { type: 'string', description: 'Nombre (o parte del nombre) de la persona a la que se le carga el permiso' },
+      fecha: { type: 'string', description: 'Día del permiso, formato AAAA-MM-DD (si dice "hoy" o "mañana", calculá la fecha)' },
+      tipo: { type: 'string', enum: ['llegar_tarde', 'retirarse_antes', 'dia_completo', 'salir_volver'] },
+      hora: { type: 'string', description: 'Para llegar_tarde: a qué hora entra. Para retirarse_antes: a qué hora se retira. Formato HH:MM' },
+      hora_desde: { type: 'string', description: 'Solo salir_volver: a qué hora sale, HH:MM' },
+      hora_hasta: { type: 'string', description: 'Solo salir_volver: a qué hora vuelve, HH:MM' },
+      motivo: { type: 'string', description: 'Motivo que dijo la persona (médico, trámite…)' } },
+    required: ['colaborador', 'fecha', 'tipo'] },
+  disponible: () => !!(session && (session.rol === 'admin' || session.local_gerencia) && puedo('rrhh.permisos_aprobar') !== 'o'),
+  async preparar(p) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.fecha || '')) return { ok: false, error: 'no entendí bien la fecha' };
+    if (!_CLODI_TIPOS_PERMISO[p.tipo]) return { ok: false, error: 'no entendí el tipo de permiso' };
+    if (!document.getElementById('permiso-modal')) await abrirNuevoPermisoAdmin();
+    if (!(await _clodiEsperar('perm-emp'))) return { ok: false, error: 'no pude abrir el formulario de permiso' };
+    const g = (id) => document.getElementById(id);
+    const quien = _clodiElegirColaborador(g('perm-emp'), p.colaborador);
+    if (!quien.ok) return { ok: false, error: quien.error };
+    g('perm-fecha').value = p.fecha; g('perm-tipo').value = p.tipo; onTipoChange();
+    await permAdminTurno();
+    let horasTxt = '';
+    if (p.tipo === 'llegar_tarde' || p.tipo === 'retirarse_antes') {
+      const h = _clodiHora(p.hora);
+      if (!h) return { ok: false, error: p.tipo === 'llegar_tarde' ? '¿a qué hora entra?' : '¿a qué hora se retira?' };
+      g('perm-hora').value = h; permAdminCalcHora();
+      if (!g('perm-desde').value || !g('perm-hasta').value) { horasTxt = ` a las ${h} (ese día no tiene turno asignado: completá Desde y Hasta a mano)`; }
+      else horasTxt = ` ${p.tipo === 'llegar_tarde' ? 'entra' : 'se retira'} ${h} · ${g('perm-hora-calc').textContent.split(': ').pop()}`;
+    } else if (p.tipo === 'salir_volver') {
+      const d = _clodiHora(p.hora_desde), h = _clodiHora(p.hora_hasta);
+      if (!d || !h) return { ok: false, error: '¿a qué hora sale y a qué hora vuelve?' };
+      g('perm-desde').value = d; g('perm-hasta').value = h; permAdminCalcMinutos(); horasTxt = ` de ${d} a ${h}`;
+    }
+    if (p.motivo) g('perm-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/guardarPermisoAdmin\(\)/);
+    return { ok: true, resumen: `permiso de ${_CLODI_TIPOS_PERMISO[p.tipo]} para ${quien.nombre} el ${_clodiFechaTxt(p.fecha)}${horasTxt}` + (p.motivo ? ` · "${p.motivo}"` : '') + ` · se descuentan ${g('perm-minutos').value || 0} min del banco` };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('permiso-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarPermisoAdmin();
+    return document.getElementById('permiso-modal')
+      ? { ok: false, error: 'no se guardó (mirá el aviso en la pantalla: falta algo o no se autorizó)' }
+      : { ok: true, mensaje: 'Listo, el permiso quedó cargado y aprobado.' };
+  },
+},
+{
+  nombre: 'pedir_permiso',
+  descripcion: 'Prepara el pedido de permiso de la persona que está usando el sistema (su PROPIO permiso, nunca el de otra): fecha, tipo, hora y motivo en "Mis permisos". Para "llegar más tarde" solo hace falta a qué hora llega; para "retirarse antes", a qué hora se retira; "salir y volver" lleva las dos horas. Queda pendiente de aprobación cuando la persona toca Enviar.',
+  parametros: { type: 'object', properties: {
+      fecha: { type: 'string', description: 'Día del permiso, AAAA-MM-DD (desde hoy en adelante)' },
+      tipo: { type: 'string', enum: ['llegar_tarde', 'retirarse_antes', 'dia_completo', 'salir_volver'] },
+      hora: { type: 'string', description: 'llegar_tarde: a qué hora llega. retirarse_antes: a qué hora se retira. HH:MM' },
+      hora_hasta: { type: 'string', description: 'Solo salir_volver: a qué hora vuelve, HH:MM (la de salida va en hora)' },
+      motivo: { type: 'string', description: 'Motivo del permiso (obligatorio para pedirlo)' } },
+    required: ['fecha', 'tipo', 'motivo'] },
+  disponible: () => !!(session && session.empleado_id && puedo('rrhh.pedidos_propios') !== 'o'),
+  async preparar(p) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.fecha || '')) return { ok: false, error: 'no entendí bien la fecha' };
+    if (p.fecha < hoyISO()) return { ok: false, error: 'un permiso no se puede pedir para una fecha pasada' };
+    if (!_CLODI_TIPOS_PERMISO[p.tipo]) return { ok: false, error: 'no entendí el tipo de permiso' };
+    if (!document.getElementById('permiso-emp-modal')) { editandoPermisoId = null; await abrirNuevoPermisoEmpleado(); }
+    if (!(await _clodiEsperar('perme-fecha'))) return { ok: false, error: 'no pude abrir "Pedir permiso" (si te pide completar el legajo, hacelo primero)' };
+    const g = (id) => document.getElementById(id);
+    g('perme-fecha').value = p.fecha; g('perme-tipo').value = p.tipo; onTipoChangeEmp();
+    let horasTxt = '';
+    if (p.tipo === 'llegar_tarde' || p.tipo === 'retirarse_antes') {
+      const h = _clodiHora(p.hora); if (!h) return { ok: false, error: p.tipo === 'llegar_tarde' ? '¿a qué hora llegás?' : '¿a qué hora te retirás?' };
+      g('perme-desde').value = h; horasTxt = ` ${p.tipo === 'llegar_tarde' ? 'llegás' : 'te retirás'} ${h}`;
+    } else if (p.tipo === 'salir_volver') {
+      const d = _clodiHora(p.hora), h = _clodiHora(p.hora_hasta); if (!d || !h) return { ok: false, error: '¿a qué hora salís y a qué hora volvés?' };
+      g('perme-desde').value = d; g('perme-hasta').value = h; horasTxt = ` de ${d} a ${h}`;
+    }
+    g('perme-motivo').value = String(p.motivo || '').slice(0, 300);
+    await actualizarCalcPermiso();
+    _clodiResaltar(/enviarPermisoEmpleado\(\)/);
+    const calc = (g('perme-calc-box') && g('perme-calc-box').style.display !== 'none') ? ' · ' + g('perme-calc-box').textContent.trim() : '';
+    return { ok: true, resumen: `tu permiso de ${_CLODI_TIPOS_PERMISO[p.tipo]} el ${_clodiFechaTxt(p.fecha)}${horasTxt} · "${p.motivo}"${calc}` };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('permiso-emp-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await enviarPermisoEmpleado();
+    return document.getElementById('permiso-emp-modal')
+      ? { ok: false, error: 'no se mandó (mirá el aviso en la pantalla)' }
+      : { ok: true, mensaje: 'Listo, tu pedido de permiso quedó enviado. La encargada recibe el aviso para aprobarlo.' };
+  },
+},
+{
+  nombre: 'cargar_hora_extra',
+  descripcion: 'Prepara el formulario "Cargar hora extra" para una persona del equipo (encargada o admin): colaborador, fecha, tipo (quedarse después del turno, venir antes, venir en franco), cuánto tiempo y motivo. Las extras van siempre al banco de minutos. Se graba recién cuando la persona toca Enviar.',
+  parametros: { type: 'object', properties: {
+      colaborador: { type: 'string', description: 'Nombre (o parte) de la persona' },
+      fecha: { type: 'string', description: 'Día, AAAA-MM-DD' },
+      tipo: { type: 'string', enum: ['despues_turno', 'antes_turno', 'franco', 'otro'], description: 'despues_turno = se quedó después del turno; antes_turno = vino antes; franco = vino en su franco' },
+      minutos: { type: 'integer', description: 'Cuánto tiempo de extra, en minutos (1 hora y media = 90)' },
+      motivo: { type: 'string', description: 'Detalle o motivo' } },
+    required: ['colaborador', 'fecha', 'minutos'] },
+  disponible: () => !!(session && (session.rol === 'admin' || session.local_gerencia) && puedo('rrhh.asistencias_corregir') !== 'o'),
+  async preparar(p) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.fecha || '')) return { ok: false, error: 'no entendí bien la fecha' };
+    const min = parseInt(p.minutos, 10); if (!(min > 0)) return { ok: false, error: '¿cuánto tiempo de extra fue?' };
+    if (!document.getElementById('extra-modal')) await abrirNuevoExtraAdmin();
+    if (!(await _clodiEsperar('ext-emp'))) return { ok: false, error: 'no pude abrir el formulario de hora extra' };
+    const g = (id) => document.getElementById(id);
+    const quien = _clodiElegirColaborador(g('ext-emp'), p.colaborador);
+    if (!quien.ok) return { ok: false, error: quien.error };
+    g('ext-fecha').value = p.fecha;
+    if (p.tipo && [...g('ext-tipo').options].some((o) => o.value === p.tipo)) g('ext-tipo').value = p.tipo;
+    g('ext-horas').value = Math.floor(min / 60); g('ext-mins').value = min % 60;
+    if (p.motivo) g('ext-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/guardarExtra\(\)/);
+    const tipoTxt = g('ext-tipo').selectedOptions[0] ? g('ext-tipo').selectedOptions[0].textContent.replace(/^\S+\s/, '') : '';
+    return { ok: true, resumen: `hora extra de ${_fmtMin(min)} para ${quien.nombre} el ${_clodiFechaTxt(p.fecha)} (${tipoTxt.toLowerCase()})` + (p.motivo ? ` · "${p.motivo}"` : '') + ' · va al banco de minutos' };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('extra-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarExtra();
+    return document.getElementById('extra-modal')
+      ? { ok: false, error: 'no se guardó (mirá el aviso en la pantalla)' }
+      : { ok: true, mensaje: 'Listo, la hora extra quedó cargada y sumada al banco de minutos.' };
+  },
+}]);
+
 let _editandoVacacionId = null;
 
 // Traduce errores técnicos de PostgREST a mensajes amigables para vacaciones.
@@ -24220,7 +24369,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=67"></script>
+<script src="manuales.js?v=68"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
