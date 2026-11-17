@@ -718,7 +718,7 @@ window.ADORNO_SSO = (function () {
       <button class="hbtn ab-fijo" id="logout-btn" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </header>
-  <script src="/hub/banner.js?v=10"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) · v10: si la cámara la tiene el fichador, le pide pausa (127.0.0.1:8765) y reintenta -->
+  <script src="/hub/banner.js?v=11"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) · v10: si la cámara la tiene el fichador, le pide pausa (127.0.0.1:8765) y reintenta -->
   <div class="layout">
     <main class="main" id="main">
       <div class="spinner"></div>
@@ -1376,6 +1376,7 @@ const RRHH_FUNCIONES = {
   'rrhh.asistencias':          { que: 'ver asistencias y fichadas', local: true },
   'rrhh.asistencias_corregir': { que: 'corregir fichadas, horas extra y turnos', local: true },
   'rrhh.permisos_aprobar':     { que: 'aprobar o rechazar permisos', local: true },
+  'rrhh.permisos_pasados':     { que: 'cargar permisos con fecha pasada', local: true },   // (17-nov-2026, JP) encargadas: a su equipo, incluidas ellas
   'rrhh.vacaciones_asignar':   { que: 'asignar o aprobar vacaciones del equipo', local: true },
   'rrhh.pedidos_propios':      { que: 'pedir permiso, vacaciones o préstamo para vos', local: false },
   'rrhh.prestamos':            { que: 'ver préstamos y adelantos', local: true },
@@ -12857,10 +12858,10 @@ function renderSugFichadasPanel(sugs) {
               const b = (bg, fn, txt) => `<button class="btn" style="font-size:11px;padding:4px 10px;background:${bg};color:white;border:none;border-radius:6px;" onclick="${fn}(${su.id})">${txt}</button>`;
               if (su.tipo === 'cambio_turno') return b('#0d9488', 'sugCambioTurno', '🔄 Fue cambio de turno');
               if (su.tipo === 'extra' || su.tipo === 'extra_antes' || su.tipo === 'extra_franco') return b('#065f46', 'sugAplicarExtra', '✔ Cargar extra');
-              // Permisos retroactivos: SOLO admin (regla 4-ago). Encargadas solo
-              // ignoran — el descuento lo hace el pool de tardanzas al cierre.
+              // Permisos retroactivos: admin o quien tenga rrhh.permisos_pasados (17-nov-2026: encargadas). Quien no,
+              // solo ignora — el descuento lo hace el pool de tardanzas al cierre.
               if (su.tipo === 'falta_permiso_tarde' || su.tipo === 'falta_permiso_salida')
-                return session.rol === 'admin' ? b('#1e40af', 'sugCrearPermiso', '📝 Crear permiso') : '';
+                return (session.rol === 'admin' || puedo('rrhh.permisos_pasados') !== 'o') ? b('#1e40af', 'sugCrearPermiso', '📝 Crear permiso') : '';
               if (su.tipo === 'permiso_sin_uso' || su.tipo === 'permiso_parcial')
                 return b('#0d9488', 'sugDevolverMinutos', `↩ Devolver ${su.minutos} min`);
               if (su.tipo === 'extra_sin_respaldo')
@@ -13260,14 +13261,15 @@ async function guardarPermisoAdmin() {
   if (!empleado_id) { toast('Falta empleado', 'error'); return; }
   if (!fecha) { toast('Falta fecha', 'error'); return; }
   if (!tipo) { toast('Falta tipo', 'error'); return; }
-  // 🚨 (4-ago, regla JP): las encargadas NO pueden cargar permisos con fecha
-  // pasada (evita "salvar" fichadas retroactivamente). Solo admin, casos especiales.
+  // 🚨 (4-ago, regla JP): fecha pasada solo admin (evita "salvar" fichadas retroactivamente). Desde el 17-nov-2026 es
+  // la función del Hub rrhh.permisos_pasados: JP la habilitó al perfil Encargada (Andrea y Soraya), para su equipo e incluidas ellas.
   if (session.rol !== 'admin') {
     const _dh = new Date();
     const _hoyLoc = `${_dh.getFullYear()}-${String(_dh.getMonth()+1).padStart(2,'0')}-${String(_dh.getDate()).padStart(2,'0')}`;
     if (fecha < _hoyLoc) {
-      toast('No se pueden cargar permisos con fecha pasada. Si es un caso especial, pedíselo a JP.', 'error');
-      return;
+      const _e = puedo('rrhh.permisos_pasados');
+      if (_e === 'a') { if (!(await exigirAutorizacion('rrhh.permisos_pasados', 'permiso ' + fecha))) return; }
+      else if (_e !== 'h') { toast('No se pueden cargar permisos con fecha pasada. Si es un caso especial, pedíselo a JP.', 'error'); return; }
     }
   }
   if (descontar_vacaciones && dias_descontar <= 0) { toast('Si compensás con vacaciones, indicá los días', 'error'); return; }
@@ -24148,7 +24150,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=65"></script>
+<script src="manuales.js?v=66"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
