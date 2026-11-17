@@ -12962,9 +12962,11 @@ async function sugCrearPermiso(id) {
         setV('perm-desde', _hm(dia.salida_real || dia.salida));
         setV('perm-hasta', _hm(dia.turno_fin));
       }
+      setV('perm-hora', tipoPerm === 'llegar_tarde' ? _hm(dia.entrada_real || dia.entrada) : _hm(dia.salida_real || dia.salida));   // (17-nov-2026) hora única
       if (typeof permAdminCalcMinutos === 'function') try { permAdminCalcMinutos(); } catch (_) {}
     }
   } catch (_) {}
+  try { await permAdminTurno(); } catch (_) {}   // (17-nov-2026) muestra el turno y recalcula con la hora única
   const mot = document.getElementById('perm-motivo');
   if (mot && !mot.value) mot.value = `Desde sugerencias de fichadas: ${su.detalle || ''}`;
   const minInp = document.getElementById('perm-minutos');
@@ -13073,14 +13075,14 @@ async function abrirNuevoPermisoAdmin() {
         <div class="form-grid" style="display:grid;gap:12px;">
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Colaborador *</label>
-            <select id="perm-emp" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <select id="perm-emp" onchange="permAdminTurno()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
               <option value="">— Seleccionar —</option>
               ${(colaboradores||[]).map(e => `<option value="${e.id}">${escapeHtml(e.nombre_completo)} (${LOCALES[e.local]?.nombre||''})</option>`).join('')}
             </select>
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Fecha *</label>
-            <input type="date" id="perm-fecha" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <input type="date" id="perm-fecha" onchange="permAdminTurno()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Tipo *</label>
@@ -13091,6 +13093,12 @@ async function abrirNuevoPermisoAdmin() {
               <option value="dia_completo">📅 Día completo</option>
               <option value="salir_volver">↩️ Salir y volver durante el turno</option>
             </select>
+          </div>
+          <div id="perm-turno-info" style="display:none;background:#f9fafb;padding:8px 12px;border-radius:8px;border-left:3px solid var(--accent2);font-size:12px;color:var(--muted);"></div>
+          <div id="perm-hora-row" style="display:none;">   <!-- (17-nov-2026, JP) una sola hora: Desde/Hasta salen del turno asignado -->
+            <label id="perm-hora-label" style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">¿A qué hora entra?</label>
+            <input type="time" id="perm-hora" onchange="permAdminCalcHora()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;">
+            <div id="perm-hora-calc" style="display:none;margin-top:6px;background:#fef3c7;padding:8px 12px;border-radius:8px;border-left:3px solid #d97706;font-size:13px;color:#92400e;font-weight:600;"></div>
           </div>
           <div id="perm-horario-row" style="display:none;grid-template-columns:1fr 1fr;gap:8px;">
             <div>
@@ -13219,11 +13227,69 @@ function permeToggleComp() {
 function onTipoChange() {
   const tipo = document.getElementById('perm-tipo').value;
   const row = document.getElementById('perm-horario-row');
-  if (tipo === 'dia_completo' || !tipo) {
-    row.style.display = 'none';
-  } else {
-    row.style.display = 'grid';
+  const unaHora = document.getElementById('perm-hora-row');
+  // (17-nov-2026, JP: "que pregunte a qué hora va a entrar… y lo mismo para retirarse antes") Llegar tarde / Retirarse
+  // antes piden UNA hora; Desde/Hasta y los minutos los calcula permAdminCalcHora con el turno asignado del día.
+  const una = tipo === 'llegar_tarde' || tipo === 'retirarse_antes';
+  if (unaHora) {
+    unaHora.style.display = una ? 'block' : 'none';
+    const lb = document.getElementById('perm-hora-label');
+    if (lb) lb.textContent = tipo === 'llegar_tarde' ? '¿A qué hora entra?' : '¿A qué hora se retira?';
   }
+  row.style.display = (tipo === 'dia_completo' || !tipo || una) ? 'none' : 'grid';
+  if (una) { permAdminCalcHora(); } else { const c = document.getElementById('perm-hora-calc'); if (c) c.style.display = 'none'; }
+}
+
+// (17-nov-2026) Turno asignado del colaborador elegido para la fecha elegida (rrhh_turnos), para el formulario del admin.
+let _permAdminTurnoCache = { clave: null, turno: null };
+async function permAdminTurno() {
+  const emp = parseInt(document.getElementById('perm-emp')?.value, 10);
+  const fecha = document.getElementById('perm-fecha')?.value;
+  const info = document.getElementById('perm-turno-info');
+  if (!emp || !fecha) { if (info) info.style.display = 'none'; _permAdminTurnoCache = { clave: null, turno: null }; return null; }
+  const clave = emp + '|' + fecha;
+  if (_permAdminTurnoCache.clave !== clave) {
+    const { data: turno } = await sb.from('rrhh_turnos').select('hora_inicio, hora_fin, es_franco, tipo').eq('empleado_id', emp).eq('fecha', fecha).maybeSingle();
+    _permAdminTurnoCache = { clave, turno: turno || null };
+  }
+  const t = _permAdminTurnoCache.turno;
+  if (info) {
+    if (t && t.es_franco) info.innerHTML = '📅 Ese día tiene <strong>franco</strong> asignado.';
+    else if (t && t.hora_inicio && t.hora_fin) info.innerHTML = `📅 Turno asignado: <strong>${t.hora_inicio.substring(0, 5)} → ${t.hora_fin.substring(0, 5)}</strong>`;
+    else info.innerHTML = '📅 No tiene turno asignado ese día.';
+    info.style.display = 'block';
+  }
+  permAdminCalcHora();
+  return t;
+}
+
+// (17-nov-2026) Con la hora única y el turno asignado completa Desde/Hasta (ocultos) y los minutos a descontar.
+function permAdminCalcHora() {
+  const tipo = document.getElementById('perm-tipo')?.value;
+  const calc = document.getElementById('perm-hora-calc');
+  if (tipo !== 'llegar_tarde' && tipo !== 'retirarse_antes') return;
+  const hora = document.getElementById('perm-hora')?.value;
+  const t = _permAdminTurnoCache.turno;
+  const row = document.getElementById('perm-horario-row');
+  if (!t || t.es_franco || !t.hora_inicio || !t.hora_fin) {
+    // sin turno no hay con qué comparar: se vuelve a pedir Desde/Hasta a mano
+    if (row) row.style.display = 'grid';
+    if (calc) { calc.textContent = 'No tiene turno asignado ese día: cargá Desde y Hasta a mano.'; calc.style.display = 'block'; }
+    return;
+  }
+  if (row) row.style.display = 'none';
+  if (!hora) { if (calc) calc.style.display = 'none'; return; }
+  const d = tipo === 'llegar_tarde' ? t.hora_inicio.substring(0, 5) : hora;
+  const h = tipo === 'llegar_tarde' ? hora : t.hora_fin.substring(0, 5);
+  document.getElementById('perm-desde').value = d;
+  document.getElementById('perm-hasta').value = h;
+  const min = _horaAMin(h) - _horaAMin(d);
+  if (calc) {
+    if (min <= 0) calc.textContent = tipo === 'llegar_tarde' ? `Esa hora no es más tarde que el inicio del turno (${d}).` : `Esa hora no es antes del fin del turno (${h}).`;
+    else calc.textContent = (tipo === 'llegar_tarde' ? `Entra ${hora} con turno desde ${d}: ` : `Se retira ${hora} con turno hasta ${h}: `) + `${_fmtMin(min)} de permiso`;
+    calc.style.display = 'block';
+  }
+  permAdminCalcMinutos();
 }
 
 // (2-nov-2026, JP) Antes de cargar un permiso: si ya hay otro ese día (en otro horario) avisa y pide confirmar.
@@ -13261,6 +13327,10 @@ async function guardarPermisoAdmin() {
   if (!empleado_id) { toast('Falta empleado', 'error'); return; }
   if (!fecha) { toast('Falta fecha', 'error'); return; }
   if (!tipo) { toast('Falta tipo', 'error'); return; }
+  if ((tipo === 'llegar_tarde' || tipo === 'retirarse_antes') && (!hora_desde || !hora_hasta)) {   // (17-nov-2026) hora única + turno
+    toast(tipo === 'llegar_tarde' ? 'Falta la hora a la que entra (o el turno del día: si no lo tiene, cargá Desde y Hasta).' : 'Falta la hora a la que se retira (o el turno del día: si no lo tiene, cargá Desde y Hasta).', 'error'); return;
+  }
+  if ((tipo === 'llegar_tarde' || tipo === 'retirarse_antes') && _horaAMin(hora_hasta) <= _horaAMin(hora_desde)) { toast('La hora no cierra con el turno asignado: revisala.', 'error'); return; }
   // 🚨 (4-ago, regla JP): fecha pasada solo admin (evita "salvar" fichadas retroactivamente). Desde el 17-nov-2026 es
   // la función del Hub rrhh.permisos_pasados: JP la habilitó al perfil Encargada (Andrea y Soraya), para su equipo e incluidas ellas.
   if (session.rol !== 'admin') {
@@ -24150,7 +24220,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=66"></script>
+<script src="manuales.js?v=67"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>

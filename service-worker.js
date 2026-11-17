@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v536-permisos-pasados-encargadas';
+const CACHE_VERSION = 'rrhh-v537-permiso-una-hora';
 const ASSETS = [
   './',
   './index.html',
