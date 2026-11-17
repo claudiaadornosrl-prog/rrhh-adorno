@@ -7572,6 +7572,268 @@ window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([
   },
 }]);
 
+// ═══ Clodi · acciones de formularios · tanda 2 · 17-nov-2026 (JP: "todos los formularios… pero no autorizar nada") ═══
+const _CLODI_ISO = /^\d{4}-\d{2}-\d{2}$/;
+function _clodiEquipo() { return !!(session && (session.rol === 'admin' || session.local_gerencia)); }
+function _clodiCerrado(id) { return !document.getElementById(id); }   // el modal se cerró = se guardó
+function _clodiPesos(n) { return '$' + Math.round(n).toLocaleString('es-AR'); }
+window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([
+{
+  nombre: 'asignar_vacaciones',
+  descripcion: 'Prepara "Asignar vacaciones" a una persona del equipo (encargada o admin): colaborador, desde, hasta y observación. Oficina cuenta días hábiles; los locales, corridos. Se graba cuando la persona toca Enviar.',
+  parametros: { type: 'object', properties: {
+      colaborador: { type: 'string', description: 'Nombre (o parte) de la persona' },
+      desde: { type: 'string', description: 'Primer día, AAAA-MM-DD' }, hasta: { type: 'string', description: 'Último día, AAAA-MM-DD' },
+      observaciones: { type: 'string' } }, required: ['colaborador', 'desde', 'hasta'] },
+  disponible: () => _clodiEquipo() && puedo('rrhh.vacaciones_asignar') !== 'o',
+  async preparar(p) {
+    if (!_CLODI_ISO.test(p.desde || '') || !_CLODI_ISO.test(p.hasta || '')) return { ok: false, error: 'no entendí bien las fechas' };
+    if (p.hasta < p.desde) return { ok: false, error: 'la fecha de fin es anterior a la de inicio' };
+    if (!document.getElementById('asignvac-modal')) await abrirAsignarVacacion();
+    if (!(await _clodiEsperar('asg-emp'))) return { ok: false, error: 'no pude abrir "Asignar vacaciones"' };
+    const g = (id) => document.getElementById(id);
+    const quien = _clodiElegirColaborador(g('asg-emp'), p.colaborador); if (!quien.ok) return { ok: false, error: quien.error };
+    g('asg-desde').value = p.desde; g('asg-hasta').value = p.hasta; g('asg-desde').dispatchEvent(new Event('change')); g('asg-hasta').dispatchEvent(new Event('change'));
+    if (p.observaciones) g('asg-obs').value = String(p.observaciones).slice(0, 200);
+    _clodiResaltar(/guardarAsignarVacacion\(\)/);
+    await new Promise((r) => setTimeout(r, 300));
+    const calc = g('asg-calc-box') && g('asg-calc-box').textContent.trim() ? ' · ' + g('asg-calc-box').textContent.trim() : '';
+    return { ok: true, resumen: `vacaciones de ${quien.nombre} del ${_clodiFechaTxt(p.desde)} al ${_clodiFechaTxt(p.hasta)}${calc}` + (p.observaciones ? ` · "${p.observaciones}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('asignvac-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarAsignarVacacion();
+    return _clodiCerrado('asignvac-modal') ? { ok: true, mensaje: 'Listo, las vacaciones quedaron asignadas.' } : { ok: false, error: 'no se guardó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'pagar_vacaciones',
+  descripcion: 'Prepara "Pagar vacaciones" (vacaciones no tomadas que se pagan) a una persona del equipo: colaborador, cantidad de días, fecha de pago y observación.',
+  parametros: { type: 'object', properties: {
+      colaborador: { type: 'string' }, dias: { type: 'integer', description: 'Días que se pagan' },
+      fecha: { type: 'string', description: 'Fecha de pago, AAAA-MM-DD' }, observaciones: { type: 'string' } }, required: ['colaborador', 'dias'] },
+  disponible: () => _clodiEquipo() && puedo('rrhh.vacaciones_asignar') !== 'o',
+  async preparar(p) {
+    const dias = parseInt(p.dias, 10); if (!(dias > 0)) return { ok: false, error: '¿cuántos días se pagan?' };
+    if (!document.getElementById('pagvac-modal')) await abrirPagarVacaciones();
+    if (!(await _clodiEsperar('pag-emp'))) return { ok: false, error: 'no pude abrir "Pagar vacaciones"' };
+    const g = (id) => document.getElementById(id);
+    const quien = _clodiElegirColaborador(g('pag-emp'), p.colaborador); if (!quien.ok) return { ok: false, error: quien.error };
+    g('pag-dias').value = dias; g('pag-fecha').value = _CLODI_ISO.test(p.fecha || '') ? p.fecha : hoyISO();
+    if (p.observaciones) g('pag-obs').value = String(p.observaciones).slice(0, 200);
+    _clodiResaltar(/guardarPagoVacaciones\(\)/);
+    return { ok: true, resumen: `pago de ${dias} ${dias === 1 ? 'día' : 'días'} de vacaciones a ${quien.nombre} con fecha ${_clodiFechaTxt(g('pag-fecha').value)}` + (p.observaciones ? ` · "${p.observaciones}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('pagvac-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarPagoVacaciones();
+    return _clodiCerrado('pagvac-modal') ? { ok: true, mensaje: 'Listo, el pago de vacaciones quedó cargado.' } : { ok: false, error: 'no se guardó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'pedir_pago_vacaciones',
+  descripcion: 'Prepara el pedido de la PROPIA persona para que le paguen días de vacaciones que no va a tomar: cantidad de días y motivo. Queda pendiente de aprobación cuando toca Enviar.',
+  parametros: { type: 'object', properties: { dias: { type: 'integer' }, motivo: { type: 'string' } }, required: ['dias'] },
+  disponible: () => !!(session && session.empleado_id && puedo('rrhh.pedidos_propios') !== 'o'),
+  async preparar(p) {
+    const dias = parseInt(p.dias, 10); if (!(dias > 0)) return { ok: false, error: '¿cuántos días querés que te paguen?' };
+    if (!document.getElementById('solpag-modal')) await abrirSolicitarPagoVac();
+    if (!(await _clodiEsperar('solpag-dias'))) return { ok: false, error: 'no pude abrir el pedido de pago de vacaciones' };
+    document.getElementById('solpag-dias').value = dias; if (p.motivo) document.getElementById('solpag-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/enviarSolicitudPago\(\)/);
+    return { ok: true, resumen: `tu pedido de pago de ${dias} ${dias === 1 ? 'día' : 'días'} de vacaciones` + (p.motivo ? ` · "${p.motivo}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('solpag-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await enviarSolicitudPago();
+    return _clodiCerrado('solpag-modal') ? { ok: true, mensaje: 'Listo, tu pedido quedó enviado. Te avisan cuando lo aprueben.' } : { ok: false, error: 'no se mandó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'compensar_falta',
+  descripcion: 'Prepara "Compensar falta" de la PROPIA persona para un día en que faltó: con minutos del banco o con días de vacaciones, y un comentario. Queda pendiente de aprobación cuando toca Enviar.',
+  parametros: { type: 'object', properties: {
+      fecha: { type: 'string', description: 'Día de la falta, AAAA-MM-DD' },
+      con: { type: 'string', enum: ['banco', 'vacaciones'], description: 'banco = minutos del banco; vacaciones = días de vacaciones' },
+      minutos: { type: 'integer', description: 'Solo con banco: minutos a descontar (si no lo dice, se deja el sugerido)' },
+      dias: { type: 'integer', description: 'Solo con vacaciones: días a usar (normalmente 1)' },
+      motivo: { type: 'string' } }, required: ['fecha'] },
+  disponible: () => !!(session && session.empleado_id && puedo('rrhh.pedidos_propios') !== 'o'),
+  async preparar(p) {
+    if (!_CLODI_ISO.test(p.fecha || '')) return { ok: false, error: 'no entendí bien la fecha de la falta' };
+    if (!document.getElementById('comp-modal')) await abrirCompensarFalta(p.fecha);
+    if (!(await _clodiEsperar('comp-motivo', 4000))) return { ok: false, error: 'no pude abrir "Compensar falta" (quizá el mes ya está cerrado o ese día no fue una falta)' };
+    const con = p.con === 'vacaciones' ? 'vacaciones' : 'banco';
+    const r = document.querySelector(`input[name="comp-tipo"][value="${con}"]`); if (r) { r.checked = true; try { compToggle(); } catch (_) {} }
+    if (con === 'banco' && p.minutos > 0) document.getElementById('comp-minutos').value = parseInt(p.minutos, 10);
+    if (con === 'vacaciones' && p.dias > 0) document.getElementById('comp-dias').value = parseInt(p.dias, 10);
+    if (p.motivo) document.getElementById('comp-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/enviarCompensarFalta\(/);
+    const det = con === 'banco' ? `${document.getElementById('comp-minutos').value || 0} min del banco` : `${document.getElementById('comp-dias').value || 1} día(s) de vacaciones`;
+    return { ok: true, resumen: `compensar tu falta del ${_clodiFechaTxt(p.fecha)} con ${det}` + (p.motivo ? ` · "${p.motivo}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('comp-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await enviarCompensarFalta();
+    await new Promise((r) => setTimeout(r, 400));
+    return _clodiCerrado('comp-modal') ? { ok: true, mensaje: 'Listo, el pedido de compensación quedó enviado.' } : { ok: false, error: 'no se mandó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'compensar_vacaciones_con_banco',
+  descripcion: 'Solo admin: prepara "Compensar vacaciones" (descontar días de vacaciones pendientes de una colaboradora para cubrir saldo negativo del banco de minutos): colaboradora, días, año a descontar y observación.',
+  parametros: { type: 'object', properties: {
+      colaborador: { type: 'string' }, dias: { type: 'integer' }, anio: { type: 'integer', description: 'Año de las vacaciones a descontar (si no lo dice, el más viejo con saldo)' },
+      horas_por_dia: { type: 'number', description: 'Solo si lo dice; por defecto Oficina 9,5 y locales 7' }, observaciones: { type: 'string' } }, required: ['colaborador', 'dias'] },
+  disponible: () => !!(session && session.rol === 'admin'),
+  async preparar(p) {
+    const dias = parseInt(p.dias, 10); if (!(dias > 0)) return { ok: false, error: '¿cuántos días se descuentan?' };
+    if (!document.getElementById('vaccomp-modal')) await abrirCompensarVacaciones(false);
+    if (!(await _clodiEsperar('vc-emp'))) return { ok: false, error: 'no pude abrir "Compensar vacaciones"' };
+    const g = (id) => document.getElementById(id);
+    const quien = _clodiElegirColaborador(g('vc-emp'), p.colaborador); if (!quien.ok) return { ok: false, error: quien.error };
+    await vcCargarAnios(); await new Promise((r) => setTimeout(r, 200));
+    const sa = g('vc-anio'); if (!sa || !sa.options.length) return { ok: false, error: `${quien.nombre} no tiene vacaciones pendientes para descontar` };
+    if (p.anio && [...sa.options].some((o) => o.value === String(p.anio))) sa.value = String(p.anio);
+    g('vc-dias').value = dias; if (p.horas_por_dia > 0) g('vc-horas').value = p.horas_por_dia;
+    if (p.observaciones) g('vc-obs').value = String(p.observaciones).slice(0, 200);
+    try { g('vc-dias').dispatchEvent(new Event('input')); } catch (_) {}
+    _clodiResaltar(/guardarCompensarVacaciones\(\)/);
+    return { ok: true, resumen: `descontar ${dias} ${dias === 1 ? 'día' : 'días'} de vacaciones ${sa.value} de ${quien.nombre} para el banco (${g('vc-horas').value} h por día)` + (p.observaciones ? ` · "${p.observaciones}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('vaccomp-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarCompensarVacaciones();
+    return _clodiCerrado('vaccomp-modal') ? { ok: true, mensaje: 'Listo, la compensación quedó asentada.' } : { ok: false, error: 'no se guardó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'ajustar_banco_minutos',
+  descripcion: 'Prepara un "Ajuste manual" del banco de minutos de una persona del equipo (encargada o admin): colaborador, fecha, si SUMA o RESTA, minutos (en positivo) y motivo obligatorio.',
+  parametros: { type: 'object', properties: {
+      colaborador: { type: 'string' }, fecha: { type: 'string', description: 'AAAA-MM-DD (si no lo dice, hoy)' },
+      accion: { type: 'string', enum: ['sumar', 'restar'] }, minutos: { type: 'integer', description: 'Siempre en positivo' }, motivo: { type: 'string' } },
+    required: ['colaborador', 'accion', 'minutos', 'motivo'] },
+  disponible: () => _clodiEquipo() && puedo('rrhh.asistencias_corregir') !== 'o',
+  async preparar(p) {
+    const min = Math.abs(parseInt(p.minutos, 10)); if (!(min > 0)) return { ok: false, error: '¿cuántos minutos?' };
+    if (p.accion !== 'sumar' && p.accion !== 'restar') return { ok: false, error: '¿el ajuste suma o resta minutos?' };
+    if (!p.motivo) return { ok: false, error: '¿cuál es el motivo del ajuste?' };
+    if (!document.getElementById('ajuste-modal')) await abrirAjusteBancoAdmin();
+    if (!(await _clodiEsperar('ajus-emp'))) return { ok: false, error: 'no pude abrir el ajuste del banco' };
+    const g = (id) => document.getElementById(id);
+    const quien = _clodiElegirColaborador(g('ajus-emp'), p.colaborador); if (!quien.ok) return { ok: false, error: quien.error };
+    g('ajus-fecha').value = _CLODI_ISO.test(p.fecha || '') ? p.fecha : hoyISO();
+    const r = document.querySelector(`input[name="ajus-signo"][value="${p.accion === 'sumar' ? '1' : '-1'}"]`); if (r) { r.checked = true; try { _ajusSignoUI(); } catch (_) {} }
+    g('ajus-mins').value = min; try { g('ajus-mins').dispatchEvent(new Event('input')); } catch (_) {}
+    g('ajus-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/guardarAjusteBanco\(\)/);
+    return { ok: true, resumen: `${p.accion} ${_fmtMin(min)} ${p.accion === 'sumar' ? 'al' : 'del'} banco de ${quien.nombre} con fecha ${_clodiFechaTxt(g('ajus-fecha').value)} · "${p.motivo}"` };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('ajuste-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarAjusteBanco();
+    return _clodiCerrado('ajuste-modal') ? { ok: true, mensaje: 'Listo, el ajuste quedó registrado en el banco.' } : { ok: false, error: 'no se guardó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'pedir_prestamo',
+  descripcion: 'Prepara el pedido de préstamo de la PROPIA persona: capital en pesos, opciones de cantidad de cuotas (1 a 12, puede dar varias) y motivo. Queda pendiente para el admin cuando toca Enviar.',
+  parametros: { type: 'object', properties: {
+      capital: { type: 'integer', description: 'Monto en pesos, sin puntos (300000)' },
+      cuotas: { type: 'array', items: { type: 'integer' }, description: 'Cantidades de cuotas que propone, por ejemplo [3] o [3, 6]' },
+      motivo: { type: 'string' } }, required: ['capital', 'cuotas'] },
+  disponible: () => !!(session && session.empleado_id && puedo('rrhh.pedidos_propios') !== 'o'),
+  async preparar(p) {
+    const cap = parseInt(p.capital, 10); if (!(cap > 0)) return { ok: false, error: '¿cuánto querés pedir?' };
+    const cuotas = [...new Set((Array.isArray(p.cuotas) ? p.cuotas : [p.cuotas]).map((n) => parseInt(n, 10)).filter((n) => n >= 1 && n <= 12))].slice(0, 6);
+    if (!cuotas.length) return { ok: false, error: '¿en cuántas cuotas? (de 1 a 12)' };
+    if (!document.getElementById('presnuevo-capital')) await abrirPedirPrestamo();
+    if (!(await _clodiEsperar('presnuevo-capital'))) return { ok: false, error: 'no pude abrir el pedido de préstamo' };
+    await new Promise((r) => setTimeout(r, 150));
+    const g = (id) => document.getElementById(id);
+    g('presnuevo-capital').value = String(cap); g('presnuevo-capital').dispatchEvent(new Event('input'));
+    for (const n of cuotas) { g('presnuevo-cuotas-input').value = n; agregarOpcionCuotaPrestamo(); }
+    if (p.motivo) g('presnuevo-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/enviarSolicitudPrestamo\(\)/);
+    const capMax = parseInt(g('presnuevo-capmax')?.value || '0', 10) || 0;
+    if (capMax > 0 && cap > capMax) return { ok: false, error: `el tope de préstamo que te corresponde es ${_clodiPesos(capMax)} (pediste ${_clodiPesos(cap)})` };
+    return { ok: true, resumen: `tu pedido de préstamo de ${_clodiPesos(cap)} en ${cuotas.join(' o ')} cuotas` + (p.motivo ? ` · "${p.motivo}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('presnuevo-capital')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await enviarSolicitudPrestamo();
+    return _clodiCerrado('presnuevo-capital') ? { ok: true, mensaje: 'Listo, tu pedido de préstamo quedó enviado. Te avisan cuando el admin lo responda.' } : { ok: false, error: 'no se mandó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'pedir_adelanto_sueldo',
+  descripcion: 'Prepara el pedido de adelanto de sueldo de la PROPIA persona: monto en pesos y motivo. Queda pendiente cuando toca Enviar.',
+  parametros: { type: 'object', properties: { monto: { type: 'integer', description: 'Pesos, sin puntos' }, motivo: { type: 'string' } }, required: ['monto'] },
+  disponible: () => !!(session && session.empleado_id && puedo('rrhh.pedidos_propios') !== 'o'),
+  async preparar(p) {
+    const m = parseInt(p.monto, 10); if (!(m > 0)) return { ok: false, error: '¿cuánto necesitás?' };
+    if (!document.getElementById('adelsueldo-monto')) await abrirPedirAdelantoSueldo();
+    if (!(await _clodiEsperar('adelsueldo-monto'))) return { ok: false, error: 'no pude abrir el pedido de adelanto' };
+    const g = (id) => document.getElementById(id);
+    g('adelsueldo-monto').value = String(m); g('adelsueldo-monto').dispatchEvent(new Event('input'));
+    if (p.motivo) g('adelsueldo-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/enviarSolicitudAdelantoSueldo\(\)/);
+    const tope = parseInt(g('adelsueldo-tope')?.value || '0', 10) || 0;
+    if (tope > 0 && m > tope) return { ok: false, error: `el tope de adelanto que te corresponde es ${_clodiPesos(tope)} (pediste ${_clodiPesos(m)})` };
+    return { ok: true, resumen: `tu pedido de adelanto de sueldo de ${_clodiPesos(m)}` + (p.motivo ? ` · "${p.motivo}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('adelsueldo-monto')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await enviarSolicitudAdelantoSueldo();
+    return _clodiCerrado('adelsueldo-monto') ? { ok: true, mensaje: 'Listo, tu pedido de adelanto quedó enviado.' } : { ok: false, error: 'no se mandó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'pedir_cambio_obra_social',
+  descripcion: 'Prepara el pedido de cambio de obra social de la PROPIA persona: obra social destino y motivo. JP se comunica después.',
+  parametros: { type: 'object', properties: { destino: { type: 'string', description: 'Obra social a la que quiere pasar' }, motivo: { type: 'string' } }, required: ['destino'] },
+  disponible: () => !!(session && session.empleado_id && puedo('rrhh.pedidos_propios') !== 'o'),
+  async preparar(p) {
+    if (!p.destino) return { ok: false, error: '¿a qué obra social querés pasar?' };
+    if (!document.getElementById('cos-destino')) await abrirSolicitarCambioOS();
+    if (!(await _clodiEsperar('cos-destino'))) return { ok: false, error: 'no pude abrir el pedido de cambio de obra social' };
+    document.getElementById('cos-destino').value = String(p.destino).slice(0, 80); if (p.motivo) document.getElementById('cos-motivo').value = String(p.motivo).slice(0, 200);
+    _clodiResaltar(/enviarSolicitudCambioOS\(\)/);
+    return { ok: true, resumen: `tu pedido de cambio de obra social a ${p.destino}` + (p.motivo ? ` · "${p.motivo}"` : '') };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('cos-destino')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await enviarSolicitudCambioOS();
+    return _clodiCerrado('cos-destino') ? { ok: true, mensaje: 'Listo, el pedido quedó enviado. JP se va a comunicar.' } : { ok: false, error: 'no se mandó (mirá el aviso en la pantalla)' };
+  },
+},
+{
+  nombre: 'crear_horario',
+  descripcion: 'Prepara un nuevo horario (plantilla de turno) para un local: nombre, hora de inicio y hora de fin. Encargada (su local) o admin.',
+  parametros: { type: 'object', properties: {
+      local: { type: 'string', enum: ['alcorta', 'unicenter', 'oficina'] }, nombre: { type: 'string', description: 'Nombre del turno, por ejemplo "Tarde 14:45-21"' },
+      inicio: { type: 'string', description: 'HH:MM' }, fin: { type: 'string', description: 'HH:MM' } }, required: ['nombre', 'inicio', 'fin'] },
+  disponible: () => _clodiEquipo() && puedo('rrhh.asistencias_corregir') !== 'o',
+  async preparar(p) {
+    const i = _clodiHora(p.inicio), f = _clodiHora(p.fin); if (!i || !f) return { ok: false, error: '¿de qué hora a qué hora es el turno?' };
+    if (i >= f) return { ok: false, error: 'la hora de fin tiene que ser después de la de inicio' };
+    if (!document.getElementById('horario-modal')) await abrirNuevoHorario();
+    if (!(await _clodiEsperar('hor-nombre'))) return { ok: false, error: 'no pude abrir el formulario de horario' };
+    const g = (id) => document.getElementById(id);
+    const loc = p.local || session.local_gerencia || g('hor-local').value;
+    if (loc && [...g('hor-local').options].some((o) => o.value === loc)) g('hor-local').value = loc;
+    g('hor-nombre').value = String(p.nombre).slice(0, 60); g('hor-inicio').value = i; g('hor-fin').value = f;
+    _clodiResaltar(/guardarHorario\(\)/);
+    return { ok: true, resumen: `horario "${p.nombre}" de ${i} a ${f} en ${(LOCALES[g('hor-local').value] || {}).nombre || g('hor-local').value}` };
+  },
+  async confirmar(p) {
+    if (!document.getElementById('horario-modal')) { const r = await this.preparar(p); if (!r.ok) return r; }
+    await guardarHorario();
+    return _clodiCerrado('horario-modal') ? { ok: true, mensaje: 'Listo, el horario quedó creado.' } : { ok: false, error: 'no se guardó (mirá el aviso en la pantalla)' };
+  },
+}]);
+
 let _editandoVacacionId = null;
 
 // Traduce errores técnicos de PostgREST a mensajes amigables para vacaciones.
@@ -24369,7 +24631,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=68"></script>
+<script src="manuales.js?v=69"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
