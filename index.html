@@ -7441,7 +7441,7 @@ function _clodiElegirColaborador(sel, nombre) {
   if (!cand.length) return { error: `no encuentro a "${nombre}" entre los colaboradores que podés cargar` };
   if (cand.length > 1) return { error: `hay varias personas que coinciden con "${nombre}": ${cand.map((o) => o.textContent.replace(/\s*\(.*\)$/, '')).join(', ')}. Decime el nombre completo` };
   sel.value = cand[0].value; sel.dispatchEvent(new Event('change'));
-  return { ok: true, nombre: cand[0].textContent.replace(/\s*\(.*\)$/, '') };
+  return { ok: true, nombre: cand[0].textContent.replace(/\s+/g, ' ').replace(/\s*·.*$/, '').replace(/\s*\(.*\)$/, '').trim() };   // (17-nov-2026) sin saltos de línea ni «· saldo» (vc-emp)
 }
 function _clodiResaltar(re) {
   const btn = [...document.querySelectorAll('button')].find((x) => re.test(x.getAttribute('onclick') || ''));

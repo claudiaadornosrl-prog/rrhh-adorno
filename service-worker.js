@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v539-clodi-formularios-2';
+const CACHE_VERSION = 'rrhh-v540-clodi-nombre-limpio';
 const ASSETS = [
   './',
   './index.html',
