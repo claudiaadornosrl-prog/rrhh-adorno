@@ -282,6 +282,16 @@ window.ADORNO_ASISTENTE = (function () {
   function despertarVoz() { if (vozLista) return; vozLista = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (_) {} }
   // El dictado entiende "Claudia" cuando le dicen "Clodi": al principio de lo DICTADO se corrige (lo escrito no se toca)
   const corregirNombre = (t) => String(t || '').replace(/^\s*(?:(?:hey|ey|ei|eh|oye|hola)[\s,]+)?(?:claudia|clodi|clody|clodie|cloudy|klodi|glodi|lodi|clo di)\b[\s,.:;!]*/i, 'Clodi, ');
+  // (18-nov-2026) La función asistente de la base acepta hasta 8 acciones (MAX_ACCIONES). Con más, van las 8 que más
+  // palabras comparten con la pregunta; si empatan, en el orden en que el módulo las declaró.
+  function accionesPara(q) {
+    const todas = acciones(); if (todas.length <= 8) return todas;
+    const n = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const raiz = (w) => w.replace(/(es|s)$/, '').slice(0, 6);
+    const pal = [...new Set(n(q).split(/[^a-zñ0-9]+/).filter((w) => w.length >= 4).map(raiz))];
+    const pts = todas.map((a, i) => { const t = n(a.nombre.replace(/_/g, ' ') + ' ' + (a.descripcion || '')); return { a, i, p: pal.reduce((s, w) => s + (t.includes(w) ? 1 : 0), 0) }; });
+    return pts.sort((x, y) => (y.p - x.p) || (x.i - y.i)).slice(0, 8).map((x) => x.a);
+  }
   function acciones() {   // acciones del módulo disponibles para quien está usando la pantalla
     const lista = Array.isArray(window.ADORNO_ACCIONES) ? window.ADORNO_ACCIONES : [];
     return lista.filter((a) => { try { return a && a.nombre && typeof a.preparar === 'function' && typeof a.confirmar === 'function' && (!a.disponible || a.disponible()); } catch (_) { return false; } });
@@ -316,7 +326,12 @@ window.ADORNO_ASISTENTE = (function () {
       return t.join('\n');
     }).join('\n\n');
   }
-  function contexto() {
+  function contexto() {   // (18-nov-2026) arranca con quién usa la pantalla (_clodiQuien), así no contesta "con tu perfil no podés" a una encargada
+    let quien = ''; try { if (typeof window._clodiQuien === 'function') quien = window._clodiQuien() || ''; } catch (_) {}
+    const man = contextoManual();
+    return man ? quien + man : '';
+  }
+  function contextoManual() {
     if (typeof window.ADORNO_ASISTENTE_CONTEXTO === 'string') return window.ADORNO_ASISTENTE_CONTEXTO;
     try { if (typeof _manualSecciones === 'function') return seccionesATexto(_manualSecciones()); } catch (_) {}
     try {
@@ -570,7 +585,7 @@ window.ADORNO_ASISTENTE = (function () {
       if (!ctx) throw new Error('Este módulo todavía no tiene manual cargado para Clodi.');
       const r = await fetch(URL + '/functions/v1/asistente', { method: 'POST', headers: { apikey: KEY, Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' },
         body: JSON.stringify({ modulo: modulo(), pregunta: q, contexto: ctx, pestanas: pestanas().map((p) => p.lb), por_voz: !!porVoz,
-          acciones: acciones().map((x) => ({ nombre: x.nombre, descripcion: x.descripcion || '', parametros: x.parametros || { type: 'object', properties: {} } })) }) });
+          acciones: accionesPara(q).map((x) => ({ nombre: x.nombre, descripcion: x.descripcion || '', parametros: x.parametros || { type: 'object', properties: {} } })) }) });
       const j = await r.json().catch(() => ({}));
       w.remove();
       if (!r.ok || !j.ok) throw new Error(j.error || ('Error ' + r.status));
@@ -718,7 +733,7 @@ window.ADORNO_SSO = (function () {
       <button class="hbtn ab-fijo" id="logout-btn" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </header>
-  <script src="/hub/banner.js?v=11"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) · v10: si la cámara la tiene el fichador, le pide pausa (127.0.0.1:8765) y reintenta -->
+  <script src="/hub/banner.js?v=13"></script>   <!-- (16-nov-2026) v7: modo «Ver como» (solo lectura) · v8: carteles rojos de error comunes (ADORNO_AVISO) · v10: si la cámara la tiene el fichador, le pide pausa (127.0.0.1:8765) y reintenta -->
   <div class="layout">
     <main class="main" id="main">
       <div class="spinner"></div>
@@ -805,11 +820,25 @@ if ('serviceWorker' in navigator) {
 
       // Cuando el SW activo cambia (porque acaba de activarse el nuevo), recargar
       let refreshing = false;
+      // (18-nov-2026, JP: "quería entrar a Asistencias… tiraba un refresh rápido y se iba a la liquidación") Antes recargaba
+      // al instante y arrancaba en la primera pantalla. Ahora espera a que no haya un formulario abierto ni se esté
+      // escribiendo, y vuelve a la pantalla donde estabas (sessionStorage rrhh-tab-recarga, la lee onLoggedIn).
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (refreshing) return;
         refreshing = true;
-        console.log('[SW] Controller cambió, recargando para tomar nueva versión…');
-        window.location.reload();
+        const ocupado = () => {
+          if (document.querySelector('.modal-bg, #global-modal, .asist-panel:not([hidden]), .asist-card .asist-bts')) return true;
+          const a = document.activeElement;
+          return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.value);
+        };
+        const recargar = () => {
+          try { if (typeof currentTab !== 'undefined' && currentTab && session) sessionStorage.setItem('rrhh-tab-recarga', JSON.stringify({ tab: currentTab, t: Date.now() })); } catch (_) {}
+          console.log('[SW] Controller cambió, recargando para tomar nueva versión…');
+          window.location.reload();
+        };
+        if (!ocupado()) { recargar(); return; }
+        console.log('[SW] Versión nueva lista: recargo cuando cierres el formulario');
+        const iv = setInterval(() => { if (!ocupado()) { clearInterval(iv); recargar(); } }, 3000);
       });
 
       // Re-chequear actualizaciones cuando la ventana gana foco
@@ -1932,6 +1961,12 @@ async function onLoggedIn(user) {
   // (2-nov-2026) Si la app se abrió desde una notificación (./#mi-sueldo, ./#asistencias…), arrancar en esa pestaña.
   const _hashTab = tabDesdeHash(location.hash);
   if (_hashTab) firstTab = _hashTab;
+  // (18-nov-2026) Si la página se recargó sola por una versión nueva, volver a la pantalla donde estaba (hasta 2 min).
+  try {
+    const _r = JSON.parse(sessionStorage.getItem('rrhh-tab-recarga') || 'null');
+    sessionStorage.removeItem('rrhh-tab-recarga');
+    if (_r && Date.now() - _r.t < 120000 && _r.tab !== 'mi-sueldo' && (NAV[session.rol] || []).some(i => i.id === _r.tab)) firstTab = _r.tab;
+  } catch (_) {}
   // Si es colaboradora y le faltan datos críticos, arrancar en Mi legajo
   if (esRolColab(session.rol) && legajoIncompleto(session.empleadoData).length > 0) {
     firstTab = 'mi-legajo';
@@ -7428,6 +7463,28 @@ window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([{
 // Regla: preparar() abre y COMPLETA el formulario; confirmar() corre la misma función que el botón de la pantalla (con
 // _gate, Hub, cámara y autorización incluidos). Clodi nunca graba por su cuenta.
 const _CLODI_TIPOS_PERMISO = { llegar_tarde: 'llegar más tarde', retirarse_antes: 'retirarse antes', dia_completo: 'día completo', salir_volver: 'salir y volver' };
+// (18-nov-2026, JP: con el usuario de Andrea, Clodi le dijo que "con su perfil" no podía cargar un permiso de ayer)
+// Primeras líneas del contexto que recibe Clodi: quién es, qué perfil tiene y qué puede hacer. Sin datos sensibles.
+function _clodiQuien() {
+  if (!session) return '';
+  const nom = (session.empleadoData && session.empleadoData.nombre_completo) || session.email || '';
+  const loc = (k) => (LOCALES[k] && LOCALES[k].nombre) || k || '';
+  let perfil;
+  if (window.ADORNO_VERCOMO) perfil = 'JP mirando en modo «Ver como» (solo lectura)';
+  else if (session.rol === 'admin') perfil = 'admin (dirección)';
+  else if (session.oficina) perfil = 'cuenta compartida de la oficina';
+  else if (session.rol === 'gerente') perfil = 'ENCARGADA de ' + loc(session.local_gerencia);
+  else perfil = 'colaboradora' + (session.empleadoData && session.empleadoData.local ? ' de ' + loc(session.empleadoData.local) : '');
+  const si = (b) => b ? 'sí' : 'no';
+  const equipo = session.rol === 'admin' || !!session.local_gerencia;
+  const l = [
+    'QUIÉN ESTÁ USANDO LA PANTALLA (dato del sistema, confiable): ' + nom + ' · ' + perfil + '.',
+    'Puede cargar permisos y horas extra a su equipo: ' + si(equipo && puedo('rrhh.permisos_aprobar') !== 'o') + '.',
+    'Puede cargar permisos de días anteriores (fecha pasada): ' + si(session.rol === 'admin' || (equipo && puedo('rrhh.permisos_pasados') === 'h')) + '.',
+    'Lo que dice el manual sobre "las encargadas" o "el admin" aplicalo a esta persona según su perfil de arriba.',
+  ];
+  return l.join('\n') + '\n\n';
+}
 function _clodiNorm(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
 function _clodiHora(h) { const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(String(h || '').trim()); if (!m) return null; const hh = +m[1], mm = +(m[2] || 0); if (hh > 23 || mm > 59) return null; return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); }
 function _clodiFechaTxt(f) { return (f || '').split('-').reverse().join('/'); }
@@ -7450,7 +7507,8 @@ function _clodiResaltar(re) {
 window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([
 {
   nombre: 'cargar_permiso',
-  descripcion: 'Prepara el formulario "Cargar permiso puntual" para OTRA persona del equipo (encargada o admin): colaborador, fecha, tipo y hora. Para "llegar más tarde" solo hace falta a qué hora entra; para "retirarse antes", a qué hora se retira (el sistema compara con el turno asignado y calcula los minutos). Para "salir y volver" hacen falta las dos horas. Queda aprobado recién cuando la persona toca Enviar.',
+  get descripcion() { return this._desc + ((session && (session.rol === 'admin' || puedo('rrhh.permisos_pasados') === 'h')) ? ' Esta persona SÍ puede cargar permisos de días anteriores (fecha pasada), también para ella misma.' : ' Esta persona solo puede cargar permisos desde hoy en adelante.'); },
+  _desc: 'Prepara el formulario "Cargar permiso puntual" para una persona del equipo, incluida la propia encargada (encargada o admin): colaborador, fecha, tipo y hora. Para "llegar más tarde" solo hace falta a qué hora entra; para "retirarse antes", a qué hora se retira (el sistema compara con el turno asignado y calcula los minutos). Para "salir y volver" hacen falta las dos horas. Queda aprobado recién cuando la persona toca Enviar.',
   parametros: { type: 'object', properties: {
       colaborador: { type: 'string', description: 'Nombre (o parte del nombre) de la persona a la que se le carga el permiso' },
       fecha: { type: 'string', description: 'Día del permiso, formato AAAA-MM-DD (si dice "hoy" o "mañana", calculá la fecha)' },
@@ -7464,6 +7522,7 @@ window.ADORNO_ACCIONES = (window.ADORNO_ACCIONES || []).concat([
   async preparar(p) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.fecha || '')) return { ok: false, error: 'no entendí bien la fecha' };
     if (!_CLODI_TIPOS_PERMISO[p.tipo]) return { ok: false, error: 'no entendí el tipo de permiso' };
+    if (p.fecha < hoyISO() && session.rol !== 'admin' && puedo('rrhh.permisos_pasados') !== 'h') return { ok: false, error: 'con tu perfil los permisos se cargan desde hoy en adelante; los de días anteriores los carga el admin' };
     if (!document.getElementById('permiso-modal')) await abrirNuevoPermisoAdmin();
     if (!(await _clodiEsperar('perm-emp'))) return { ok: false, error: 'no pude abrir el formulario de permiso' };
     const g = (id) => document.getElementById(id);
@@ -24631,7 +24690,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=69"></script>
+<script src="manuales.js?v=70"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
