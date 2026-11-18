@@ -706,6 +706,10 @@ input[type="date"], input[type="time"], input[type="month"], input[type="datetim
 }
 /* (3-nov-2026, JP) Sub-sección activa al lado del título: "Asistencias – Calendarios" */
 .liq-titulo .sub-sec { font-weight: 400; color: var(--muted); font-size: 0.8em; white-space: nowrap; }
+/* (18-nov-2026, JP) el nombre ocupa siempre lo que el más largo de la sección: los íconos no se corren */
+.liq-titulo .sub-sec-pila { display: inline-grid; vertical-align: baseline; }
+.liq-titulo .sub-sec-pila > span { grid-area: 1 / 1; text-align: left; }
+.liq-titulo .sub-sec-pila > span.oculta { visibility: hidden; }
 /* El menú desplegable tiene que quedar por encima de la grilla sticky */
 .liq-toolbar-sticky .liq-kebab-dd,
 .liq-toolbar-sticky .liq-export-dd { z-index: 40; }
