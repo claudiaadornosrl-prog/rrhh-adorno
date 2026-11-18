@@ -282,15 +282,15 @@ window.ADORNO_ASISTENTE = (function () {
   function despertarVoz() { if (vozLista) return; vozLista = true; try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (_) {} }
   // El dictado entiende "Claudia" cuando le dicen "Clodi": al principio de lo DICTADO se corrige (lo escrito no se toca)
   const corregirNombre = (t) => String(t || '').replace(/^\s*(?:(?:hey|ey|ei|eh|oye|hola)[\s,]+)?(?:claudia|clodi|clody|clodie|cloudy|klodi|glodi|lodi|clo di)\b[\s,.:;!]*/i, 'Clodi, ');
-  // (18-nov-2026) La función asistente de la base acepta hasta 8 acciones (MAX_ACCIONES). Con más, van las 8 que más
+  // (18-nov-2026) La función asistente de la base acepta hasta 24 acciones (MAX_ACCIONES; era 8 hasta la v11 de Infra). Con más, van las 24 que más
   // palabras comparten con la pregunta; si empatan, en el orden en que el módulo las declaró.
   function accionesPara(q) {
-    const todas = acciones(); if (todas.length <= 8) return todas;
+    const TOPE = 24; const todas = acciones();
     const n = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const raiz = (w) => w.replace(/(es|s)$/, '').slice(0, 6);
     const pal = [...new Set(n(q).split(/[^a-zñ0-9]+/).filter((w) => w.length >= 4).map(raiz))];
     const pts = todas.map((a, i) => { const t = n(a.nombre.replace(/_/g, ' ') + ' ' + (a.descripcion || '')); return { a, i, p: pal.reduce((s, w) => s + (t.includes(w) ? 1 : 0), 0) }; });
-    return pts.sort((x, y) => (y.p - x.p) || (x.i - y.i)).slice(0, 8).map((x) => x.a);
+    return pts.sort((x, y) => (y.p - x.p) || (x.i - y.i)).slice(0, TOPE).map((x) => x.a);   // la más parecida a la pregunta, primera
   }
   function acciones() {   // acciones del módulo disponibles para quien está usando la pantalla
     const lista = Array.isArray(window.ADORNO_ACCIONES) ? window.ADORNO_ACCIONES : [];
