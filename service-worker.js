@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v544-clodi-14-acciones';
+const CACHE_VERSION = 'rrhh-v545-clodi-dictado-iphone';
 const ASSETS = [
   './',
   './index.html',
