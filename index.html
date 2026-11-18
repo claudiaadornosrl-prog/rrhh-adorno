@@ -15520,12 +15520,20 @@ async function listarExtras(fechaDesde, fechaHasta) {
   };
 
   cont.innerHTML = `
-    <div class="metrics-grid">
-      <div class="metric-card accent"><div class="label">Total extras del mes</div><div class="value" style="font-size:24px;">${fmtMin(totalMin)}</div></div>
-      <div class="metric-card"><div class="label">Cantidad de cargas</div><div class="value">${extras.length}</div></div>
-      <div class="metric-card"><div class="label">Pagadas</div><div class="value" style="font-size:24px;">${fmtMin(totalPagadas)}</div></div>
-      <div class="metric-card"><div class="label">A banco</div><div class="value" style="font-size:24px;">${fmtMin(totalMin - totalPagadas)}</div></div>
-    </div>
+    <!-- (18-nov-2026, JP) fichas como monedas, igual que Resumen mensual y Retiros: en la moneda el número corto, abajo el detalle -->
+    ${(() => {
+      const corto = (mm) => { mm = Math.round(mm || 0); if (mm < 60) return mm + 'm'; const h = Math.floor(mm / 60), m = mm % 60; return h + 'h' + (m ? String(m).padStart(2, '0') : ''); };
+      const ms = [
+        ['#0d9488', '⏰', corto(totalMin), 'Total extras del mes · ' + fmtMin(totalMin)],
+        ['#6366f1', '📝', extras.length, extras.length === 1 ? 'Carga en el mes' : 'Cargas en el mes'],
+        ['#16a34a', '💵', corto(totalPagadas), 'Pagadas · ' + fmtMin(totalPagadas)],
+        ['#d97706', '🏦', corto(totalMin - totalPagadas), 'A banco · ' + fmtMin(totalMin - totalPagadas)],
+      ];
+      return `<div class="dash-monedas" style="margin:4px 0 14px;">${ms.map(([c, ico, num, nom]) => `
+        <button type="button" class="dash-mon" style="--c:${c};cursor:default;" aria-label="${nom}" onmouseenter="dashGirar(this, true)" onmouseleave="dashGirar(this, false)">
+          <span class="bola">${_dashMonedaHtml(ico, num)}</span><span class="nom">${nom}</span>
+        </button>`).join('')}</div>`;
+    })()}
     <div class="card" style="padding:0;overflow:hidden;margin-top:14px;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
@@ -24697,7 +24705,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=70"></script>
+<script src="manuales.js?v=71"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
