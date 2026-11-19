@@ -2701,7 +2701,7 @@ async function renderDashboard() {
     const _mesIni = `${_ry}-${String(_rmes).padStart(2, '0')}-01`;
     const _mesFin = new Date(_ry, _rmes, 0).toISOString().split('T')[0];
     let qRM = sb.from('rrhh_retiros_mercaderia').select('id, importe, fecha, empleado_id, local').in('estado', ['asignado', 'descontado']).gte('fecha', _mesIni).lte('fecha', _mesFin);
-    if (!isAdmin && local) qRM = qRM.eq('local', local);
+    // (19-nov-2026) sin filtro por el local del retiro: la base deja ver a la encargada solo los de las colaboradoras de su local (aunque los hayan retirado en otro)
     const { data: _rm } = await qRM; retirosMesDash = _rm || [];
     retirosMesTotal = retirosMesDash.reduce((a, r) => a + Number(r.importe || 0), 0);
   } catch (e) { console.warn('[dashboard monedas extra]', e); }
@@ -19532,12 +19532,14 @@ async function renderRetirosMercaderia() {
     .gte('fecha', desde).lte('fecha', hasta)
     .neq('estado', 'cancelado')
     .order('fecha', { ascending: false });
-  if (localFiltro) qRet = qRet.eq('local', localFiltro);
+  // (19-nov-2026, JP) la encargada ve lo que retiraron las colaboradoras de SU local, aunque lo hayan retirado en otro;
+  // los pendientes sin colaboradora, por el local del retiro (igual que el permiso rrm_gerente_select de la base)
+  if (localFiltro) qRet = qRet.or(`empleado_local.eq.${localFiltro},and(empleado_id.is.null,local.eq.${localFiltro})`);
   const { data: retiros } = await qRet;
 
   // Pendientes de asignación (de cualquier mes, no solo el actual)
   let qPend = sb.from('rrhh_retiros_mercaderia_view').select('*').eq('estado', 'pendiente_asignacion').order('fecha', { ascending: false });
-  if (localFiltro) qPend = qPend.eq('local', localFiltro);
+  if (localFiltro) qPend = qPend.or(`empleado_local.eq.${localFiltro},and(empleado_id.is.null,local.eq.${localFiltro})`);
   const { data: pendientes } = await qPend;
 
   // Posibles duplicados detectados por el sync (mismo colaborador + fecha ±3d + importe igual)
@@ -24778,7 +24780,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=73"></script>
+<script src="manuales.js?v=74"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
