@@ -6962,7 +6962,7 @@ function _miFotoPedidoHtml(p) {
   if (p.estado === 'pendiente') return `
     <div class="foto-pedido">
       <img src="${escapeHtml(p.foto_url)}" alt="Foto nueva">
-      <div>⏳ <strong>Tu foto nueva está esperando que JP la autorice.</strong><br><span style="opacity:.8;">La mandaste el ${new Date(p.created_at).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Si mandás otra, reemplaza a esta.</span></div>
+      <div>⏳ <strong>Tu foto nueva está esperando que JP la autorice.</strong><br><span style="opacity:.8;">Si mandás otra, reemplaza a esta. Enviada el ${new Date(p.created_at).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
     </div>`;
   if (p.estado === 'rechazada' && p.decidido_at && Date.now() - new Date(p.decidido_at).getTime() < 7 * 864e5) return `
     <div class="foto-pedido rechazada">
