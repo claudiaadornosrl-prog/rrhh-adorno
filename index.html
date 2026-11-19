@@ -736,7 +736,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/hub/banner.css?v=4"><!-- banner común de los módulos (infra, 11-nov-2026) -->
-<link rel="stylesheet" href="styles.css?v=62">
+<link rel="stylesheet" href="styles.css?v=63">
 </head>
 <body>
 
@@ -1979,6 +1979,8 @@ async function onLoggedIn(user) {
       .maybeSingle();
     console.log('[LOGIN] rrhh_empleados result:', { emp, errE });
     empleadoData = emp;
+    // (19-nov-2026) si mandó una foto nueva y está esperando autorización, la foto no cuenta como faltante
+    if (emp && !emp.foto_url) { try { emp._fotoPendiente = (await _miFotoUltimoPedido(emp.id))?.estado === 'pendiente'; } catch (_) {} }
   }
 
   // (15-sep) Quién puede bajar el archivo de adelantos para Galicia Office. Va por EMAIL y no por rol:
@@ -2061,6 +2063,7 @@ function _subSecFija(nombres, actual) {
 function tabDesdeHash(hash) {
   const t = String(hash || '').replace(/^#/, '');
   if (!/^[a-z-]{2,30}$/.test(t) || !session) return null;
+  if (t === 'config-fotos' && session.rol === 'admin') { configState.tab = 'fotos'; return 'config'; }   // (19-nov-2026) push de foto nueva
   const enNav = (NAV[session.rol] || []).some(i => i.id === t);
   if (enNav || (t === 'mi-sueldo' && session.empleado_id)) return t;
   return null;
@@ -2496,6 +2499,15 @@ async function renderDashboard() {
     borradoPendientes = count || 0;
   } catch(_) {}
 
+  // (19-nov-2026) Fotos de perfil que mandaron las colaboradoras y esperan autorización
+  let fotoPendientes = 0;
+  if (isAdmin) {
+    try {
+      const { count } = await sb.from('rrhh_foto_solicitudes').select('id', { count: 'exact', head: true }).eq('estado', 'pendiente');
+      fotoPendientes = count || 0;
+    } catch (_) {}
+  }
+
   // Solicitudes de préstamos/adelantos pendientes (solo admin las puede resolver)
   let prestamoSolicPendientes = 0;
   let prestamoSolicDetalle = '';
@@ -2792,7 +2804,7 @@ async function renderDashboard() {
     ${(() => {
       const totalCriticas = (vacPendientes||0) + (permPendientes||0) + (pagoPendientes||0)
                           + mesAnteriorSinCerrar.length + (docPendientes||0) + proximasPerderPremio.length + tardanzasAltas.length
-                          + lactanciaProx.length + (borradoPendientes||0) + (prestamoSolicPendientes||0);
+                          + lactanciaProx.length + (borradoPendientes||0) + (prestamoSolicPendientes||0) + (fotoPendientes||0);
       const totalInfo = cumpleProx7d.length + anivProx7d.length + (vacEstaSem?.length||0) + empConAtraso30.length;
       if (totalCriticas === 0 && totalInfo === 0) return '';
 
@@ -2824,6 +2836,7 @@ async function renderDashboard() {
               ${cardCritica('#ea580c', '🎖', 'Pueden perder premio', proximasPerderPremio.length, proximasPerderPremio.slice(0,2).map(e => e.nombre.split(' ')[0]+' ('+e.errores+'/'+e.max+')').join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#d97706', '⚠', 'Tardanzas + salidas >60 min', tardanzasAltas.length, tardanzasAltas.slice(0,2).map(e => e.nombre.split(' ')[0]+': '+Math.floor(e.min_tarde/60)+'h'+(e.min_tarde%60)).join(', ')||'Todas OK', `asisState.tab='resumen';switchTab('asistencias')`)}
               ${cardCritica('#db2777', '🤱', 'Lactancia próxima a vencer', lactanciaProx.length, lactanciaProx.slice(0,2).map(e => (e.nombre||'').split(' ')[0]+(e._diasFalta < 0 ? ' (venció hace '+Math.abs(e._diasFalta)+'d)' : e._diasFalta===0 ? ' (HOY)' : ' (+'+e._diasFalta+'d)')).join(', '), `switchTab('empleados')`)}
+              ${isAdmin ? cardCritica('#0d9488', '📷', 'Fotos para autorizar', fotoPendientes||0, (fotoPendientes===1?'1 foto nueva':fotoPendientes+' fotos nuevas')+' de perfil', `configState.tab='fotos';switchTab('config')`) : ''}
               ${isAdmin ? cardCritica('#7c3aed', '🗑️', 'Solicitudes de borrado', borradoPendientes||0, (borradoPendientes===1?'1 solicitud':borradoPendientes+' solicitudes')+' por revisar', `configState.tab='borrados';switchTab('config')`) : ''}
               ${isAdmin ? cardCritica('#0ea5e9', '💵', 'Préstamos/Adelantos pendientes', prestamoSolicPendientes||0, prestamoSolicDetalle || ((prestamoSolicPendientes===1?'1 solicitud':prestamoSolicPendientes+' solicitudes')+' por resolver'), `switchTab('prestamos')`) : ''}
             </div>
@@ -6508,13 +6521,14 @@ const CAMPOS_LEGAJO_CRITICOS = [
 function legajoIncompleto(emp) {
   if (!emp) return [];
   return CAMPOS_LEGAJO_CRITICOS
-    .filter(({ campo }) => !emp[campo] || String(emp[campo]).trim() === '')
+    .filter(({ campo }) => !(campo === 'foto_url' && emp._fotoPendiente) && (!emp[campo] || String(emp[campo]).trim() === ''))
     .map(({ label }) => label);
 }
 
 async function legajoEmpFull() {
   if (!session?.empleado_id) return null;
   const { data } = await sb.from('rrhh_empleados').select('*').eq('id', session.empleado_id).single();
+  if (data) data._fotoPendiente = (await _miFotoUltimoPedido(session.empleado_id))?.estado === 'pendiente';
   return data;
 }
 
@@ -6532,6 +6546,8 @@ async function renderMiLegajo() {
   const cats = await getCategorias();
   const { data: full } = await sb.from('rrhh_empleados').select('*, categoria:rrhh_categorias_cct(nombre)').eq('id', emp.id).single();
 
+  const fotoPedido = await _miFotoUltimoPedido(emp.id);
+  if (full) full._fotoPendiente = fotoPedido?.estado === 'pendiente';
   const faltantes = esRolColab(session.rol) ? legajoIncompleto(full) : [];
   const [dniFrenteUrl, dniDorsoUrl] = await legajosFirmados([full?.dni_foto_frente_url, full?.dni_foto_dorso_url]);
   const banner = faltantes.length > 0 ? `
@@ -6566,8 +6582,17 @@ async function renderMiLegajo() {
       </div>
       <div style="flex:1 1 220px;min-width:0;">
         <div class="section-title" style="margin-top:0;">Mi foto</div>
-        <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Subí una foto tuya para tu perfil (JPG o PNG).</div>
-        <input type="file" id="self-foto-file" accept="image/*" onchange="subirMiFoto(this)" style="font-size:13px;max-width:100%;">
+        <!-- (19-nov-2026, JP) clip = subir un archivo, cámara = sacarla en el momento; la foto nueva la autoriza el admin -->
+        <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">${session.rol === 'admin'
+          ? 'Subí una foto tuya con el clip o sacala con la cámara.'
+          : 'Para cambiar tu foto, subila con el clip o sacala con la cámara. JP la tiene que autorizar; hasta entonces queda la que tenés ahora.'}</div>
+        <div class="foto-acciones">
+          <button type="button" class="foto-ico-btn" onclick="miFotoElegir('archivo')" title="Subir una foto (archivo)" aria-label="Subir una foto (archivo)">${_ICO_CLIP}</button>
+          <button type="button" class="foto-ico-btn" onclick="miFotoElegir('camara')" title="Sacar una foto con la cámara" aria-label="Sacar una foto con la cámara">${_ICO_CAMARA}</button>
+        </div>
+        <input type="file" id="self-foto-file" accept="image/*" onchange="miFotoDesdeInput(this)" hidden>
+        <input type="file" id="self-foto-cam" accept="image/*" capture="user" onchange="miFotoDesdeInput(this)" hidden>
+        ${_miFotoPedidoHtml(fotoPedido)}
         ${full?.foto_url ? `<button class="btn small" style="margin-top:8px;background:#fee2e2;color:#991b1b;border-color:#fca5a5;"
           onclick="pedirBorradoFoto()" title="Pedir al admin que borre tu foto de perfil">🗑️ Pedir borrado de mi foto</button>` : ''}
       </div>
@@ -6913,6 +6938,152 @@ async function subirFotoEmpleado(empId, inputEl) {
   try { auditLog('cambiar_foto', 'rrhh_empleados', empId, 'foto_url', null, url); } catch (_) {}
   toast('Foto actualizada ✓', 'success');
   if (currentTab === 'empleados' && typeof renderEmpleadosList === 'function') renderEmpleadosList();
+}
+
+// ═══ (19-nov-2026, JP) Cambio de foto desde Mi legajo, con autorización del admin ═══
+// La colaboradora elige la foto (📎 archivo o 📷 cámara), la ve en un círculo y la manda. Se sube como
+// rrhh-fotos/<id>/pedido-<n>.jpg (ella no puede pisar ni borrar archivos) y rrhh_pedir_cambio_foto crea el pedido.
+// A los admins les llega un push; la autorizan en Configuración › 📷 Fotos (rrhh_decidir_cambio_foto). El admin
+// cambia la suya directo.
+const _ICO_CLIP = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+const _ICO_CAMARA = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+
+async function _miFotoUltimoPedido(empId) {
+  if (!empId) return null;
+  try {
+    const { data } = await sb.from('rrhh_foto_solicitudes').select('id, foto_url, estado, comentario, created_at, decidido_at')
+      .eq('empleado_id', empId).neq('estado', 'reemplazada').order('created_at', { ascending: false }).limit(1);
+    return (data || [])[0] || null;
+  } catch (_) { return null; }
+}
+
+function _miFotoPedidoHtml(p) {
+  if (!p) return '';
+  if (p.estado === 'pendiente') return `
+    <div class="foto-pedido">
+      <img src="${escapeHtml(p.foto_url)}" alt="Foto nueva">
+      <div>⏳ <strong>Tu foto nueva está esperando que JP la autorice.</strong><br><span style="opacity:.8;">La mandaste el ${new Date(p.created_at).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Si mandás otra, reemplaza a esta.</span></div>
+    </div>`;
+  if (p.estado === 'rechazada' && p.decidido_at && Date.now() - new Date(p.decidido_at).getTime() < 7 * 864e5) return `
+    <div class="foto-pedido rechazada">
+      <div>✕ <strong>La última foto que mandaste no fue autorizada.</strong>${p.comentario ? `<br>Motivo: ${escapeHtml(p.comentario)}` : ''}<br><span style="opacity:.8;">Podés mandar otra.</span></div>
+    </div>`;
+  return '';
+}
+
+function miFotoElegir(modo) {
+  const tactil = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (_) { return false; } })();
+  if (modo === 'camara' && !tactil) return _miFotoCamaraPc();   // en la compu, la cámara se abre acá mismo
+  const inp = document.getElementById(modo === 'camara' ? 'self-foto-cam' : 'self-foto-file');
+  if (!inp) return;
+  inp.value = ''; inp.click();
+}
+
+// cualquier foto (archivo, cámara del celular, cámara de la compu) se achica y se pasa a JPG
+function _fotoAJpeg(blob, lado = 900) {
+  return new Promise((ok, mal) => {
+    const url = URL.createObjectURL(blob); const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, lado / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => b ? ok(b) : mal(new Error('no se pudo convertir')), 'image/jpeg', 0.88);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); mal(new Error('formato no soportado')); };
+    img.src = url;
+  });
+}
+
+async function miFotoDesdeInput(inp) {
+  const f = inp.files && inp.files[0];
+  if (!f) return;
+  if (f.type && !/^image\//.test(f.type)) { toast('Elegí una foto (JPG o PNG)', 'error'); return; }
+  if (f.size > 20 * 1024 * 1024) { toast('La foto es muy pesada (más de 20 MB)', 'error'); return; }
+  try { _miFotoConfirmar(await _fotoAJpeg(f)); }
+  catch (_) { toast('No se pudo abrir esa foto. Probá con una JPG o PNG, o sacala con la cámara desde acá.', 'error'); }
+}
+
+function _miFotoCamaraPc() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Este navegador no deja usar la cámara: subí la foto con el clip', 'error'); return; }
+  openModal(`
+    <h3 style="margin:0 0 12px;">📷 Sacar foto</h3>
+    <video id="mf-video" autoplay playsinline muted style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:22px;background:#111;transform:scaleX(-1);"></video>
+    <div style="font-size:12px;color:var(--muted);margin:8px 0 0;text-align:center;">Mirá a la cámara, con buena luz y la cara centrada.</div>
+    <div style="display:flex;justify-content:center;gap:10px;margin-top:14px;">
+      <button class="btn" style="border-radius:999px;" onclick="document.getElementById('global-modal').remove()">Cancelar</button>
+      <button class="btn primary" style="border-radius:999px;padding:9px 22px;" onclick="_miFotoDisparar()">📸 Sacar foto</button>
+    </div>`, '520px');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 } }, audio: false }).then((st) => {
+    const v = document.getElementById('mf-video');
+    if (!v) { st.getTracks().forEach((t) => t.stop()); return; }
+    window._mfStream = st; v.srcObject = st;
+    // si se cierra la ventana (✕ o Cancelar) se apaga la cámara
+    const vig = setInterval(() => { if (!document.getElementById('mf-video')) { clearInterval(vig); _miFotoApagarCamara(); } }, 400);
+  }).catch((e) => {
+    const m = document.getElementById('global-modal'); if (m) m.remove();
+    toast('No se pudo abrir la cámara' + (e && e.name === 'NotAllowedError' ? ' (falta dar el permiso)' : '') + '. Podés subir la foto con el clip.', 'error');
+  });
+}
+function _miFotoApagarCamara() { try { if (window._mfStream) window._mfStream.getTracks().forEach((t) => t.stop()); } catch (_) {} window._mfStream = null; }
+
+function _miFotoDisparar() {
+  const v = document.getElementById('mf-video');
+  if (!v || !v.videoWidth) { toast('La cámara todavía no arrancó, esperá un segundo', ''); return; }
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+  const g = c.getContext('2d'); g.translate(c.width, 0); g.scale(-1, 1); g.drawImage(v, 0, 0);   // igual que en el espejo
+  _miFotoApagarCamara();
+  c.toBlob(async (b) => { try { _miFotoConfirmar(await _fotoAJpeg(b)); } catch (_) { toast('No se pudo tomar la foto', 'error'); } }, 'image/jpeg', 0.92);
+}
+
+function _miFotoConfirmar(jpeg) {
+  window._mfBlob = jpeg;
+  const url = URL.createObjectURL(jpeg);
+  const admin = session.rol === 'admin';
+  openModal(`
+    <h3 style="margin:0 0 6px;text-align:center;">¿Usás esta foto?</h3>
+    <div style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:14px;">Así se va a ver en tu perfil.</div>
+    <div style="display:flex;justify-content:center;"><img src="${url}" alt="Foto nueva" style="width:180px;height:180px;border-radius:50%;object-fit:cover;box-shadow:0 2px 12px rgba(0,0,0,.15);"></div>
+    ${admin ? '' : '<div style="font-size:12px;color:var(--muted);text-align:center;margin-top:12px;">JP la tiene que autorizar. Hasta entonces queda la foto que tenés ahora.</div>'}
+    <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:16px;">
+      <button class="btn" style="border-radius:999px;" onclick="document.getElementById('global-modal').remove()">Cancelar</button>
+      <button class="btn primary" id="mf-enviar" style="border-radius:999px;padding:9px 22px;" onclick="miFotoEnviar()">${admin ? '💾 Guardar foto' : '📤 Mandar para autorizar'}</button>
+    </div>`, '420px');
+}
+
+async function miFotoEnviar() {
+  const blob = window._mfBlob; const id = session.empleado_id;
+  if (!blob || !id) return;
+  const bt = document.getElementById('mf-enviar'); if (bt) { bt.disabled = true; bt.textContent = 'Subiendo…'; }
+  try {
+    if (session.rol === 'admin') {
+      const path = `${id}/avatar.jpg`;
+      const { error: upErr } = await sb.storage.from('rrhh-fotos').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (upErr) throw upErr;
+      const url = sb.storage.from('rrhh-fotos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+      const { error } = await sb.rpc('rrhh_actualizar_mi_foto', { p_url: url });
+      if (error) throw error;
+      if (session.empleadoData) session.empleadoData.foto_url = url;
+      toast('Foto actualizada ✓', 'success');
+    } else {
+      const path = `${id}/pedido-${Date.now()}.jpg`;
+      const { error: upErr } = await sb.storage.from('rrhh-fotos').upload(path, blob, { upsert: false, contentType: 'image/jpeg' });
+      if (upErr) throw upErr;
+      const { error } = await sb.rpc('rrhh_pedir_cambio_foto', { p_path: path });
+      if (error) throw error;
+      if (session.empleadoData) session.empleadoData._fotoPendiente = true;
+      const nombre = (session.empleadoData && session.empleadoData.nombre_completo) || 'Una colaboradora';
+      notifAdmins('📷 Foto nueva para autorizar', `${nombre} quiere cambiar su foto de perfil. Tocá para verla y autorizarla.`, { url: './#config-fotos', tag: 'foto-' + id });
+      toast('Foto enviada ✓ Te avisamos cuando JP la autorice', 'success');
+    }
+    window._mfBlob = null;
+    const m = document.getElementById('global-modal'); if (m) m.remove();
+    switchTab('mi-legajo');
+  } catch (e) {
+    if (bt) { bt.disabled = false; bt.textContent = session.rol === 'admin' ? '💾 Guardar foto' : '📤 Mandar para autorizar'; }
+    toast('No se pudo mandar la foto: ' + (e.message || e), 'error');
+  }
 }
 
 async function subirMiFoto(inputEl) {
@@ -12483,6 +12654,7 @@ async function renderConfigAdmin() {
       <button class="modal-tab ${configState.tab==='salvados'?'active':''}" data-cfg="salvados" style="border-bottom:2px solid transparent;padding:12px 14px;">🛡 Errores salvados</button>
       <!-- (10-ago) Audit log oculto: renderConfigLog no existe todavía -->
       <!-- (13-nov-2026, JP) "🔔 Mis notificaciones" se fue: se activan desde el Hub -->
+      <button class="modal-tab ${configState.tab==='fotos'?'active':''}" data-cfg="fotos" style="border-bottom:2px solid transparent;padding:12px 14px;">📷 Fotos para autorizar</button>
       <button class="modal-tab ${configState.tab==='borrados'?'active':''}" data-cfg="borrados" style="border-bottom:2px solid transparent;padding:12px 14px;">🗑️ Borrados pendientes</button>
       <button class="modal-tab ${configState.tab==='fichar'?'active':''}" data-cfg="fichar" style="border-bottom:2px solid transparent;padding:12px 14px;">📍 Fichar desde el celular</button>
     </div>
@@ -12509,8 +12681,71 @@ async function renderConfigContent() {
   else if (configState.tab === 'feriados') await renderConfigFeriados(cont);
   else if (configState.tab === 'salvados') await renderConfigSalvados(cont);
   else if (configState.tab === 'log')      await renderConfigLog(cont);
+  else if (configState.tab === 'fotos')    await renderConfigFotos(cont);
   else if (configState.tab === 'borrados') await renderConfigBorrados(cont);
   else if (configState.tab === 'fichar')   await renderConfigFichar(cont);
+}
+
+// (19-nov-2026, JP) Fotos de perfil que mandaron las colaboradoras desde Mi legajo: la de ahora al lado de la nueva
+async function renderConfigFotos(cont) {
+  cont.innerHTML = '<div class="spinner"></div>';
+  const { data, error } = await sb.from('rrhh_foto_solicitudes')
+    .select('*, empleado:rrhh_empleados(nombre_completo, apellido, nombre, local, foto_url)')
+    .neq('estado', 'reemplazada').order('created_at', { ascending: false }).limit(60);
+  if (error) { cont.innerHTML = `<div class="emp-empty">Error: ${_errTxt(error)}</div>`; return; }
+  const pend = (data || []).filter((s) => s.estado === 'pendiente');
+  const hist = (data || []).filter((s) => s.estado !== 'pendiente').slice(0, 30);
+  const cara = (url, e, txt) => `<div class="foto-cmp-item">
+      <div class="foto-cmp-img">${url ? `<img src="${escapeHtml(url)}" alt="">` : `<span>${escapeHtml(initials(e && e.apellido, e && e.nombre))}</span>`}</div>
+      <div class="foto-cmp-txt">${txt}</div></div>`;
+  const fh = (d) => new Date(d).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const fila = (s) => {
+    const e = s.empleado || {};
+    const est = s.estado === 'aprobada' ? ['#16a34a', '#dcfce7', 'AUTORIZADA'] : ['#dc2626', '#fee2e2', 'RECHAZADA'];
+    return `<div class="foto-cmp">
+      <div><strong>${escapeHtml(e.nombre_completo || 'Colaborador #' + s.empleado_id)}</strong>
+        <span style="color:var(--muted);font-size:12px;">· ${escapeHtml((LOCALES[e.local] && LOCALES[e.local].nombre) || e.local || '')} · ${fh(s.created_at)}</span></div>
+      <div class="foto-cmp-par">
+        ${cara(s.estado === 'pendiente' ? e.foto_url : s.foto_anterior, e, s.estado === 'pendiente' ? 'Ahora' : 'Antes')}
+        <div class="foto-cmp-flecha">→</div>
+        ${cara(s.foto_url, e, 'Nueva')}
+      </div>
+      ${s.estado === 'pendiente'
+        ? `<div class="foto-cmp-bts">
+            <button class="btn small" style="border-radius:999px;" onclick="fotoPedidoDecidir(${s.id}, false)">✕ Rechazar</button>
+            <button class="btn small primary" style="border-radius:999px;padding:6px 16px;" onclick="fotoPedidoDecidir(${s.id}, true)">✓ Autorizar</button></div>`
+        : `<div style="font-size:11px;color:var(--muted);">
+            <span style="padding:3px 10px;border-radius:999px;background:${est[1]};color:${est[0]};font-weight:600;">${est[2]}</span>
+            ${s.decidido_at ? ' ' + fh(s.decidido_at) : ''}${s.decidido_por ? ' · ' + escapeHtml(String(s.decidido_por).split('@')[0]) : ''}${s.comentario ? ` · "${escapeHtml(s.comentario)}"` : ''}</div>`}
+    </div>`;
+  };
+  cont.innerHTML = `
+    <div class="card">
+      <h3 style="margin-top:0;">Para autorizar (${pend.length})</h3>
+      <div style="font-size:13px;color:var(--muted);margin:-4px 0 12px;">Las colaboradoras cambian su foto desde Mi legajo; hasta que la autorizás sigue la de antes. Al autorizar o rechazar, le llega un aviso.</div>
+      ${pend.length ? `<div class="foto-cmp-lista">${pend.map(fila).join('')}</div>` : '<div class="emp-empty">No hay fotos para autorizar 👍</div>'}
+    </div>
+    ${hist.length ? `<div class="card" style="margin-top:14px;"><h3 style="margin-top:0;">Últimas decididas</h3><div class="foto-cmp-lista">${hist.map(fila).join('')}</div></div>` : ''}`;
+}
+
+async function fotoPedidoDecidir(id, aprobar) {
+  let com = null;
+  if (!aprobar) { com = prompt('¿Por qué no la autorizás? (le llega a la colaboradora; podés dejarlo vacío)'); if (com === null) return; }
+  try {
+    const { data, error } = await sb.rpc('rrhh_decidir_cambio_foto', { p_id: id, p_aprobar: aprobar, p_comentario: com });
+    if (error) throw error;
+    if (!aprobar && data && data.storage_path) { try { await sb.storage.from('rrhh-fotos').remove([data.storage_path]); } catch (_) {} }
+    if (data && data.empleado_id) {
+      const motivo = (com || '').trim();
+      enviarPush(data.empleado_id,
+        aprobar ? '📷 Tu foto nueva ya está' : '📷 Tu foto nueva no fue autorizada',
+        aprobar ? 'JP autorizó el cambio de tu foto de perfil.' : (motivo ? 'Motivo: ' + motivo + '. Podés mandar otra desde Mi legajo.' : 'Podés mandar otra desde Mi legajo.'),
+        { url: './#mi-legajo', tag: 'foto-decision-' + id });
+    }
+    try { auditLog(aprobar ? 'autorizar_foto' : 'rechazar_foto', 'rrhh_foto_solicitudes', id, 'estado', 'pendiente', aprobar ? 'aprobada' : 'rechazada'); } catch (_) {}
+    toast(aprobar ? 'Foto autorizada ✓' : 'Foto rechazada', aprobar ? 'success' : '');
+    renderConfigContent();
+  } catch (e) { toast('Error: ' + (e.message || e), 'error'); }
 }
 
 async function renderConfigBorrados(cont) {
@@ -24780,7 +25015,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=74"></script>
+<script src="manuales.js?v=75"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
