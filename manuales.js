@@ -334,9 +334,10 @@ const MANUAL_EMPLEADO = [
   },
   {
     tab: 'fichar', icon: '📍', titulo: 'Fichar (desde el celular)',
-    desc: 'Desde el 15-nov-2026 podés fichar con tu celular, pero solo estando adentro de tu local y mirando a la cámara.',
+    desc: 'Desde el 15-nov-2026 podés fichar con tu celular, pero solo estando adentro de tu local, conectada a su Wi-Fi, y mirando a la cámara.',
     pasos: [
       'Entrá a Colaboradores desde el celular con tu usuario personal y tocá 📍 Fichar. La primera vez el celular te pide permiso de ubicación: hay que permitirlo (si lo negaste, se vuelve a dar desde el candado de la barra de direcciones o en Ajustes del celular).',
+      'Conectate al Wi-Fi de tu local (desde el 18-nov-2026): con datos móviles, o en el Wi-Fi del shopping o de otro lugar, no deja fichar y aparece «Para fichar desde el celular conectate al Wi-Fi del local». Conectate al Wi-Fi del local (la clave la tiene tu encargada) y tocá «Probar de nuevo». Si estás conectada y igual no te deja, avisale a tu encargada y fichá en la cámara de la PC: puede ser que el local haya cambiado de proveedor de internet y el sistema lo aprende en menos de una hora.',
       'La pantalla te dice a cuántos metros estás del punto del local. Si estás adentro del radio (unos 200 m: adentro del shopping el GPS no es exacto), aparece el botón redondo "Fichar"; si estás lejos, no hay botón: solo se puede fichar desde el local. Si dice que tu GPS está impreciso, prendé el wifi o acercate a una ventana y tocá "Volver a buscar".',
       'Tocá "Fichar": se abre la cámara de adelante. Mirá de frente, con luz, y quedate quieta un segundo. Te reconoce comparando con tu propia cara grabada (no con la de otras): si no tenés la cara grabada, pedile a tu encargada que te la grabe desde el Hub.',
       'Si te reconoce, ves "Fichada tomada · hh:mm" y tu horario cargado de hoy, igual que en la cámara de la PC: si el horario que muestra no es el tuyo, avisale a tu encargada. Si fichaste hace menos de 5 minutos dice "Ya habías fichado". Si no te reconoce, probá de nuevo con más luz: la foto nunca se guarda.',
