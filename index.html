@@ -357,7 +357,26 @@ window.ADORNO_ASISTENTE = (function () {
     els.forEach((el) => { const lb = limpiar(el.getAttribute('title') || (el.querySelector('.lb') && el.querySelector('.lb').textContent) || el.textContent); if (lb && !out.some((o) => o.lb === lb)) out.push({ lb, el }); });
     return out;
   }
-  function irA(nombre) {
+  // (19-nov-2026, charla de Clodi) «llevame a…» entre módulos: el servidor manda ir_modulo {nombre, ruta, pestana?, llevar?}
+      function irUrl(m) {
+        if (!m || !/^\/[a-z0-9-]+\/$/.test(String(m.ruta || ''))) return '';
+        if (location.pathname.replace(/index\.html$/, '') === m.ruta) return '';   // ya está en ese módulo
+        return m.ruta + (m.pestana ? '#clodi-ir=' + encodeURIComponent(String(m.pestana).slice(0, 60)) : '');
+      }
+      function irModulo(m) {   // solo cuando pidió que la lleven: espera a que termine de hablar y va
+        const u = irUrl(m); if (!u) return; let n = 0;
+        const t = setInterval(() => { n++; let habla = false; try { habla = 'speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending); } catch (_) {} if ((n > 3 && !habla) || n > 60) { clearInterval(t); location.href = u; } }, 400);
+      }
+      function llegar() {   // al entrar desde el botón de Clodi: abre la pestaña que venía pedida (espera a que el módulo arme sus pestañas)
+        const m = /[#&]clodi-ir=([^&]+)/.exec(location.hash || ''); if (!m) return;
+        let q = ''; try { q = decodeURIComponent(m[1]).toLowerCase(); } catch (_) { return; }
+        try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
+        let n = 0; const t = setInterval(() => {
+          const ps = pestanas(); const p = ps.find((x) => x.lb.toLowerCase() === q) || ps.find((x) => x.lb.toLowerCase().includes(q) || q.includes(x.lb.toLowerCase()));
+          if (p) { clearInterval(t); irA(p.lb); } else if (++n > 40) clearInterval(t);
+        }, 500);
+      }
+      function irA(nombre) {
     const p = pestanas().find((x) => x.lb.toLowerCase() === String(nombre).toLowerCase());
     if (!p) return;
     try { p.el.click(); } catch (_) {}
@@ -409,7 +428,7 @@ window.ADORNO_ASISTENTE = (function () {
   .asist-card{align-self:stretch;border:1px solid var(--accent,#d97757);border-radius:12px;padding:9px 11px;background:var(--surface,#fff);line-height:1.4}
   .asist-bts{display:flex;gap:8px;margin-top:9px} .asist-bt{border:0;border-radius:9px;padding:7px 14px;font:inherit;font-weight:600;cursor:pointer}
   .asist-bt.si{background:var(--accent,#d97757);color:#fff} .asist-bt.no{background:transparent;color:var(--muted,#5f5e5a);border:0.5px solid var(--border,#d3d1c7)}
-  .asist-bt:disabled{opacity:.6;cursor:default} .asist-fin{margin-top:8px;font-size:13px} .asist-fin.ok{color:#166534} .asist-fin.mal{color:#991b1b}
+  .asist-bt:disabled{opacity:.6;cursor:default} a.asist-bt{text-decoration:none;display:inline-block} .asist-fin{margin-top:8px;font-size:13px} .asist-fin.ok{color:#166534} .asist-fin.mal{color:#991b1b}
   .asist-resalta{outline:3px solid var(--accent,#d97757)!important;outline-offset:2px;border-radius:8px;transition:outline-color 1.2s}
   @media (max-width:600px){.asist-panel{right:calc(8px + env(safe-area-inset-right,0px));left:calc(8px + env(safe-area-inset-left,0px));width:auto;bottom:calc(92px + env(safe-area-inset-bottom,0px));max-height:66vh;max-height:66dvh}}
   /* (28-oct, JP) en celular y tablet: cara redonda flotante, despegada del borde (en iPhone la barra de Safari se achica abajo y tapaba el busto) */
@@ -625,7 +644,7 @@ window.ADORNO_ASISTENTE = (function () {
     if (tipo === 'q') { d.className = 'asist-q'; d.textContent = texto; }
     else if (tipo === 'err') { d.className = 'asist-err'; d.textContent = texto; }
     else if (tipo === 'wait') { d.className = 'asist-fila'; d.innerHTML = `<span class="asist-av">${CLODI('cara')}</span><div class="asist-a asist-wait"><i>Clodi está buscando en el manual…</i></div>`; d.querySelector('.clodi').classList.add('piensa'); }
-    else { d.className = 'asist-fila'; d.innerHTML = `<span class="asist-av">${CLODI('cara')}</span><div class="asist-a"></div>`; d.lastChild.innerHTML = esc(texto.respuesta) + (texto.pestana ? `<br><i>→ pestaña <b>${esc(texto.pestana)}</b></i>` : '') + ('speechSynthesis' in window ? ` <button class="asist-ib" title="Escuchar la respuesta" data-a="leer" data-t="${esc(texto.respuesta)}">${ICO.voz}</button>` : ''); }
+    else { d.className = 'asist-fila'; d.innerHTML = `<span class="asist-av">${CLODI('cara')}</span><div class="asist-a"></div>`; d.lastChild.innerHTML = esc(texto.respuesta) + (texto.pestana ? `<br><i>→ pestaña <b>${esc(texto.pestana)}</b></i>` : '') + (irUrl(texto.ir_modulo) ? `<div class="asist-bts"><a class="asist-bt si asist-ir" href="${esc(irUrl(texto.ir_modulo))}">Ir a ${esc(texto.ir_modulo.nombre || 'ese módulo')} →</a></div>` : '') + ('speechSynthesis' in window ? ` <button class="asist-ib" title="Escuchar la respuesta" data-a="leer" data-t="${esc(texto.respuesta)}">${ICO.voz}</button>` : ''); }
     l.appendChild(d); l.scrollTop = l.scrollHeight; return d;
   }
   async function prepararAccion(acc, porVoz) {   // completa el formulario del módulo; se envía SOLO con el botón Enviar
@@ -664,12 +683,14 @@ window.ADORNO_ASISTENTE = (function () {
       if (!r.ok || !j.ok) throw new Error(j.error || ('Error ' + r.status));
       hist.push({ q, a: j.respuesta }); log('a', j);
       if (j.pestana && !j.accion) irA(j.pestana);
+          if (j.ir_modulo && j.ir_modulo.llevar && !j.accion) irModulo(j.ir_modulo);
       if (porVoz || siempreVoz()) leer(j.respuesta);
       if (j.accion) await prepararAccion(j.accion, porVoz);
     } catch (e) { w.remove(); log('err', e.message || String(e)); }
     finally { ocupado = false; ta.focus(); }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', armar); else armar();
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', llegar); else llegar();
   return { abrir, cerrar, preguntar: (q) => { abrir(); panel.querySelector('textarea').value = q; enviar(false); },
     // para soporte: qué voz y ajustes usa Clodi en este equipo
     decir: (t) => { armar(); leer(String(t || '')); },   // para probar la voz y la boca
@@ -736,7 +757,7 @@ window.ADORNO_SSO = (function () {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/hub/banner.css?v=4"><!-- banner común de los módulos (infra, 11-nov-2026) -->
-<link rel="stylesheet" href="styles.css?v=63">
+<link rel="stylesheet" href="styles.css?v=64">
 </head>
 <body>
 
@@ -13231,7 +13252,7 @@ function onPermSortChange(v) {
 }
 
 // Click en un header de la tabla → ordena por esa columna, o invierte dirección si ya era la activa
-function onPermSortHeader(key) {
+function permOrdenarPor(key) {
   if (permisosState.sortKey === key) {
     permisosState.sortDir = permisosState.sortDir === 'asc' ? 'desc' : 'asc';
   } else {
@@ -13364,13 +13385,13 @@ async function listarPermisos() {
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#f9fafb;text-align:left;">
-            <th onclick="onPermSortHeader('fecha')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por fecha">Fecha${_permSortIndicator('fecha')}</th>
-            <th onclick="onPermSortHeader('empleado')" style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por colaborador">Colaborador${_permSortIndicator('empleado')}</th>
-            <th onclick="onPermSortHeader('local')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por local">Local${_permSortIndicator('local')}</th>
-            <th onclick="onPermSortHeader('tipo')"     style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por tipo">Tipo${_permSortIndicator('tipo')}</th>
+            <th onclick="permOrdenarPor('fecha')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por fecha">Fecha${_permSortIndicator('fecha')}</th>
+            <th onclick="permOrdenarPor('empleado')" style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por colaborador">Colaborador${_permSortIndicator('empleado')}</th>
+            <th onclick="permOrdenarPor('local')"    style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por local">Local${_permSortIndicator('local')}</th>
+            <th onclick="permOrdenarPor('tipo')"     style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por tipo">Tipo${_permSortIndicator('tipo')}</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Horario</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">Motivo</th>
-            <th onclick="onPermSortHeader('estado')"   style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por estado">Estado${_permSortIndicator('estado')}</th>
+            <th onclick="permOrdenarPor('estado')"   style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;cursor:pointer;user-select:none;" title="Ordenar por estado">Estado${_permSortIndicator('estado')}</th>
             <th style="padding:10px 14px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;text-align:right;">Acciones</th>
           </tr>
         </thead>
@@ -18377,7 +18398,7 @@ async function liqGenerarProforma(local, periodo) {
         </div>
         <div id="prof-descuentos-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
           <table style="width:100%;font-size:12px;">
-            <thead style="background:#f9fafb;position:sticky;top:0;">
+            <thead style="background:#f9fafb;">
               <tr>
                 <th style="padding:6px 10px;text-align:left;">Colaboradora</th>
                 <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
@@ -18596,7 +18617,7 @@ async function liqGenerarDefinitivo(local, periodo) {
         </div>
         <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
           <table style="width:100%;font-size:12px;">
-            <thead style="background:#f9fafb;position:sticky;top:0;">
+            <thead style="background:#f9fafb;">
               <tr>
                 <th style="padding:6px 10px;text-align:left;">Colaboradora</th>
                 <th style="padding:6px 10px;text-align:left;width:80px;">Local</th>
@@ -21776,7 +21797,7 @@ let prestamoState = {
   sortDir: 'desc',        // 'asc' | 'desc'
 };
 
-function _prestamoToggleSort(col) {
+function _prestamoOrdenar(col) {
   if (prestamoState.sortBy === col) {
     prestamoState.sortDir = prestamoState.sortDir === 'asc' ? 'desc' : 'asc';
   } else {
@@ -22213,7 +22234,7 @@ function verCuotasPrestamoGerente(prestamoId) {
     </div>
     <div style="max-height:380px;overflow:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead><tr style="background:#f3f4f6;text-align:right;position:sticky;top:0;">
+        <thead><tr style="background:#f3f4f6;text-align:right;">
           <th style="padding:6px;text-align:left;">#</th>
           <th style="padding:6px;text-align:left;">Mes</th>
           <th style="padding:6px;">Cuota</th>
@@ -22582,13 +22603,13 @@ async function renderPrestamos() {
       ${prestamos_view.length === 0 ? `<div style="padding:14px;color:var(--muted);">Sin préstamos para mostrar.</div>` : `
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#f9fafb;text-align:left;">
-          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('empleada')" title="Ordenar por empleada">Colaboradora${sortBy==='empleada'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoOrdenar('empleada')" title="Ordenar por empleada">Colaboradora${sortBy==='empleada'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;">Local</th>
-          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('fecha')" title="Ordenar por fecha">Otorgado${sortBy==='fecha'?(dir===1?' ▲':' ▼'):''}</th>
-          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('capital')" title="Ordenar por capital">Capital${sortBy==='capital'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;cursor:pointer;user-select:none;" onclick="_prestamoOrdenar('fecha')" title="Ordenar por fecha">Otorgado${sortBy==='fecha'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoOrdenar('capital')" title="Ordenar por capital">Capital${sortBy==='capital'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;text-align:right;" title="CFT anual (compuesta)">CFT anual</th>
-          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('cuota')" title="Ordenar por cuota">Cuota${sortBy==='cuota'?(dir===1?' ▲':' ▼'):''}</th>
-          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoToggleSort('estemes')" title="Ordenar por cap+int a descontar este mes">Este mes${sortBy==='estemes'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoOrdenar('cuota')" title="Ordenar por cuota">Cuota${sortBy==='cuota'?(dir===1?' ▲':' ▼'):''}</th>
+          <th style="padding:8px;text-align:right;cursor:pointer;user-select:none;" onclick="_prestamoOrdenar('estemes')" title="Ordenar por cap+int a descontar este mes">Este mes${sortBy==='estemes'?(dir===1?' ▲':' ▼'):''}</th>
           <th style="padding:8px;text-align:right;">Progreso</th>
           <th style="padding:8px;text-align:right;">Saldo</th>
           <th style="padding:8px;">Estado</th>
@@ -25015,7 +25036,7 @@ else init();
 </script>
 <script src="recibos-pdf.js?v=19"></script>
 <script src="vacaciones-pdf.js?v=5"></script>
-<script src="manuales.js?v=75"></script>
+<script src="manuales.js?v=76"></script>
 <script src="exportaciones.js?v=9"></script>
 <script src="salary-workflow.js?v=5"></script>
 <script src="liquidaciones.js?v=24"></script>
@@ -25079,5 +25100,6 @@ else init();
   } catch (_) {}
 })();
 </script>
+<script src="adorno-tablas.js?v=e33931fe"></script>
 </body>
 </html>

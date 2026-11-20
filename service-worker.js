@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v549-foto-texto';
+const CACHE_VERSION = 'rrhh-v550-tablas-excel';
 const ASSETS = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const ASSETS = [
   './exportaciones.js',
   './salary-workflow.js',
   './liquidaciones.js',
+  './adorno-tablas.js',
   './fonts/URWGothic-Book.ttf',
   './fonts/Forum-Regular.ttf',
   './fonts/ArchitectsDaughter-Regular.ttf',
