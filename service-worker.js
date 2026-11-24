@@ -4,7 +4,7 @@
 //  (no agresivo — para que JP siempre vea la última versión cuando hay red)
 // ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'rrhh-v552-tablas-embudo';
+const CACHE_VERSION = 'rrhh-v553-clodi-listados';
 const ASSETS = [
   './',
   './index.html',
